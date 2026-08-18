@@ -1,0 +1,4 @@
+# Gateway HTTP configuration. Runtime infrastructure values come from AI_SHOPPING_ environment variables.
+Name: gateway
+Host: 0.0.0.0
+Port: 8888

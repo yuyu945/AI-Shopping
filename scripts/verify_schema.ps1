@@ -9,8 +9,36 @@ param(
 $ErrorActionPreference = 'Stop'
 $expectedSchemas = @('agent_db', 'catalog_db', 'knowledge_db', 'trade_db', 'user_db')
 
+function ConvertFrom-MySQLDsn {
+    param([Parameter(Mandatory)][string]$Dsn)
+
+    $match = [regex]::Match(
+        $Dsn,
+        '^(?<user>[^:@/]+):(?<password>.+)@tcp\((?<host>[^:()]+):(?<port>[1-9][0-9]{0,4})\)/(?<database>[^?\s/]+)(?:\?.*)?$'
+    )
+    if (-not $match.Success) {
+        throw 'MySQL DSN must use Go MySQL syntax user:password@tcp(host:port)/database; its value is not echoed.'
+    }
+
+    [pscustomobject]@{
+        User = $match.Groups['user'].Value
+        Password = $match.Groups['password'].Value
+        Host = $match.Groups['host'].Value
+        Port = $match.Groups['port'].Value
+        Database = $match.Groups['database'].Value
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($MySQLDsn)) {
     Write-Error 'Set AI_SHOPPING_MYSQL_DSN or pass -MySQLDsn. The value is intentionally not echoed.'
+    exit 1
+}
+
+try {
+    $connection = ConvertFrom-MySQLDsn -Dsn $MySQLDsn
+}
+catch {
+    Write-Error $_.Exception.Message
     exit 1
 }
 
@@ -45,8 +73,9 @@ try {
         Start-Sleep -Seconds 2
     } while ($true)
 
-    $query = "SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE '%\\_db' ESCAPE '\\' ORDER BY schema_name;"
-    $actualSchemas = @(docker compose -f $ComposeFile exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --protocol=TCP -uroot --batch --skip-column-names -e "$1"' -- $query)
+    $query = "SELECT schema_name FROM information_schema.schemata WHERE schema_name REGEXP '_db$' ORDER BY schema_name;"
+    $mysqlCommand = 'IFS= read -r password; MYSQL_PWD="$password" exec mysql --protocol=TCP --host="$1" --port="$2" --user="$3" --database="$4" --batch --skip-column-names -e "$5"'
+    $actualSchemas = @($connection.Password | docker compose -f $ComposeFile exec -T mysql sh -c $mysqlCommand -- $connection.Host $connection.Port $connection.User $connection.Database $query 2>&1)
     if ($LASTEXITCODE -ne 0) {
         throw 'MySQL schema query failed.'
     }

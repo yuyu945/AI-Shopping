@@ -7,9 +7,13 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 type contextKey struct{}
+
+var remoteParentSpanID = oteltrace.SpanID{0, 0, 0, 0, 0, 0, 0, 1}
 
 // WithTraceID returns a context carrying traceID.
 func WithTraceID(ctx context.Context, traceID string) context.Context {
@@ -26,6 +30,27 @@ func TraceID(ctx context.Context) string {
 	}
 	traceID, _ := ctx.Value(contextKey{}).(string)
 	return traceID
+}
+
+// WithRemoteTraceID attaches a valid W3C trace ID to ctx for both the local
+// request context and OpenTelemetry-based infrastructure logging.
+func WithRemoteTraceID(ctx context.Context, traceID string) (context.Context, bool) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	otelTraceID, err := oteltrace.TraceIDFromHex(traceID)
+	if err != nil {
+		return ctx, false
+	}
+
+	ctx = WithTraceID(ctx, otelTraceID.String())
+	spanContext := oteltrace.NewSpanContext(oteltrace.SpanContextConfig{
+		TraceID: otelTraceID,
+		SpanID:  remoteParentSpanID,
+		Remote:  true,
+	})
+	return oteltrace.ContextWithRemoteSpanContext(ctx, spanContext), true
 }
 
 // EnsureTraceID returns ctx with its existing trace ID, or attaches a newly

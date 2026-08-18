@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/yuyu945/AI-Shopping/internal/platform/trace"
+	gozerotrace "github.com/zeromicro/go-zero/core/trace"
 )
 
 // TraceEnsurer attaches a trace ID to a request context when one is absent.
@@ -19,6 +20,12 @@ func NewHealthHandler(ensureTraceID TraceEnsurer) http.HandlerFunc {
 	}
 
 	return func(writer http.ResponseWriter, request *http.Request) {
+		if traceID := gozerotrace.TraceIDFromContext(request.Context()); traceID != "" {
+			writer.Header().Set("X-Trace-ID", traceID)
+			writeJSON(writer, http.StatusOK, map[string]string{"status": "ok"})
+			return
+		}
+
 		ctx := request.Context()
 		if traceID := request.Header.Get("X-Trace-ID"); traceID != "" {
 			ctx = trace.WithTraceID(ctx, traceID)

@@ -6,10 +6,12 @@ import (
 	"net/http"
 
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/handler"
+	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/middleware"
 	platformconfig "github.com/yuyu945/AI-Shopping/internal/platform/config"
 	"github.com/yuyu945/AI-Shopping/internal/platform/trace"
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/rest"
+	"github.com/zeromicro/go-zero/rest/router"
 )
 
 type gatewayConfig struct {
@@ -29,7 +31,7 @@ func main() {
 		log.Fatalf("gateway load runtime configuration: %v", err)
 	}
 
-	server := rest.MustNewServer(config.RestConf)
+	server := rest.MustNewServer(config.RestConf, rest.WithRouter(middleware.NewTraceRouter(router.NewRouter())))
 	defer server.Stop()
 	server.AddRoute(rest.Route{
 		Method:  http.MethodGet,

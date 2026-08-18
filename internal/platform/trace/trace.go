@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
+	"io"
 )
 
 type contextKey struct{}
@@ -27,16 +29,27 @@ func TraceID(ctx context.Context) string {
 }
 
 // EnsureTraceID returns ctx with its existing trace ID, or attaches a newly
-// generated URL-safe trace ID when none is present.
-func EnsureTraceID(ctx context.Context) (context.Context, string) {
+// generated URL-safe trace ID when none is present. It returns an error when
+// the cryptographic random source cannot generate an ID.
+func EnsureTraceID(ctx context.Context) (context.Context, string, error) {
+	return EnsureTraceIDWithReader(ctx, rand.Reader)
+}
+
+// EnsureTraceIDWithReader is equivalent to EnsureTraceID, using reader as the
+// random source. It is intended for integration boundaries and deterministic
+// tests that need to control random-source failures.
+func EnsureTraceIDWithReader(ctx context.Context, reader io.Reader) (context.Context, string, error) {
 	if traceID := TraceID(ctx); traceID != "" {
-		return ctx, traceID
+		return ctx, traceID, nil
+	}
+	if reader == nil {
+		return ctx, "", fmt.Errorf("trace ID random source is nil")
 	}
 
 	bytes := make([]byte, 16)
-	if _, err := rand.Read(bytes); err != nil {
-		panic("crypto/rand failed to generate trace ID")
+	if _, err := io.ReadFull(reader, bytes); err != nil {
+		return ctx, "", fmt.Errorf("generate trace ID: %w", err)
 	}
 	traceID := base64.RawURLEncoding.EncodeToString(bytes)
-	return WithTraceID(ctx, traceID), traceID
+	return WithTraceID(ctx, traceID), traceID, nil
 }

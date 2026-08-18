@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -68,4 +69,49 @@ func TestLoadReadsCompleteRequiredEnvironment(t *testing.T) {
 	if got.MilvusAddress != requiredEnvironment["AI_SHOPPING_MILVUS_ADDRESS"] {
 		t.Errorf("MilvusAddress = %q, want configured value", got.MilvusAddress)
 	}
+}
+
+func TestExampleEnvironmentSatisfiesLoadRequirements(t *testing.T) {
+	contents, err := os.ReadFile("../../../.env.example")
+	if err != nil {
+		t.Fatalf("read .env.example: %v", err)
+	}
+
+	example := parseEnvironmentFile(t, string(contents))
+	for name := range requiredEnvironment {
+		t.Setenv(name, "")
+		value, ok := example[name]
+		if !ok || value == "" {
+			t.Fatalf(".env.example missing non-empty %s", name)
+		}
+		t.Setenv(name, value)
+	}
+	for name := range example {
+		if strings.HasPrefix(name, "AI_SHOPPING_") {
+			if _, ok := requiredEnvironment[name]; !ok {
+				t.Fatalf(".env.example contains unsupported runtime variable %s", name)
+			}
+		}
+	}
+
+	if _, err := config.Load(); err != nil {
+		t.Fatalf("Load() with .env.example runtime variables: %v", err)
+	}
+}
+
+func parseEnvironmentFile(t *testing.T, contents string) map[string]string {
+	t.Helper()
+	values := make(map[string]string)
+	for _, line := range strings.Split(contents, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		name, value, ok := strings.Cut(line, "=")
+		if !ok {
+			t.Fatalf("invalid .env.example line %q", line)
+		}
+		values[name] = value
+	}
+	return values
 }

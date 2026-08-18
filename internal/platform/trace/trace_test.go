@@ -1,7 +1,9 @@
 package trace_test
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"regexp"
 	"testing"
 
@@ -17,7 +19,10 @@ func TestWithTraceIDMakesIDAvailable(t *testing.T) {
 
 func TestEnsureTraceIDPreservesExistingID(t *testing.T) {
 	ctx := trace.WithTraceID(context.Background(), "request-123")
-	ensured, id := trace.EnsureTraceID(ctx)
+	ensured, id, err := trace.EnsureTraceIDWithReader(ctx, failingReader{})
+	if err != nil {
+		t.Fatalf("EnsureTraceIDWithReader() error = %v", err)
+	}
 
 	if id != "request-123" {
 		t.Errorf("EnsureTraceID() id = %q, want request-123", id)
@@ -28,7 +33,10 @@ func TestEnsureTraceIDPreservesExistingID(t *testing.T) {
 }
 
 func TestEnsureTraceIDGeneratesSafeNonEmptyID(t *testing.T) {
-	ctx, id := trace.EnsureTraceID(context.Background())
+	ctx, id, err := trace.EnsureTraceID(context.Background())
+	if err != nil {
+		t.Fatalf("EnsureTraceID() error = %v", err)
+	}
 
 	if id == "" {
 		t.Fatal("EnsureTraceID() id is empty")
@@ -39,4 +47,33 @@ func TestEnsureTraceIDGeneratesSafeNonEmptyID(t *testing.T) {
 	if got := trace.TraceID(ctx); got != id {
 		t.Errorf("TraceID(ctx) = %q, want %q", got, id)
 	}
+}
+
+func TestEnsureTraceIDWithReaderReturnsRandomSourceError(t *testing.T) {
+	_, id, err := trace.EnsureTraceIDWithReader(context.Background(), failingReader{})
+	if err == nil {
+		t.Fatal("EnsureTraceIDWithReader() error = nil, want random source error")
+	}
+	if id != "" {
+		t.Errorf("EnsureTraceIDWithReader() id = %q, want empty", id)
+	}
+}
+
+func TestEnsureTraceIDWithReaderGeneratesID(t *testing.T) {
+	ctx, id, err := trace.EnsureTraceIDWithReader(context.Background(), bytes.NewReader(make([]byte, 16)))
+	if err != nil {
+		t.Fatalf("EnsureTraceIDWithReader() error = %v", err)
+	}
+	if id == "" {
+		t.Fatal("EnsureTraceIDWithReader() id is empty")
+	}
+	if got := trace.TraceID(ctx); got != id {
+		t.Errorf("TraceID(ctx) = %q, want %q", got, id)
+	}
+}
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) {
+	return 0, errors.New("random source unavailable")
 }

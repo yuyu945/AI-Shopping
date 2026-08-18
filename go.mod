@@ -1,3 +1,3 @@
 module github.com/yuyu945/AI-Shopping
 
-go 1.18
+go 1.25

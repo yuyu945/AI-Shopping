@@ -6,7 +6,7 @@
 
 ## Current Behavior
 
-当前仓库处于设计阶段，已具备全局工程约束、MVP 设计稿和视频参考图，尚未建立可运行服务、数据库迁移或测试。详见 [智选购 AI 导购 MVP 设计文档](智选购-ai导购-mvp-design.md)。
+当前仓库已完成 M1.1 工程 bootstrap：Go workspace、Gateway/五个服务启动骨架、Docker Compose 依赖栈、五个逻辑 schema、Kafka topics 和基础测试均已建立。商品读路径与业务服务仍待 M1.2 开发。详见 [智选购 AI 导购 MVP 设计文档](智选购-ai导购-mvp-design.md)。
 
 ## Proposed Solution
 

@@ -20,7 +20,7 @@
 
 ## 3. M1：工程骨架与商品读链路
 
-### M1.1 初始化工程与本地依赖
+### M1.1 初始化工程与本地依赖（进行中）
 
 - [ ] 创建 Go workspace、Go-zero API Gateway 与 `user-service`、`product-service`、`order-service`、`knowledge-service`、`agent-service` 的最小 gRPC 服务骨架。
 - [ ] 建立统一配置加载、环境变量校验、请求 `trace_id` 透传、HTTP/gRPC 错误码和结构化日志基础设施。

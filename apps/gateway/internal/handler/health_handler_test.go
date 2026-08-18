@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -15,8 +14,7 @@ import (
 )
 
 func TestHealthHandlerReturnsProvidedTraceID(t *testing.T) {
-	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
-	request.Header.Set("X-Trace-ID", "4bf92f3577b34da6a3ce929d0e0e4736")
+	request := requestWithVerifiedTraceID(t, "4bf92f3577b34da6a3ce929d0e0e4736")
 	recorder := httptest.NewRecorder()
 
 	NewHealthHandler(trace.EnsureTraceID).ServeHTTP(recorder, request)
@@ -34,16 +32,57 @@ func TestHealthHandlerGeneratesTraceID(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	recorder := httptest.NewRecorder()
 
-	NewHealthHandler(trace.EnsureTraceID).ServeHTTP(recorder, request)
+	NewHealthHandler(nil).ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
 	}
 	traceID := recorder.Header().Get("X-Trace-ID")
-	if !regexp.MustCompile(`^[A-Za-z0-9_-]+$`).MatchString(traceID) {
-		t.Errorf("generated X-Trace-ID = %q, want URL-safe non-empty value", traceID)
+	if !isValidTraceID(traceID) {
+		t.Errorf("generated X-Trace-ID = %q, want valid W3C trace ID", traceID)
 	}
 	assertJSONBody(t, recorder, map[string]string{"status": "ok"})
+}
+
+func TestHealthHandlerDoesNotReflectInvalidInboundTraceID(t *testing.T) {
+	for _, inboundTraceID := range []string{
+		"not-a-trace-id",
+		"00000000000000000000000000000000",
+		"4BF92F3577B34DA6A3CE929D0E0E4736",
+	} {
+		t.Run(inboundTraceID, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+			request.Header.Set("X-Trace-ID", inboundTraceID)
+			recorder := httptest.NewRecorder()
+
+			NewHealthHandler(nil).ServeHTTP(recorder, request)
+
+			got := recorder.Header().Get("X-Trace-ID")
+			if !isValidTraceID(got) {
+				t.Errorf("X-Trace-ID = %q, want valid W3C trace ID", got)
+			}
+			if got == inboundTraceID {
+				t.Errorf("X-Trace-ID = %q, must not reflect invalid inbound header", got)
+			}
+		})
+	}
+}
+
+func TestHealthHandlerRejectsInvalidTraceEnsurerValue(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHealthHandler(func(ctx context.Context) (context.Context, string, error) {
+		return ctx, "invalid-trace-id", nil
+	}).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusInternalServerError)
+	}
+	assertJSONBody(t, recorder, map[string]string{
+		"code":    "INTERNAL",
+		"message": "internal server error",
+	})
 }
 
 func TestHealthHandlerUsesGoZeroRequestTraceID(t *testing.T) {
@@ -123,4 +162,14 @@ func mustSpanID(t *testing.T, value string) oteltrace.SpanID {
 		t.Fatalf("parse span ID: %v", err)
 	}
 	return id
+}
+
+func requestWithVerifiedTraceID(t *testing.T, traceID string) *http.Request {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	ctx, ok := trace.WithRemoteTraceID(request.Context(), traceID)
+	if !ok {
+		t.Fatalf("WithRemoteTraceID(%q) = false", traceID)
+	}
+	return request.WithContext(ctx)
 }

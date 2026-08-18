@@ -8,7 +8,6 @@ import (
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/handler"
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/middleware"
 	platformconfig "github.com/yuyu945/AI-Shopping/internal/platform/config"
-	"github.com/yuyu945/AI-Shopping/internal/platform/trace"
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/rest"
 	"github.com/zeromicro/go-zero/rest/router"
@@ -36,7 +35,7 @@ func main() {
 	server.AddRoute(rest.Route{
 		Method:  http.MethodGet,
 		Path:    "/healthz",
-		Handler: handler.NewHealthHandler(trace.EnsureTraceID),
+		Handler: handler.NewHealthHandler(nil),
 	})
 	server.Start()
 }

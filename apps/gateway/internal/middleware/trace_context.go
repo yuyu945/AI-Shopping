@@ -10,6 +10,12 @@ import (
 
 const traceIDHeader = "X-Trace-ID"
 
+const (
+	traceParentHeader = "traceparent"
+	traceStateHeader  = "tracestate"
+	remoteParentSpan  = "0000000000000001"
+)
+
 // NewTraceContextMiddleware propagates a valid inbound trace ID to the local
 // request context and Go-zero's OpenTelemetry context before route middleware.
 func NewTraceContextMiddleware(next http.Handler) http.Handler {
@@ -19,6 +25,10 @@ func NewTraceContextMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(writer, request)
 			return
 		}
+		// X-Trace-ID is the Gateway's explicit application request ID. Keep the
+		// W3C headers aligned so Go-zero cannot extract a conflicting parent.
+		request.Header.Set(traceParentHeader, "00-"+platformtrace.TraceID(ctx)+"-"+remoteParentSpan+"-01")
+		request.Header.Del(traceStateHeader)
 		next.ServeHTTP(writer, request.WithContext(ctx))
 	})
 }

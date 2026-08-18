@@ -1,6 +1,16 @@
 $ErrorActionPreference = 'Stop'
 
 $verifyScript = Join-Path $PSScriptRoot 'verify_schema.ps1'
+$verifySource = Get-Content -Raw $verifyScript
+
+if ($verifySource -notmatch 'exec -T -e "MYSQL_PWD=\$\(\$connection\.Password\)"') {
+    throw 'Schema verification does not pass the DSN password through docker compose exec environment.'
+}
+
+if ($verifySource -match '\$connection\.Password \| docker compose') {
+    throw 'Schema verification still pipes the DSN password through docker compose exec stdin.'
+}
+
 $output = @(& pwsh -NoProfile -File $verifyScript -MySQLDsn 'not-a-mysql-dsn' -TimeoutSeconds 1 2>&1)
 
 if ($LASTEXITCODE -eq 0) {

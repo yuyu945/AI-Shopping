@@ -1,0 +1,41 @@
+USE user_db;
+
+CREATE TABLE users (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    email VARCHAR(320) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_users_email (email)
+) ENGINE=InnoDB;
+
+CREATE TABLE user_profiles (
+    user_id BIGINT UNSIGNED NOT NULL,
+    preference_json JSON NULL,
+    budget_min DECIMAL(12,2) NULL,
+    budget_max DECIMAL(12,2) NULL,
+    profile_version BIGINT UNSIGNED NOT NULL DEFAULT 1,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (user_id),
+    CONSTRAINT fk_user_profiles_user FOREIGN KEY (user_id) REFERENCES users (id)
+) ENGINE=InnoDB;
+
+CREATE TABLE user_addresses (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id BIGINT UNSIGNED NOT NULL,
+    receiver_name VARCHAR(128) NOT NULL,
+    receiver_phone VARCHAR(32) NOT NULL,
+    province VARCHAR(64) NOT NULL,
+    city VARCHAR(64) NOT NULL,
+    district VARCHAR(64) NOT NULL,
+    detail VARCHAR(512) NOT NULL,
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    KEY idx_user_addresses_default (user_id, is_default),
+    CONSTRAINT fk_user_addresses_user FOREIGN KEY (user_id) REFERENCES users (id)
+) ENGINE=InnoDB;

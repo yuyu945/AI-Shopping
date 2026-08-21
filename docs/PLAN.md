@@ -6,7 +6,7 @@
 
 ## Current Behavior
 
-当前仓库已完成 M1.1 工程 bootstrap 与 M1.2 商品读链路：Go workspace、Gateway/五个服务启动骨架、Docker Compose 依赖栈、五个逻辑 schema、catalog seed、商品 gRPC/HTTP 读接口和 Redis Cache Aside 均已建立。用户认证、交易、RAG 和 Agent 仍待后续里程碑开发。详见 [智选购 AI 导购 MVP 设计文档](智选购-ai导购-mvp-design.md)。
+当前仓库已完成 M1.1 工程 bootstrap，以及 M1.2 的商品读链路和用户认证读写链路：Go workspace、Gateway/五个服务启动骨架、Docker Compose 依赖栈、五个逻辑 schema、catalog seed、商品 gRPC/HTTP 读接口和 Redis Cache Aside 均已建立；`user-service` 已提供注册、登录、JWT、个人画像及地址归属校验，Gateway 已提供对应的 HTTP API。M1.2 的延迟二次缓存删除与失败重试、交易、RAG 和 Agent 仍待后续里程碑开发。详见 [智选购 AI 导购 MVP 设计文档](智选购-ai导购-mvp-design.md)。
 
 ## Proposed Solution
 

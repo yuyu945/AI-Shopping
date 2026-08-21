@@ -3,60 +3,52 @@
 ## Current State
 
 - Repository: `D:\简历\AI-Shopping`
-- Remote: `origin` -> `git@github.com:yuyu945/AI-Shopping.git`
-- Working branch: `feat/m1-bootstrap`
-- Latest completed feature commit: `0a603ff docs: close M1.2 product read path`
-- The branch has been pushed to `origin/feat/m1-bootstrap`.
+- Authentication worktree: `D:\简历\AI-Shopping\.worktrees\m1-user-auth`
+- Feature branch: `codex/m1-user-auth`, based on `feat/m1-bootstrap`
+- The branch contains the completed M1.2 user authentication path and its documentation close-out. It has not been pushed or merged.
 
 ## Completed
 
-M1.1 bootstrap and the product-read portion of M1.2 are complete:
+M1.1 bootstrap and the following M1.2 paths are complete:
 
-- Docker Compose dependencies and logical MySQL schemas.
-- Catalog schema, idempotent seed data, repository queries, SKU-aware detail reads.
-- Product application service with Redis Cache Aside. MySQL remains the source of product, price, and inventory facts.
-- Redis startup failure degrades to a nil cache instead of blocking product-service startup.
-- Product gRPC contract and Gateway HTTP routes:
-  - `GET /api/v1/products`
-  - `GET /api/v1/products/{id}`
-- Keyword/category/pagination filters, optional SKU selection, active promotion mapping, stable HTTP errors, and trace propagation.
-- Application DTOs are separated from persistence models.
-- Idempotent seed command: `scripts/seed_catalog.ps1`.
+- Product read path: catalog schema and seed data, SKU-aware list/detail reads, promotion mapping, Redis Cache Aside, product gRPC/HTTP APIs, trace propagation, and graceful Redis fallback.
+- User authentication path: user gRPC contract, `user_db` repository, bcrypt password handling, HS256 JWT (24-hour TTL and `ai-shopping` issuer), protected user-service gRPC methods, Gateway JWT middleware, HTTP handlers/routes, profile updates, and user-owned address CRUD/default-address behavior.
+- Security boundaries: Gateway validates protected bearer tokens and forwards the authenticated bearer; user-service verifies it again and derives identity from claims. Address access always scopes by `id + user_id`; a non-owned address returns stable 404. Auth request bodies are excluded from RPC content logs.
 
-Relevant documents:
+Key endpoints:
 
-- `README.md`
-- `docs/PLAN.md`
-- `docs/TASKS.md`
-- `docs/superpowers/plans/2026-08-21-m1.2-product-read-path.md`
-- `deploy/mysql/seed/02-catalog-seed.sql`
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/login`
+- `GET /api/v1/users/me`
+- `PUT /api/v1/users/me/profile`
+- `GET|POST /api/v1/users/me/addresses`
+- `PUT|DELETE /api/v1/users/me/addresses/{id}`
+
+`AI_SHOPPING_JWT_SECRET` is required by Gateway and user-service, must be at least 32 bytes, and must only be supplied through the local environment or secret management.
 
 ## Verification
 
-- `go test ./... -count=1` passed.
-- `go vet ./...` passed.
-- `git diff --check` passed.
-- Docker Compose config validation passed.
-- Real Docker MySQL/Redis/Gateway verification passed for list, keyword filter, detail, SKU selection, promotion, inventory, trace header, Redis cache keys, and not-found response.
-- Seed verification returned 4 products, 7 SKUs, and 1 promotion.
+Automated validation completed for this branch:
 
-## Next Work
+- `go test ./... -count=1`
+- `go vet ./...`
+- `git diff --check`
+- Docker Compose configuration validation with temporary local environment values
 
-1. Read `AGENTS.md`, `docs/PLAN.md`, `docs/TASKS.md`, and the M1.2 plan.
-2. Complete the remaining M1.2 user path: registration/login, JWT, identity middleware, user profile/address ownership checks.
-3. Keep boundaries: Gateway HTTP, service-to-service gRPC, no cross-service database access, Redis is never an inventory fact source.
-4. Create a focused commit after each verified milestone. Push only when explicitly requested.
+Real local validation used an isolated Docker Compose project, `m12verify`, with MySQL bound to `127.0.0.1:3307`, a temporary user-service on `9003`, and Gateway on `8889`. It verified two users can register and log in; a JWT can read its own profile; the first address becomes default; an explicit default switch persists; address listing is user-scoped; and a cross-user address delete returns 404. Service logs were checked to ensure the test password was absent.
 
-## Runtime Notes
+The `m12verify` Docker project, its volume, temporary processes, and temporary logs were removed during this close-out.
 
-- The host Redis port may be `6380` when `6379` is occupied; the application address must match.
-- The default product-service config uses etcd at `127.0.0.1:2379`. Host-side direct testing needs that port exposed, or a temporary RPC config without an `Etcd` section.
-- Never commit real credentials, tokens, or DSNs.
+## Remaining M1.2 Work
 
-## Suggested Skills
+Do not mark the whole M1.2 milestone complete yet. The scheduler-driven delayed second cache invalidation and retry path remains unimplemented:
 
-- `fullstack-developer`
-- `superpowers:writing-plans`
-- `superpowers:test-driven-development`
-- `superpowers:verification-before-completion`
-- `fix`
+1. Persist `cache_invalidation_tasks` after catalog writes.
+2. Implement a scheduler/worker retry flow without sleeping in request handlers.
+3. Add tests for immediate deletion failure, delayed second deletion, retry, and confirmation that inventory remains independent of Redis.
+
+After that, continue with M2 transaction work in `docs/TASKS.md`. Preserve the existing boundary: MySQL is the source of truth; Redis is never an inventory or payment fact source; services do not directly access another service's schema.
+
+## Integration
+
+Before integration, re-run the automated validation above. The unpushed local commits on `codex/m1-user-auth` are focused and should be merged into `feat/m1-bootstrap` only after explicit authorization. Do not push without explicit authorization.

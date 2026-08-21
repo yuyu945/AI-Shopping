@@ -38,11 +38,12 @@ if (-not (Test-Path -LiteralPath $ComposeFile -PathType Leaf)) {
 
 $connection = ConvertFrom-MySQLDsn -Dsn $MySQLDsn
 $queryHost = if ($connection.Host -in @('127.0.0.1', 'localhost', '::1')) { 'mysql' } else { $connection.Host }
+$queryPort = if ($queryHost -eq 'mysql') { '3306' } else { $connection.Port }
 
 function Invoke-TradeMySQL {
     param([Parameter(Mandatory)][string]$Sql)
 
-    $output = @($Sql | docker compose -f $ComposeFile exec -T -e "MYSQL_PWD=$($connection.Password)" mysql mysql --protocol=TCP --host=$queryHost --port=$($connection.Port) --user=$($connection.User) --database=trade_db --batch --skip-column-names 2>&1)
+    $output = @($Sql | docker compose -f $ComposeFile exec -T -e "MYSQL_PWD=$($connection.Password)" mysql mysql --protocol=TCP --host=$queryHost --port=$queryPort --user=$($connection.User) --database=trade_db --batch --skip-column-names 2>&1)
     if ($LASTEXITCODE -ne 0) {
         throw 'Trade schema migration query failed.'
     }

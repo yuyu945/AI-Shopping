@@ -13,6 +13,8 @@ M1 已完成：Go-zero Gateway 与五个服务启动骨架、共享运行时基�
 
 已有 M1 MySQL volume 不会重新执行 `deploy/mysql/init`。设置 `AI_SHOPPING_MYSQL_DSN` 后，运行 `pwsh -File scripts/apply_migrations.ps1` 升级 `trade_db`。脚本按文件名顺序记录 `trade_db.schema_migrations`；已应用版本会安全跳过，且不会输出 DSN 或密码。M2.1 会创建购物车和订单快照表，并在 `cart_items.quantity` 与 `order_items.quantity` 上使用 MySQL 8.4 enforced `CHECK (quantity > 0)`。
 
+可在 disposable Compose 环境验证 M1 到 M2.1 升级。设置本地临时 `MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD` 后运行：`$env:AI_SHOPPING_TRADE_MIGRATION_INTEGRATION='1'; pwsh -File scripts/test_trade_migration_integration.ps1 -MySQLPort 33306`。脚本使用 UUID project、清空仅 M1 的 `trade_db` 状态，连续升级两次并验证版本、表、FK、金额列和 CHECK；未设置 opt-in guard 时会显式跳过且不写入。
+
 Compose 宿主端口默认只绑定 `127.0.0.1`。如果本机 `6379` 已被占用，可用 `REDIS_PORT=6380` 启动，并将应用连接地址同步为 `localhost:6380`；容器网络内仍使用 `redis:6379`。
 
 ## M1.2 商品与用户读链路

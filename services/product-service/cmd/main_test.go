@@ -132,6 +132,44 @@ func TestBuildCatalogMutationComponentsRejectsInvalidConfig(t *testing.T) {
 	}
 }
 
+func TestBuildCatalogMutationComponentsRejectsInvalidConfigWhenCacheDisabled(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*productServiceConfig)
+	}{
+		{name: "zero delayed delete delay", mutate: func(c *productServiceConfig) { c.CacheInvalidation.DelayedDeleteDelay = 0 }},
+		{name: "negative delayed delete delay", mutate: func(c *productServiceConfig) { c.CacheInvalidation.DelayedDeleteDelay = -time.Second }},
+		{name: "zero poll interval", mutate: func(c *productServiceConfig) { c.CacheInvalidation.PollInterval = 0 }},
+		{name: "negative poll interval", mutate: func(c *productServiceConfig) { c.CacheInvalidation.PollInterval = -time.Second }},
+		{name: "zero batch size", mutate: func(c *productServiceConfig) { c.CacheInvalidation.BatchSize = 0 }},
+		{name: "negative batch size", mutate: func(c *productServiceConfig) { c.CacheInvalidation.BatchSize = -1 }},
+		{name: "zero lease duration", mutate: func(c *productServiceConfig) { c.CacheInvalidation.LeaseDuration = 0 }},
+		{name: "negative lease duration", mutate: func(c *productServiceConfig) { c.CacheInvalidation.LeaseDuration = -time.Second }},
+		{name: "zero max retries", mutate: func(c *productServiceConfig) { c.CacheInvalidation.MaxRetries = 0 }},
+		{name: "negative max retries", mutate: func(c *productServiceConfig) { c.CacheInvalidation.MaxRetries = -1 }},
+		{name: "zero retry base delay", mutate: func(c *productServiceConfig) { c.CacheInvalidation.RetryBaseDelay = 0 }},
+		{name: "negative retry base delay", mutate: func(c *productServiceConfig) { c.CacheInvalidation.RetryBaseDelay = -time.Second }},
+		{name: "zero retry max delay", mutate: func(c *productServiceConfig) { c.CacheInvalidation.RetryMaxDelay = 0 }},
+		{name: "negative retry max delay", mutate: func(c *productServiceConfig) { c.CacheInvalidation.RetryMaxDelay = -time.Second }},
+		{name: "retry base exceeds max", mutate: func(c *productServiceConfig) {
+			c.CacheInvalidation.RetryBaseDelay = c.CacheInvalidation.RetryMaxDelay + time.Second
+		}},
+		{name: "zero rpc timeout", mutate: func(c *productServiceConfig) { c.Timeout = 0 }},
+		{name: "negative rpc timeout", mutate: func(c *productServiceConfig) { c.Timeout = -1 }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := testProductServiceConfig()
+			tt.mutate(&config)
+			service, worker, err := buildCatalogMutationComponents(nil, nil, config)
+			if err == nil || service != nil || worker != nil {
+				t.Fatalf("buildCatalogMutationComponents() = %#v, %#v, %v, want nil components and error", service, worker, err)
+			}
+		})
+	}
+}
+
 func testProductServiceConfig() productServiceConfig {
 	return productServiceConfig{
 		RpcServerConf: zrpc.RpcServerConf{Timeout: 2000},

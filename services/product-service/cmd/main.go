@@ -161,6 +161,9 @@ func buildDetailCache(ctx context.Context, address string, timeout time.Duration
 
 func buildCatalogMutationComponents(db *sql.DB, detailCache catalog.DetailCache, config productServiceConfig) (*catalog.CatalogMutationService, *catalog.CacheInvalidationWorker, error) {
 	workerConfig := config.cacheInvalidationWorkerConfig()
+	if err := validateCacheInvalidationConfig(config.CacheInvalidation.DelayedDeleteDelay, workerConfig); err != nil {
+		return nil, nil, err
+	}
 	mutationService, err := catalog.NewCatalogMutationService(
 		catalog.NewMutationRepository(db),
 		detailCache,
@@ -179,6 +182,43 @@ func buildCatalogMutationComponents(db *sql.DB, detailCache catalog.DetailCache,
 		return nil, nil, err
 	}
 	return mutationService, worker, nil
+}
+
+func validateCacheInvalidationConfig(delayedDeleteDelay time.Duration, config catalog.CacheInvalidationConfig) error {
+	if delayedDeleteDelay <= 0 {
+		return errors.New("delayed delete delay must be positive")
+	}
+	if config.PollInterval <= 0 {
+		return errors.New("poll interval must be positive")
+	}
+	if config.BatchSize <= 0 {
+		return errors.New("batch size must be positive")
+	}
+	if config.LeaseDuration <= 0 {
+		return errors.New("lease duration must be positive")
+	}
+	if config.MaxRetries <= 0 {
+		return errors.New("max retries must be positive")
+	}
+	if config.RetryBaseDelay <= 0 {
+		return errors.New("retry base delay must be positive")
+	}
+	if config.RetryMaxDelay <= 0 {
+		return errors.New("retry max delay must be positive")
+	}
+	if config.RetryBaseDelay > config.RetryMaxDelay {
+		return errors.New("retry base delay must not exceed retry max delay")
+	}
+	if config.CallTimeout <= 0 {
+		return errors.New("call timeout must be positive")
+	}
+	if config.CallTimeout > time.Duration((1<<63-1)/int64(config.BatchSize)) {
+		return errors.New("batch call timeout budget exceeds duration limit")
+	}
+	if config.LeaseDuration < config.CallTimeout*time.Duration(config.BatchSize) {
+		return errors.New("lease duration must cover the batch call timeout budget")
+	}
+	return nil
 }
 
 func catalogDSN(dsn string) (string, error) {

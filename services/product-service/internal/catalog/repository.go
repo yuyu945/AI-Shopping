@@ -63,8 +63,15 @@ func (r *Repository) ListProducts(ctx context.Context, filter ProductFilter) ([]
 	products := make([]ProductSummary, 0)
 	for rows.Next() {
 		var p ProductSummary
-		if err := rows.Scan(&p.ID, &p.CategoryID, &p.BrandID, &p.Title, &p.Subtitle, &p.MinPrice, &p.StockQty); err != nil {
+		var subtitle, minPrice sql.NullString
+		if err := rows.Scan(&p.ID, &p.CategoryID, &p.BrandID, &p.Title, &subtitle, &minPrice, &p.StockQty); err != nil {
 			return nil, fmt.Errorf("scan product summary: %w", err)
+		}
+		if subtitle.Valid {
+			p.Subtitle = &subtitle.String
+		}
+		if minPrice.Valid {
+			p.MinPrice = &minPrice.String
 		}
 		products = append(products, p)
 	}
@@ -78,11 +85,18 @@ func (r *Repository) ListProducts(ctx context.Context, filter ProductFilter) ([]
 func (r *Repository) GetProduct(ctx context.Context, productID uint64, optionalSKUID *uint64) (ProductDetail, error) {
 	var detail ProductDetail
 	row := r.db.QueryRowContext(ctx, "SELECT p.id, p.category_id, p.brand_id, p.title, p.subtitle, p.detail_markdown FROM products p WHERE p.id = ? AND p.status = 'ACTIVE' AND p.deleted_at IS NULL", productID)
-	if err := row.Scan(&detail.ID, &detail.CategoryID, &detail.BrandID, &detail.Title, &detail.Subtitle, &detail.DetailMarkdown); err != nil {
+	var subtitle, detailMarkdown sql.NullString
+	if err := row.Scan(&detail.ID, &detail.CategoryID, &detail.BrandID, &detail.Title, &subtitle, &detailMarkdown); err != nil {
 		if err == sql.ErrNoRows {
 			return ProductDetail{}, &NotFoundError{Resource: "product", ID: productID}
 		}
 		return ProductDetail{}, fmt.Errorf("get product: %w", err)
+	}
+	if subtitle.Valid {
+		detail.Subtitle = &subtitle.String
+	}
+	if detailMarkdown.Valid {
+		detail.DetailMarkdown = &detailMarkdown.String
 	}
 	skuQuery := "SELECT ps.id, ps.sku_code, ps.spec_json, ps.sale_price, i.available_qty, i.version FROM product_skus ps LEFT JOIN inventory i ON i.sku_id = ps.id WHERE ps.product_id = ? AND ps.status = 'ACTIVE'"
 	skuArgs := []any{productID}

@@ -36,6 +36,29 @@ func TestRepositoryListProductsFiltersAndPaginates(t *testing.T) {
 	}
 }
 
+func TestRepositoryListProductsAllowsActiveProductWithoutActiveSKU(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT p.id, p.category_id, p.brand_id, p.title, p.subtitle, MIN(ps.sale_price), COALESCE(SUM(i.available_qty), 0) FROM products p LEFT JOIN product_skus ps ON ps.product_id = p.id AND ps.status = 'ACTIVE' LEFT JOIN inventory i ON i.sku_id = ps.id WHERE p.status = 'ACTIVE' AND p.deleted_at IS NULL GROUP BY p.id, p.category_id, p.brand_id, p.title, p.subtitle ORDER BY p.created_at DESC, p.id DESC LIMIT ? OFFSET ?")).
+		WithArgs(100, 0).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "category_id", "brand_id", "title", "subtitle", "min_price", "stock_qty"}).
+			AddRow(uint64(11), uint64(9), nil, "Unconfigured", nil, nil, uint64(0)))
+
+	got, err := NewRepository(db).ListProducts(context.Background(), ProductFilter{Page: 1, PageSize: 1000})
+	if err != nil {
+		t.Fatalf("ListProducts() error = %v", err)
+	}
+	if len(got) != 1 || got[0].StockQty != 0 || got[0].MinPrice != nil || got[0].Subtitle != nil {
+		t.Fatalf("unexpected zero-SKU product: %#v", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRepositoryGetProductLoadsActiveSKUsInventoryAndImages(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -62,6 +85,33 @@ func TestRepositoryGetProductLoadsActiveSKUsInventoryAndImages(t *testing.T) {
 	}
 	if got.ID != 10 || len(got.SKUs) != 1 || got.SKUs[0].Inventory.AvailableQty != 5 || len(got.Images) != 1 {
 		t.Fatalf("unexpected product: %#v", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRepositoryGetProductAllowsNullableTextFields(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT p.id, p.category_id, p.brand_id, p.title, p.subtitle, p.detail_markdown FROM products p WHERE p.id = ? AND p.status = 'ACTIVE' AND p.deleted_at IS NULL")).
+		WithArgs(uint64(12)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "category_id", "brand_id", "title", "subtitle", "detail_markdown"}).
+			AddRow(uint64(12), uint64(9), nil, "No Copy", nil, nil))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT ps.id, ps.sku_code, ps.spec_json, ps.sale_price, i.available_qty, i.version FROM product_skus ps LEFT JOIN inventory i ON i.sku_id = ps.id WHERE ps.product_id = ? AND ps.status = 'ACTIVE' ORDER BY ps.id ASC")).
+		WithArgs(uint64(12)).WillReturnRows(sqlmock.NewRows([]string{"id", "sku_code", "spec_json", "sale_price", "available_qty", "version"}))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, object_key, sort_no FROM product_images WHERE product_id = ? ORDER BY sort_no ASC, id ASC")).
+		WithArgs(uint64(12)).WillReturnRows(sqlmock.NewRows([]string{"id", "object_key", "sort_no"}))
+
+	got, err := NewRepository(db).GetProduct(context.Background(), uint64(12), nil)
+	if err != nil {
+		t.Fatalf("GetProduct() error = %v", err)
+	}
+	if got.Subtitle != nil || got.DetailMarkdown != nil {
+		t.Fatalf("expected nullable text fields to remain nil: %#v", got)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

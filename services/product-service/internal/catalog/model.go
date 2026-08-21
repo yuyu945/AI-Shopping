@@ -16,15 +16,15 @@ type ProductSummary struct {
 	CategoryID uint64
 	BrandID    *uint64
 	Title      string
-	Subtitle   string
-	MinPrice   string
+	Subtitle   *string
+	MinPrice   *string
 	StockQty   uint64
 }
 
 // ProductDetail contains the active product fields and its read-time data.
 type ProductDetail struct {
 	ProductSummary
-	DetailMarkdown string
+	DetailMarkdown *string
 	SKUs           []SKUDetail
 	Images         []ImageRef
 }

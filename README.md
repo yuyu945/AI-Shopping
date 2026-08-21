@@ -1,6 +1,6 @@
 # 智选购 AI Shopping
 
-M1.1 已完成：Go-zero Gateway 与五个服务启动骨架、共享运行时基础、MySQL/Redis/Kafka/Milvus/MinIO 本地依赖和五个逻辑 schema 已建立。
+M1 已完成：Go-zero Gateway 与五个服务启动骨架、共享运行时基础、MySQL/Redis/Kafka/Milvus/MinIO 本地依赖、五个逻辑 schema，以及用户认证、商品读取和商品缓存失效链路均已建立。
 
 ## Local bootstrap
 
@@ -19,7 +19,7 @@ Compose 宿主端口默认只绑定 `127.0.0.1`。如果本机 `6379` 已被占�
 pwsh -File scripts/seed_catalog.ps1
 ```
 
-product-service 读取 MySQL 商品事实并以 Cache Aside 方式缓存详情；Redis 不可用时会自动回源 MySQL。Gateway 商品接口：`GET /api/v1/products`、`GET /api/v1/products/{id}`，支持 `keyword`、`category_id`、`page`、`page_size` 和可选 `sku_id`。
+product-service 读取 MySQL 商品事实并以 Cache Aside 方式缓存详情；Redis 不可用时会自动回源 MySQL。商品详情写入 transaction 同时持久化 `cache_invalidation_tasks`，提交后立即删除全商品和各 SKU cache key；立即删除失败不会回滚已经提交的 MySQL 事实，scheduler/worker 会执行延迟二次删除并对失败任务退避重试。Redis 只承担读优化，不是商品、库存或失效任务的事实源。Gateway 商品接口：`GET /api/v1/products`、`GET /api/v1/products/{id}`，支持 `keyword`、`category_id`、`page`、`page_size` 和可选 `sku_id`。
 
 默认 product-service 配置使用 etcd 服务发现；宿主机直连调试需确保 etcd 暴露 `127.0.0.1:2379`，或使用不含 `Etcd` 段的临时 RPC 配置。
 
@@ -27,4 +27,11 @@ M1.2 的商品读链路已完成真实 Docker MySQL/Redis 依赖和 Gateway HTTP
 
 真实 Docker MySQL 验证覆盖两位用户的注册与登录、JWT Profile 访问、首地址默认、切换默认地址、地址列表及跨用户地址删除返回 404。JWT、密码、密码 Hash、地址和电话不会出现在 HTTP 响应或服务日志中。
 
-M1.2 的 scheduler 延迟二次缓存删除及失败重试尚未实现；后续交易、RAG 和 Agent 功能按 `docs/TASKS.md` 的里程碑实现。
+缓存失效 integration test 使用真实 MySQL/Redis，默认不连接外部依赖。先设置仅限本地测试环境的 `AI_SHOPPING_MYSQL_DSN`（指向 `catalog_db`）和 `AI_SHOPPING_REDIS_ADDR`，再显式运行：
+
+```powershell
+$env:AI_SHOPPING_INTEGRATION = '1'
+go test -tags=integration ./services/product-service/internal/catalog -run '^TestCacheInvalidationIntegration$' -count=1 -v
+```
+
+测试会动态发现 seed 商品、预载全商品与 SKU cache key，并验证正常立即删除、持久化延迟任务、worker 完成，以及首次 Redis 删除失败后由 `PENDING` 收敛到 `DONE`；测试结束会恢复商品详情和版本并清理 task/cache key。M1.2 已完成，下一里程碑是 M2 交易闭环与一致性；RAG 和 Agent 功能随后按 `docs/TASKS.md` 实现。

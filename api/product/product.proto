@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package product.v1;
+
+option go_package = "github.com/yuyu945/AI-Shopping/services/product-service/gen;productpb";
+
+service ProductService {
+  rpc ListProducts(ListProductsRequest) returns (ListProductsResponse);
+  rpc GetProduct(GetProductRequest) returns (GetProductResponse);
+}
+
+message ListProductsRequest {
+  string keyword = 1;
+  uint64 category_id = 2;
+  uint32 page = 3;
+  uint32 page_size = 4;
+}
+
+message GetProductRequest {
+  uint64 product_id = 1;
+  optional uint64 sku_id = 2;
+}
+
+message ListProductsResponse {
+  repeated ProductSummary products = 1;
+}
+
+message GetProductResponse {
+  Product product = 1;
+}
+
+message ProductSummary {
+  uint64 product_id = 1;
+  uint64 category_id = 2;
+  string title = 3;
+  optional string subtitle = 4;
+  optional string min_sale_price = 5;
+  uint64 stock_qty = 6;
+  string stock_status = 7;
+}
+
+message Product {
+  uint64 product_id = 1;
+  uint64 category_id = 2;
+  string title = 3;
+  optional string subtitle = 4;
+  optional string detail_markdown = 5;
+  repeated Sku skus = 6;
+  repeated ImageRef images = 7;
+  repeated PromotionSummary promotions = 8;
+}
+
+message Sku {
+  uint64 sku_id = 1;
+  string sku_code = 2;
+  map<string, string> specs = 3;
+  string sale_price = 4;
+  uint64 stock_qty = 5;
+  string stock_status = 6;
+}
+
+message ImageRef {
+  uint64 image_id = 1;
+  string object_key = 2;
+  uint64 sort_no = 3;
+}
+
+message PromotionSummary {
+  uint64 promotion_id = 1;
+  string rule_type = 2;
+  optional string threshold_amount = 3;
+  optional string discount_amount = 4;
+}

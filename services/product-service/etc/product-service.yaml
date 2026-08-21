@@ -1,0 +1,7 @@
+Name: product-service
+ListenOn: 0.0.0.0:9002
+Timeout: 2000
+Etcd:
+  Hosts:
+    - 127.0.0.1:2379
+  Key: product-service.rpc

@@ -1,0 +1,3 @@
+# Executable skeleton only. Go-zero RPC/proto setup is intentionally deferred to M1.2.
+Name: knowledge-service
+ListenOn: 0.0.0.0:9004

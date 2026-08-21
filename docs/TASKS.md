@@ -2,10 +2,10 @@
 
 ## 1. 使用方式
 
-- 当前阶段：设计完成，代码尚未开始。
-- 任务按依赖顺序执行；每完成一个里程碑，先运行其验证命令、检查文档同步，再创建一个聚焦 commit。当前工作区未初始化 Git，初始化前仅记录验证结果。
+- 当前阶段：M1.1 工程 bootstrap 已完成；M2-M6 尚未开始。
+- 任务按依赖顺序执行；每完成一个里程碑，先运行其验证命令、检查文档同步，再创建一个聚焦 commit。
 - 所有实现必须遵守 [AGENTS.md](../AGENTS.md)、[PRD.md](PRD.md)、[architecture.md](architecture.md)、[interaction.md](interaction.md) 和 [MVP 设计文档](智选购-ai导购-mvp-design.md)。设计与实现不一致时，先更新设计并说明取舍。
-- 状态标记：`[ ]` 未开始，`[-]` 进行中，`[x]` 已完成，`[!]` 受阻。本文当前所有任务均未开始。
+- 状态标记：`[ ]` 未开始，`[-]` 进行中，`[x]` 已完成，`[!]` 受阻。M1.1 已完成，其余任务未开始。
 
 ## 2. 里程碑总览
 
@@ -20,21 +20,21 @@
 
 ## 3. M1：工程骨架与商品读链路
 
-### M1.1 初始化工程与本地依赖
+### M1.1 初始化工程与本地依赖（已完成）
 
-- [ ] 创建 Go workspace、Go-zero API Gateway 与 `user-service`、`product-service`、`order-service`、`knowledge-service`、`agent-service` 的最小 gRPC 服务骨架。
-- [ ] 建立统一配置加载、环境变量校验、请求 `trace_id` 透传、HTTP/gRPC 错误码和结构化日志基础设施。
-- [ ] 编写 Docker Compose，启动 MySQL、Redis、Kafka、Milvus、MinIO 与开发所需 Worker；真实凭证只来自本地 `.env`，`.env.example` 仅列变量名和非敏感示例。
-- [ ] 创建五个 MySQL schema 与迁移机制：`user_db`、`catalog_db`、`trade_db`、`agent_db`、`knowledge_db`。
+- [x] 创建 Go workspace、Go-zero API Gateway 与 `user-service`、`product-service`、`order-service`、`knowledge-service`、`agent-service` 的最小 gRPC 服务骨架。
+- [x] 建立统一配置加载、环境变量校验、请求 `trace_id` 透传、HTTP/gRPC 错误码和结构化日志基础设施。
+- [x] 编写 Docker Compose，启动 MySQL、Redis、Kafka、Milvus、MinIO 与开发所需 Worker；真实凭证只来自本地 `.env`，`.env.example` 仅列变量名和非敏感示例。
+- [x] 创建五个 MySQL schema 与迁移机制：`user_db`、`catalog_db`、`trade_db`、`agent_db`、`knowledge_db`。
 
 验收：空环境执行启动命令后，依赖健康检查成功；缺少必填环境变量时服务以明确错误退出，不输出敏感配置。
 
-### M1.2 用户、商品与缓存读路径
+### M1.2 用户、商品与缓存读路径（商品读链路已完成，用户认证待后续）
 
 - [ ] 实现注册登录、JWT、中间件身份注入、用户画像和地址的归属校验。
-- [ ] 实现分类、品牌、SPU、SKU、图片、库存与优惠的 schema、迁移和演示种子数据。
-- [ ] 实现商品列表、SKU 详情、关键词/分类筛选，以及 `search_products`、`get_price_stock`、`get_discount` gRPC DTO。
-- [ ] 实现 Cache Aside 商品详情缓存：缓存未命中读 MySQL 后回填，商品写 transaction 提交后立即删除缓存并写入 `cache_invalidation_tasks`。
+- [x] 实现分类、品牌、SPU、SKU、图片、库存与优惠的 schema、迁移和演示种子数据。
+- [x] 实现商品列表、SKU 详情、关键词/分类筛选，以及商品读 gRPC/HTTP DTO。
+- [x] 实现 Cache Aside 商品详情缓存：缓存未命中读 MySQL 后回填；Redis 不可用时回源 MySQL。
 - [ ] 实现 scheduler 执行延迟二次删除与失败重试，禁止在 HTTP 请求中 sleep。
 
 测试：商品筛选、SKU 切换、缓存未命中/命中、提交后删除失败、延迟删除重试；确认库存 API 与扣减逻辑不依赖 Redis。

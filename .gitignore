@@ -1,0 +1,32 @@
+# Local environment configuration
+.env
+.env.*
+!.env.example
+
+# Go build artifacts and test output
+bin/
+build/
+dist/
+coverage/
+*.coverprofile
+*.out
+*.test
+*.prof
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Editor and operating-system files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Docker Compose local data
+deploy/volumes/
+
+# Local Git worktrees
+.worktrees/

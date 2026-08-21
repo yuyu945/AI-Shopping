@@ -34,22 +34,26 @@ type userRepository interface {
 var decimalPattern = regexp.MustCompile(`^\d{1,10}(?:\.\d{1,2})?$`)
 
 func (s *UserService) GetMyProfile(ctx context.Context, userID uint64) (Profile, error) {
-	return s.repo.GetProfile(ctx, userID)
+	v, err := s.repo.GetProfile(ctx, userID)
+	return v, safeResourceError(err)
 }
 func (s *UserService) UpdateMyProfile(ctx context.Context, userID uint64, update ProfileUpdate) (Profile, error) {
 	if (update.BudgetMin != nil && !decimalPattern.MatchString(*update.BudgetMin)) || (update.BudgetMax != nil && !decimalPattern.MatchString(*update.BudgetMax)) || (update.BudgetMin != nil && update.BudgetMax != nil && *update.BudgetMin > *update.BudgetMax) {
 		return Profile{}, apperror.New(apperror.InvalidArgument, "invalid budget range")
 	}
-	return s.repo.UpdateProfile(ctx, userID, update)
+	v, err := s.repo.UpdateProfile(ctx, userID, update)
+	return v, safeResourceError(err)
 }
 func (s *UserService) ListMyAddresses(ctx context.Context, userID uint64) ([]Address, error) {
-	return s.repo.ListAddresses(ctx, userID)
+	v, err := s.repo.ListAddresses(ctx, userID)
+	return v, safeResourceError(err)
 }
 func (s *UserService) CreateMyAddress(ctx context.Context, userID uint64, input AddressInput) (Address, error) {
 	if err := validateAddress(input); err != nil {
 		return Address{}, err
 	}
-	return s.repo.CreateAddress(ctx, userID, input)
+	v, err := s.repo.CreateAddress(ctx, userID, input)
+	return v, safeResourceError(err)
 }
 func (s *UserService) UpdateMyAddress(ctx context.Context, userID, addressID uint64, input AddressInput) (Address, error) {
 	if addressID == 0 {
@@ -58,13 +62,22 @@ func (s *UserService) UpdateMyAddress(ctx context.Context, userID, addressID uin
 	if err := validateAddress(input); err != nil {
 		return Address{}, err
 	}
-	return s.repo.UpdateAddress(ctx, userID, addressID, input)
+	v, err := s.repo.UpdateAddress(ctx, userID, addressID, input)
+	return v, safeResourceError(err)
 }
 func (s *UserService) DeleteMyAddress(ctx context.Context, userID, addressID uint64) error {
 	if addressID == 0 {
 		return apperror.New(apperror.InvalidArgument, "address id is required")
 	}
-	return s.repo.DeleteAddress(ctx, userID, addressID)
+	return safeResourceError(s.repo.DeleteAddress(ctx, userID, addressID))
+}
+
+func safeResourceError(err error) error {
+	var notFound *NotFoundError
+	if errors.As(err, &notFound) {
+		return apperror.New(apperror.NotFound, "resource not found")
+	}
+	return err
 }
 func validateAddress(input AddressInput) error {
 	if strings.TrimSpace(input.ReceiverName) == "" || strings.TrimSpace(input.ReceiverPhone) == "" || strings.TrimSpace(input.Province) == "" || strings.TrimSpace(input.City) == "" || strings.TrimSpace(input.District) == "" || strings.TrimSpace(input.Detail) == "" || len(input.ReceiverName) > 128 || len(input.ReceiverPhone) > 32 || len(input.Province) > 64 || len(input.City) > 64 || len(input.District) > 64 || len(input.Detail) > 512 {

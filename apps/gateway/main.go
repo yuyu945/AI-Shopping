@@ -11,6 +11,7 @@ import (
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/userclient"
 	platformauth "github.com/yuyu945/AI-Shopping/internal/platform/auth"
 	platformconfig "github.com/yuyu945/AI-Shopping/internal/platform/config"
+	userpb "github.com/yuyu945/AI-Shopping/services/user-service/gen"
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/rest"
 	"github.com/zeromicro/go-zero/rest/router"
@@ -46,6 +47,8 @@ func main() {
 		log.Fatalf("gateway connect user service: %v", err)
 	}
 	defer userRPC.Conn().Close()
+	zrpc.DontLogClientContentForMethod(userpb.UserService_Register_FullMethodName)
+	zrpc.DontLogClientContentForMethod(userpb.UserService_Login_FullMethodName)
 	manager, err := platformauth.NewManager([]byte(runtimeConfig.JWTSecret))
 	if err != nil {
 		log.Fatalf("gateway jwt configuration: invalid")

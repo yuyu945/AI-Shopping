@@ -55,6 +55,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("%s jwt configuration: invalid", SERVICE_NAME)
 	}
+	zrpc.DontLogContentForMethod(userpb.UserService_Register_FullMethodName)
+	zrpc.DontLogContentForMethod(userpb.UserService_Login_FullMethodName)
 	server, err := zrpc.NewServer(config, func(g *grpc.Server) {
 		userpb.RegisterUserServiceServer(g, userserver.NewGRPCServer(user.NewUserService(user.NewRepository(db), nil, manager, time.Now), manager, time.Duration(config.Timeout)*time.Millisecond))
 	})

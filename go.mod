@@ -2,7 +2,11 @@ module github.com/yuyu945/AI-Shopping
 
 go 1.25
 
-require github.com/zeromicro/go-zero v1.10.3
+require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2
+	github.com/go-sql-driver/mysql v1.10.0
+	github.com/zeromicro/go-zero v1.10.3
+)
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect

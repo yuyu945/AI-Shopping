@@ -1,0 +1,90 @@
+package catalog
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"regexp"
+	"testing"
+
+	"github.com/DATA-DOG/go-sqlmock"
+)
+
+func TestRepositoryListProductsFiltersAndPaginates(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	query := regexp.QuoteMeta("SELECT p.id, p.category_id, p.brand_id, p.title, p.subtitle, MIN(ps.sale_price), COALESCE(SUM(i.available_qty), 0) FROM products p LEFT JOIN product_skus ps ON ps.product_id = p.id AND ps.status = 'ACTIVE' LEFT JOIN inventory i ON i.sku_id = ps.id WHERE p.status = 'ACTIVE' AND p.deleted_at IS NULL AND (p.title LIKE ? OR p.subtitle LIKE ?) AND p.category_id = ? GROUP BY p.id, p.category_id, p.brand_id, p.title, p.subtitle ORDER BY p.created_at DESC, p.id DESC LIMIT ? OFFSET ?")
+	mock.ExpectQuery(query).
+		WithArgs("%phone%", "%phone%", uint64(9), 20, 20).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "category_id", "brand_id", "title", "subtitle", "min_price", "stock_qty"}).
+			AddRow(uint64(10), uint64(9), uint64(3), "Phone", "Fast", "99.90", uint64(5)))
+
+	repo := NewRepository(db)
+	got, err := repo.ListProducts(context.Background(), ProductFilter{Keyword: "phone", CategoryID: 9, Page: 2, PageSize: 20})
+	if err != nil {
+		t.Fatalf("ListProducts() error = %v", err)
+	}
+	if len(got) != 1 || got[0].ID != 10 || got[0].StockQty != 5 {
+		t.Fatalf("unexpected products: %#v", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRepositoryGetProductLoadsActiveSKUsInventoryAndImages(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT p.id, p.category_id, p.brand_id, p.title, p.subtitle, p.detail_markdown FROM products p WHERE p.id = ? AND p.status = 'ACTIVE' AND p.deleted_at IS NULL")).
+		WithArgs(uint64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "category_id", "brand_id", "title", "subtitle", "detail_markdown"}).
+			AddRow(uint64(10), uint64(9), uint64(3), "Phone", "Fast", "details"))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT ps.id, ps.sku_code, ps.spec_json, ps.sale_price, i.available_qty, i.version FROM product_skus ps LEFT JOIN inventory i ON i.sku_id = ps.id WHERE ps.product_id = ? AND ps.status = 'ACTIVE' ORDER BY ps.id ASC")).
+		WithArgs(uint64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "sku_code", "spec_json", "sale_price", "available_qty", "version"}).
+			AddRow(uint64(100), "PHONE-BLACK", `{"color":"black"}`, "99.90", uint64(5), uint64(2)))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, object_key, sort_no FROM product_images WHERE product_id = ? ORDER BY sort_no ASC, id ASC")).
+		WithArgs(uint64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "object_key", "sort_no"}).AddRow(uint64(1000), "catalog/phone.jpg", 0))
+
+	repo := NewRepository(db)
+	got, err := repo.GetProduct(context.Background(), uint64(10), nil)
+	if err != nil {
+		t.Fatalf("GetProduct() error = %v", err)
+	}
+	if got.ID != 10 || len(got.SKUs) != 1 || got.SKUs[0].Inventory.AvailableQty != 5 || len(got.Images) != 1 {
+		t.Fatalf("unexpected product: %#v", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRepositoryGetProductMapsNoRowsToNotFound(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT p.id, p.category_id, p.brand_id, p.title, p.subtitle, p.detail_markdown FROM products p WHERE p.id = ? AND p.status = 'ACTIVE' AND p.deleted_at IS NULL")).
+		WithArgs(uint64(404)).
+		WillReturnError(sql.ErrNoRows)
+
+	repo := NewRepository(db)
+	_, err = repo.GetProduct(context.Background(), uint64(404), nil)
+	var notFound *NotFoundError
+	if !errors.As(err, &notFound) {
+		t.Fatalf("expected NotFoundError, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

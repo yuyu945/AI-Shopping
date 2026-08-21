@@ -38,6 +38,7 @@ CREATE TABLE products (
     PRIMARY KEY (id),
     KEY idx_products_category_status_created (category_id, status, created_at),
     KEY idx_products_brand_status_created (brand_id, status, created_at),
+    KEY idx_products_status_deleted_created (status, deleted_at, created_at, id),
     CONSTRAINT fk_products_category FOREIGN KEY (category_id) REFERENCES categories (id),
     CONSTRAINT fk_products_brand FOREIGN KEY (brand_id) REFERENCES brands (id)
 ) ENGINE=InnoDB;
@@ -53,7 +54,7 @@ CREATE TABLE product_skus (
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id),
     UNIQUE KEY uq_product_skus_code (sku_code),
-    KEY idx_product_skus_product_status (product_id, status),
+    KEY idx_product_skus_product_status (product_id, status, id),
     CONSTRAINT fk_product_skus_product FOREIGN KEY (product_id) REFERENCES products (id)
 ) ENGINE=InnoDB;
 
@@ -74,6 +75,7 @@ CREATE TABLE inventory (
     version BIGINT UNSIGNED NOT NULL DEFAULT 1,
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     PRIMARY KEY (sku_id),
+    KEY idx_inventory_updated (updated_at, sku_id),
     CONSTRAINT fk_inventory_sku FOREIGN KEY (sku_id) REFERENCES product_skus (id)
 ) ENGINE=InnoDB;
 

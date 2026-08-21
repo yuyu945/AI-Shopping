@@ -105,6 +105,41 @@ func TestMutationRepositoryUpdateProductDetailAndCreateTasksRollsBackTaskFailure
 	}
 }
 
+func TestMutationRepositoryUpdateProductDetailAndCreateTasksCommitFailureDoesNotReturnSuccessfulMutation(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	executeAt := time.Date(2026, time.August, 21, 9, 30, 0, 0, time.UTC)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id FROM product_skus WHERE product_id = ? ORDER BY id ASC FOR UPDATE")).
+		WithArgs(uint64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(uint64(100)))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE products SET detail_markdown = ?, version = version + 1 WHERE id = ? AND deleted_at IS NULL")).
+		WithArgs("updated detail", uint64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	insertTask := regexp.QuoteMeta("INSERT INTO cache_invalidation_tasks (cache_key, execute_at, status) VALUES (?, ?, 'PENDING')")
+	mock.ExpectExec(insertTask).WithArgs(ProductCacheKey(10, nil), executeAt).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(insertTask).WithArgs(ProductCacheKey(10, uint64Ptr(100)), executeAt).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit().WillReturnError(errors.New("commit unavailable"))
+
+	got, err := NewMutationRepository(db).UpdateProductDetailAndCreateTasks(context.Background(), 10, "updated detail", executeAt)
+	if err == nil {
+		t.Fatal("UpdateProductDetailAndCreateTasks() error = nil")
+	}
+	if strings.Contains(err.Error(), "commit unavailable") {
+		t.Fatalf("UpdateProductDetailAndCreateTasks() leaked driver detail: %v", err)
+	}
+	if got.ProductID != 0 || got.DetailMarkdown != "" || len(got.CacheKeys) != 0 {
+		t.Fatalf("UpdateProductDetailAndCreateTasks() returned successful mutation: %#v", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func uint64Ptr(value uint64) *uint64 {
 	return &value
 }

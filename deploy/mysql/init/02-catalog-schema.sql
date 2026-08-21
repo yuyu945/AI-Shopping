@@ -94,3 +94,20 @@ CREATE TABLE promotion_rules (
     KEY idx_promotion_rules_product_status_time (product_id, status, start_at, end_at),
     CONSTRAINT fk_promotion_rules_product FOREIGN KEY (product_id) REFERENCES products (id)
 ) ENGINE=InnoDB;
+
+CREATE TABLE cache_invalidation_tasks (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    cache_key VARCHAR(256) NOT NULL,
+    execute_at DATETIME(3) NOT NULL,
+    retry_count INT NOT NULL DEFAULT 0,
+    status VARCHAR(16) NOT NULL,
+    last_error VARCHAR(512) NULL,
+    locked_at DATETIME(3) NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    executed_at DATETIME(3) NULL,
+    PRIMARY KEY (id),
+    KEY idx_cache_invalidation_tasks_status_execute (status, execute_at, id),
+    KEY idx_cache_invalidation_tasks_status_locked (status, locked_at, id),
+    KEY idx_cache_invalidation_tasks_key_execute (cache_key, execute_at)
+) ENGINE=InnoDB;

@@ -1,6 +1,9 @@
 package catalog
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 // ProductFilter controls the read-only product listing query.
 type ProductFilter struct {
@@ -28,6 +31,20 @@ type ProductDetail struct {
 	SKUs           []SKUDetail
 	Images         []ImageRef
 	Promotions     []PromotionSummary
+}
+
+// ProductDetailMutation describes a product-detail update and its task schedule.
+type ProductDetailMutation struct {
+	ProductID      uint64
+	DetailMarkdown string
+	ExecuteAt      time.Time
+}
+
+// MutationResult records the updated detail and cache keys scheduled for invalidation.
+type MutationResult struct {
+	ProductID      uint64
+	DetailMarkdown string
+	CacheKeys      []string
 }
 
 // SKUDetail contains the current price, specification, and MySQL inventory snapshot.

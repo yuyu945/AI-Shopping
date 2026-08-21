@@ -78,7 +78,7 @@ func TestProductServiceListProductsNormalizesValidFilterAndMapsRows(t *testing.T
 	}}
 	svc := NewProductService(repo, nil)
 	got, err := svc.ListProducts(context.Background(), ProductFilter{Keyword: "  phone ", CategoryID: 9, Page: 2})
-	if err != nil || len(got) != 1 || got[0].ID != 10 {
+	if err != nil || len(got) != 1 || got[0].ProductID != 10 {
 		t.Fatalf("unexpected result: %#v, %v", got, err)
 	}
 }
@@ -106,7 +106,7 @@ func TestProductServiceGetProductCacheMissWritesWithTTL(t *testing.T) {
 	svc := NewProductService(repo, cache)
 	skuID := uint64(7)
 	got, err := svc.GetProduct(context.Background(), 10, &skuID)
-	if err != nil || got.ID != 10 || repo.getN != 1 {
+	if err != nil || got.ProductID != 10 || repo.getN != 1 {
 		t.Fatalf("unexpected result: %#v, %v", got, err)
 	}
 	if len(cache.sets) != 1 || cache.sets[0].ttl != 60*time.Second || !strings.Contains(cache.sets[0].key, "product:v1:detail:10:sku:7") {
@@ -124,7 +124,7 @@ func TestProductServiceGetProductCacheHitSkipsRepository(t *testing.T) {
 		return ProductDetail{}, nil
 	}}
 	got, err := NewProductService(repo, cache).GetProduct(context.Background(), 10, nil)
-	if err != nil || got.Title != "cached" {
+	if err != nil || got.Title != "cached" || got.ProductID != 10 {
 		t.Fatalf("unexpected cached result: %#v, %v", got, err)
 	}
 }
@@ -178,7 +178,7 @@ func TestProductServiceRejectsInvalidCachedDetailIdentity(t *testing.T) {
 				return result, nil
 			}}
 			got, err := NewProductService(repo, cache).GetProduct(context.Background(), 10, tt.skuID)
-			if err != nil || got.ID != 10 || len(cache.dels) != 1 || repo.getN != 1 {
+			if err != nil || got.ProductID != 10 || len(cache.dels) != 1 || repo.getN != 1 {
 				t.Fatalf("invalid cache was accepted: got=%#v err=%v deletes=%v repo=%d", got, err, cache.dels, repo.getN)
 			}
 		})

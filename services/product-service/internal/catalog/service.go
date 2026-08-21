@@ -35,7 +35,7 @@ func NewProductService(repository ProductRepository, cache DetailCache) *Product
 }
 
 // ListProducts validates and normalizes a product filter before querying the repository.
-func (s *ProductService) ListProducts(ctx context.Context, filter ProductFilter) ([]ProductSummary, error) {
+func (s *ProductService) ListProducts(ctx context.Context, filter ProductFilter) ([]ProductSummaryDTO, error) {
 	normalized, err := normalizeProductFilter(filter)
 	if err != nil {
 		return nil, err
@@ -48,7 +48,7 @@ func (s *ProductService) ListProducts(ctx context.Context, filter ProductFilter)
 }
 
 // GetProduct reads a detail from cache first and falls back to the repository.
-func (s *ProductService) GetProduct(ctx context.Context, productID uint64, skuID *uint64) (ProductDetail, error) {
+func (s *ProductService) GetProduct(ctx context.Context, productID uint64, skuID *uint64) (ProductDetailDTO, error) {
 	// Freeze the optional identifier before any cache or repository call. The
 	// caller may reuse and mutate its pointer while an external dependency runs.
 	requestedSKU := cloneUint64Ptr(skuID)
@@ -57,7 +57,7 @@ func (s *ProductService) GetProduct(ctx context.Context, productID uint64, skuID
 		if payload, err := s.cache.Get(ctx, key); err == nil {
 			var cached ProductDetail
 			if json.Unmarshal(payload, &cached) == nil && validCachedDetail(cached, productID, requestedSKU) {
-				return cloneProductDetail(cached), nil
+				return mapProductDetail(cached), nil
 			}
 			// A malformed value must not poison subsequent reads.
 			_ = s.cache.Delete(ctx, key)
@@ -66,7 +66,7 @@ func (s *ProductService) GetProduct(ctx context.Context, productID uint64, skuID
 
 	detail, err := s.repository.GetProduct(ctx, productID, requestedSKU)
 	if err != nil {
-		return ProductDetail{}, safeProductError(err)
+		return ProductDetailDTO{}, safeProductError(err)
 	}
 	result := cloneProductDetail(detail)
 	if s.cache != nil {
@@ -74,7 +74,7 @@ func (s *ProductService) GetProduct(ctx context.Context, productID uint64, skuID
 			_ = s.cache.Set(ctx, key, payload, 60*time.Second)
 		}
 	}
-	return result, nil
+	return mapProductDetail(result), nil
 }
 
 func validCachedDetail(detail ProductDetail, productID uint64, skuID *uint64) bool {
@@ -104,17 +104,6 @@ func normalizeProductFilter(filter ProductFilter) (ProductFilter, error) {
 	}
 	filter.Keyword = strings.TrimSpace(filter.Keyword)
 	return filter, nil
-}
-
-func mapProductSummaries(rows []ProductSummary) []ProductSummary {
-	result := make([]ProductSummary, len(rows))
-	copy(result, rows)
-	for i := range result {
-		result[i].BrandID = cloneUint64Ptr(rows[i].BrandID)
-		result[i].Subtitle = cloneStringPtr(rows[i].Subtitle)
-		result[i].MinPrice = cloneStringPtr(rows[i].MinPrice)
-	}
-	return result
 }
 
 func cloneProductDetail(detail ProductDetail) ProductDetail {

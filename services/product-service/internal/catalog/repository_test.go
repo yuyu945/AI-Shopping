@@ -77,7 +77,7 @@ func TestRepositoryGetProductLoadsActiveSKUsInventoryAndImages(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, object_key, sort_no FROM product_images WHERE product_id = ? ORDER BY sort_no ASC, id ASC")).
 		WithArgs(uint64(10)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "object_key", "sort_no"}).AddRow(uint64(1000), "catalog/phone.jpg", 0))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, rule_type, threshold_amount, discount_amount FROM promotion_rules WHERE product_id = ? AND status = 'ACTIVE' AND starts_at <= NOW() AND (ends_at IS NULL OR ends_at > NOW()) ORDER BY id ASC")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, rule_type, threshold_amount, discount_amount FROM promotion_rules WHERE product_id = ? AND status = 'ACTIVE' AND start_at <= NOW() AND end_at > NOW() ORDER BY id ASC")).
 		WithArgs(uint64(10)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "rule_type", "threshold_amount", "discount_amount"}).AddRow(uint64(20), "THRESHOLD", "100.00", "10.00"))
 
@@ -108,7 +108,7 @@ func TestRepositoryGetProductAllowsNullableTextFields(t *testing.T) {
 		WithArgs(uint64(12)).WillReturnRows(sqlmock.NewRows([]string{"id", "sku_code", "spec_json", "sale_price", "available_qty", "version"}))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, object_key, sort_no FROM product_images WHERE product_id = ? ORDER BY sort_no ASC, id ASC")).
 		WithArgs(uint64(12)).WillReturnRows(sqlmock.NewRows([]string{"id", "object_key", "sort_no"}))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, rule_type, threshold_amount, discount_amount FROM promotion_rules WHERE product_id = ? AND status = 'ACTIVE' AND starts_at <= NOW() AND (ends_at IS NULL OR ends_at > NOW()) ORDER BY id ASC")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, rule_type, threshold_amount, discount_amount FROM promotion_rules WHERE product_id = ? AND status = 'ACTIVE' AND start_at <= NOW() AND end_at > NOW() ORDER BY id ASC")).
 		WithArgs(uint64(12)).WillReturnRows(sqlmock.NewRows([]string{"id", "rule_type", "threshold_amount", "discount_amount"}))
 
 	got, err := NewRepository(db).GetProduct(context.Background(), uint64(12), nil)

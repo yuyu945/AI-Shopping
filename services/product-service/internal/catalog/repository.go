@@ -151,7 +151,7 @@ func (r *Repository) GetProduct(ctx context.Context, productID uint64, optionalS
 	if err := imageRows.Err(); err != nil {
 		return ProductDetail{}, fmt.Errorf("iterate product images: %w", err)
 	}
-	promotionRows, err := r.db.QueryContext(ctx, "SELECT id, rule_type, threshold_amount, discount_amount FROM promotion_rules WHERE product_id = ? AND status = 'ACTIVE' AND starts_at <= NOW() AND (ends_at IS NULL OR ends_at > NOW()) ORDER BY id ASC", productID)
+	promotionRows, err := r.db.QueryContext(ctx, "SELECT id, rule_type, threshold_amount, discount_amount FROM promotion_rules WHERE product_id = ? AND status = 'ACTIVE' AND start_at <= NOW() AND end_at > NOW() ORDER BY id ASC", productID)
 	if err != nil {
 		return ProductDetail{}, fmt.Errorf("get product promotions: %w", err)
 	}

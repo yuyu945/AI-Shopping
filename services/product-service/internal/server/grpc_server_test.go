@@ -28,9 +28,9 @@ func TestGRPCServerListTimeoutMapsToDeadline(t *testing.T) {
 	}
 }
 
-func TestGRPCWireMappingCopiesCatalogValues(t *testing.T) {
+func TestGRPCWireMappingCopiesApplicationDTO(t *testing.T) {
 	title := "Phone"
-	detail := catalog.ProductDetail{ProductSummary: catalog.ProductSummary{ID: 10, CategoryID: 9, Title: title}, Promotions: []catalog.PromotionSummary{{ID: 20, RuleType: "THRESHOLD", ThresholdAmount: stringPtr("100"), DiscountAmount: stringPtr("10")}}}
+	detail := catalog.ProductDetailDTO{ProductID: 10, CategoryID: 9, Title: title, Promotions: []catalog.PromotionSummaryDTO{{PromotionID: 20, RuleType: "THRESHOLD", ThresholdAmount: stringPtr("100"), DiscountAmount: stringPtr("10")}}}
 	wire := mapProductDetail(detail)
 	if wire.GetProductId() != 10 || len(wire.GetPromotions()) != 1 || wire.GetPromotions()[0].GetThresholdAmount() != "100" {
 		t.Fatalf("unexpected wire mapping: %#v", wire)
@@ -38,7 +38,7 @@ func TestGRPCWireMappingCopiesCatalogValues(t *testing.T) {
 }
 
 func TestGRPCListMappingCopiesIndependentSummary(t *testing.T) {
-	wire := mapProductSummary(catalog.ProductSummary{ID: 3, CategoryID: 4, Title: "List", StockQty: 2})
+	wire := mapProductSummary(catalog.ProductSummaryDTO{ProductID: 3, CategoryID: 4, Title: "List", StockQty: 2})
 	if wire.GetProductId() != 3 || wire.GetCategoryId() != 4 || wire.GetStockStatus() != "IN_STOCK" {
 		t.Fatalf("unexpected list wire mapping: %#v", wire)
 	}

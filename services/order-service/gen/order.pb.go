@@ -818,19 +818,22 @@ func (x *ShippingAddressSnapshot) GetDetail() string {
 }
 
 type OrderItem struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	ProductId      uint64                 `protobuf:"varint,1,opt,name=product_id,json=productId,proto3" json:"product_id,omitempty"`
-	SkuId          uint64                 `protobuf:"varint,2,opt,name=sku_id,json=skuId,proto3" json:"sku_id,omitempty"`
-	ProductTitle   string                 `protobuf:"bytes,3,opt,name=product_title,json=productTitle,proto3" json:"product_title,omitempty"`
-	SkuCode        string                 `protobuf:"bytes,4,opt,name=sku_code,json=skuCode,proto3" json:"sku_code,omitempty"`
-	SkuSpecJson    []byte                 `protobuf:"bytes,5,opt,name=sku_spec_json,json=skuSpecJson,proto3" json:"sku_spec_json,omitempty"`
-	Promotions     []*PromotionSnapshot   `protobuf:"bytes,6,rep,name=promotions,proto3" json:"promotions,omitempty"`
-	UnitPrice      string                 `protobuf:"bytes,7,opt,name=unit_price,json=unitPrice,proto3" json:"unit_price,omitempty"`
-	DiscountAmount string                 `protobuf:"bytes,8,opt,name=discount_amount,json=discountAmount,proto3" json:"discount_amount,omitempty"`
-	Quantity       uint32                 `protobuf:"varint,9,opt,name=quantity,proto3" json:"quantity,omitempty"`
-	ItemAmount     string                 `protobuf:"bytes,10,opt,name=item_amount,json=itemAmount,proto3" json:"item_amount,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	ProductId    uint64                 `protobuf:"varint,1,opt,name=product_id,json=productId,proto3" json:"product_id,omitempty"`
+	SkuId        uint64                 `protobuf:"varint,2,opt,name=sku_id,json=skuId,proto3" json:"sku_id,omitempty"`
+	ProductTitle string                 `protobuf:"bytes,3,opt,name=product_title,json=productTitle,proto3" json:"product_title,omitempty"`
+	SkuCode      string                 `protobuf:"bytes,4,opt,name=sku_code,json=skuCode,proto3" json:"sku_code,omitempty"`
+	SkuSpecJson  []byte                 `protobuf:"bytes,5,opt,name=sku_spec_json,json=skuSpecJson,proto3" json:"sku_spec_json,omitempty"`
+	// Candidate promotions are checkout facts; they are not necessarily applied.
+	CandidatePromotions []*PromotionSnapshot `protobuf:"bytes,6,rep,name=candidate_promotions,json=candidatePromotions,proto3" json:"candidate_promotions,omitempty"`
+	UnitPrice           string               `protobuf:"bytes,7,opt,name=unit_price,json=unitPrice,proto3" json:"unit_price,omitempty"`
+	DiscountAmount      string               `protobuf:"bytes,8,opt,name=discount_amount,json=discountAmount,proto3" json:"discount_amount,omitempty"`
+	Quantity            uint32               `protobuf:"varint,9,opt,name=quantity,proto3" json:"quantity,omitempty"`
+	ItemAmount          string               `protobuf:"bytes,10,opt,name=item_amount,json=itemAmount,proto3" json:"item_amount,omitempty"`
+	// Unset when no promotion is applied to this order item.
+	AppliedPromotion *PromotionSnapshot `protobuf:"bytes,11,opt,name=applied_promotion,json=appliedPromotion,proto3" json:"applied_promotion,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *OrderItem) Reset() {
@@ -898,9 +901,9 @@ func (x *OrderItem) GetSkuSpecJson() []byte {
 	return nil
 }
 
-func (x *OrderItem) GetPromotions() []*PromotionSnapshot {
+func (x *OrderItem) GetCandidatePromotions() []*PromotionSnapshot {
 	if x != nil {
-		return x.Promotions
+		return x.CandidatePromotions
 	}
 	return nil
 }
@@ -931,6 +934,13 @@ func (x *OrderItem) GetItemAmount() string {
 		return x.ItemAmount
 	}
 	return ""
+}
+
+func (x *OrderItem) GetAppliedPromotion() *PromotionSnapshot {
+	if x != nil {
+		return x.AppliedPromotion
+	}
+	return nil
 }
 
 type PromotionSnapshot struct {
@@ -1095,24 +1105,23 @@ const file_api_order_order_proto_rawDesc = "" +
 	"\bprovince\x18\x03 \x01(\tR\bprovince\x12\x12\n" +
 	"\x04city\x18\x04 \x01(\tR\x04city\x12\x1a\n" +
 	"\bdistrict\x18\x05 \x01(\tR\bdistrict\x12\x16\n" +
-	"\x06detail\x18\x06 \x01(\tR\x06detail\"\xe7\x02\n" +
+	"\x06detail\x18\x06 \x01(\tR\x06detail\"\xc4\x03\n" +
 	"\tOrderItem\x12\x1d\n" +
 	"\n" +
 	"product_id\x18\x01 \x01(\x04R\tproductId\x12\x15\n" +
 	"\x06sku_id\x18\x02 \x01(\x04R\x05skuId\x12#\n" +
 	"\rproduct_title\x18\x03 \x01(\tR\fproductTitle\x12\x19\n" +
 	"\bsku_code\x18\x04 \x01(\tR\askuCode\x12\"\n" +
-	"\rsku_spec_json\x18\x05 \x01(\fR\vskuSpecJson\x12;\n" +
-	"\n" +
-	"promotions\x18\x06 \x03(\v2\x1b.order.v1.PromotionSnapshotR\n" +
-	"promotions\x12\x1d\n" +
+	"\rsku_spec_json\x18\x05 \x01(\fR\vskuSpecJson\x12N\n" +
+	"\x14candidate_promotions\x18\x06 \x03(\v2\x1b.order.v1.PromotionSnapshotR\x13candidatePromotions\x12\x1d\n" +
 	"\n" +
 	"unit_price\x18\a \x01(\tR\tunitPrice\x12'\n" +
 	"\x0fdiscount_amount\x18\b \x01(\tR\x0ediscountAmount\x12\x1a\n" +
 	"\bquantity\x18\t \x01(\rR\bquantity\x12\x1f\n" +
 	"\vitem_amount\x18\n" +
 	" \x01(\tR\n" +
-	"itemAmount\"\xda\x01\n" +
+	"itemAmount\x12H\n" +
+	"\x11applied_promotion\x18\v \x01(\v2\x1b.order.v1.PromotionSnapshotR\x10appliedPromotion\"\xda\x01\n" +
 	"\x11PromotionSnapshot\x12!\n" +
 	"\fpromotion_id\x18\x01 \x01(\x04R\vpromotionId\x12\x1b\n" +
 	"\trule_type\x18\x02 \x01(\tR\bruleType\x12.\n" +
@@ -1172,26 +1181,27 @@ var file_api_order_order_proto_depIdxs = []int32{
 	13, // 4: order.v1.OrderResponse.order:type_name -> order.v1.Order
 	14, // 5: order.v1.Order.shipping_address:type_name -> order.v1.ShippingAddressSnapshot
 	15, // 6: order.v1.Order.items:type_name -> order.v1.OrderItem
-	16, // 7: order.v1.OrderItem.promotions:type_name -> order.v1.PromotionSnapshot
-	0,  // 8: order.v1.OrderService.GetCart:input_type -> order.v1.GetCartRequest
-	2,  // 9: order.v1.OrderService.AddCartItem:input_type -> order.v1.AddCartItemRequest
-	3,  // 10: order.v1.OrderService.UpdateCartItem:input_type -> order.v1.UpdateCartItemRequest
-	4,  // 11: order.v1.OrderService.DeleteCartItem:input_type -> order.v1.DeleteCartItemRequest
-	8,  // 12: order.v1.OrderService.CreateOrder:input_type -> order.v1.CreateOrderRequest
-	9,  // 13: order.v1.OrderService.ListOrders:input_type -> order.v1.ListOrdersRequest
-	11, // 14: order.v1.OrderService.GetOrder:input_type -> order.v1.GetOrderRequest
-	1,  // 15: order.v1.OrderService.GetCart:output_type -> order.v1.GetCartResponse
-	5,  // 16: order.v1.OrderService.AddCartItem:output_type -> order.v1.CartItemResponse
-	17, // 17: order.v1.OrderService.UpdateCartItem:output_type -> order.v1.Empty
-	17, // 18: order.v1.OrderService.DeleteCartItem:output_type -> order.v1.Empty
-	12, // 19: order.v1.OrderService.CreateOrder:output_type -> order.v1.OrderResponse
-	10, // 20: order.v1.OrderService.ListOrders:output_type -> order.v1.ListOrdersResponse
-	12, // 21: order.v1.OrderService.GetOrder:output_type -> order.v1.OrderResponse
-	15, // [15:22] is the sub-list for method output_type
-	8,  // [8:15] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	16, // 7: order.v1.OrderItem.candidate_promotions:type_name -> order.v1.PromotionSnapshot
+	16, // 8: order.v1.OrderItem.applied_promotion:type_name -> order.v1.PromotionSnapshot
+	0,  // 9: order.v1.OrderService.GetCart:input_type -> order.v1.GetCartRequest
+	2,  // 10: order.v1.OrderService.AddCartItem:input_type -> order.v1.AddCartItemRequest
+	3,  // 11: order.v1.OrderService.UpdateCartItem:input_type -> order.v1.UpdateCartItemRequest
+	4,  // 12: order.v1.OrderService.DeleteCartItem:input_type -> order.v1.DeleteCartItemRequest
+	8,  // 13: order.v1.OrderService.CreateOrder:input_type -> order.v1.CreateOrderRequest
+	9,  // 14: order.v1.OrderService.ListOrders:input_type -> order.v1.ListOrdersRequest
+	11, // 15: order.v1.OrderService.GetOrder:input_type -> order.v1.GetOrderRequest
+	1,  // 16: order.v1.OrderService.GetCart:output_type -> order.v1.GetCartResponse
+	5,  // 17: order.v1.OrderService.AddCartItem:output_type -> order.v1.CartItemResponse
+	17, // 18: order.v1.OrderService.UpdateCartItem:output_type -> order.v1.Empty
+	17, // 19: order.v1.OrderService.DeleteCartItem:output_type -> order.v1.Empty
+	12, // 20: order.v1.OrderService.CreateOrder:output_type -> order.v1.OrderResponse
+	10, // 21: order.v1.OrderService.ListOrders:output_type -> order.v1.ListOrdersResponse
+	12, // 22: order.v1.OrderService.GetOrder:output_type -> order.v1.OrderResponse
+	16, // [16:23] is the sub-list for method output_type
+	9,  // [9:16] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_api_order_order_proto_init() }

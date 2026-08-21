@@ -97,11 +97,14 @@ message OrderItem {
   string product_title = 3;
   string sku_code = 4;
   bytes sku_spec_json = 5;
-  repeated PromotionSnapshot promotions = 6;
+  // Candidate promotions are checkout facts; they are not necessarily applied.
+  repeated PromotionSnapshot candidate_promotions = 6;
   string unit_price = 7;
   string discount_amount = 8;
   uint32 quantity = 9;
   string item_amount = 10;
+  // Unset when no promotion is applied to this order item.
+  PromotionSnapshot applied_promotion = 11;
 }
 
 message PromotionSnapshot {

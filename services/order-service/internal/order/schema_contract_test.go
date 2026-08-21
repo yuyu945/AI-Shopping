@@ -3,6 +3,7 @@ package order
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -19,22 +20,37 @@ func TestTradeSchemaOwnsCartAndOrderSnapshots(t *testing.T) {
 		t.Fatalf("read trade schema: %v", err)
 	}
 
+	schemaText := string(schema)
 	required := []string{
 		"CREATE TABLE carts",
 		"CREATE TABLE cart_items",
 		"CREATE TABLE orders",
 		"CREATE TABLE order_items",
-		"DECIMAL(12,2)",
 		"UNIQUE KEY uq_orders_user_request (user_id, request_id)",
 		"CONSTRAINT fk_cart_items_cart FOREIGN KEY (cart_id) REFERENCES carts(id)",
 		"CONSTRAINT fk_order_items_order FOREIGN KEY (order_id) REFERENCES orders(id)",
 	}
 	for _, value := range required {
-		if !strings.Contains(string(schema), value) {
+		if !strings.Contains(schemaText, value) {
 			t.Fatalf("trade schema %s must contain %q", schemaPath, value)
 		}
 	}
-	if strings.Contains(string(schema), "REFERENCES user_db.") || strings.Contains(string(schema), "REFERENCES catalog_db.") {
+	for _, column := range []string{"total_amount", "paid_amount", "unit_price", "discount_amount", "item_amount"} {
+		pattern := regexp.MustCompile(`(?m)\b` + column + `\s+DECIMAL\(12,2\)`)
+		if !pattern.MatchString(schemaText) {
+			t.Fatalf("trade schema %s must define %s as DECIMAL(12,2)", schemaPath, column)
+		}
+	}
+	foreignKeys := regexp.MustCompile(`(?m)CONSTRAINT\s+\w+\s+FOREIGN KEY\s+\([^)]*\)\s+REFERENCES\s+\w+\([^)]*\)`).FindAllString(schemaText, -1)
+	if len(foreignKeys) != 2 {
+		t.Fatalf("trade schema %s may only define cart_items->carts and order_items->orders foreign keys: %v", schemaPath, foreignKeys)
+	}
+	if strings.Contains(schemaText, "REFERENCES user_db.") || strings.Contains(schemaText, "REFERENCES catalog_db.") {
 		t.Fatalf("trade schema %s must not define cross-service foreign keys", schemaPath)
+	}
+	for _, forbidden := range []string{"inventory_reservations", "payment_attempt_id", "reservation_id"} {
+		if strings.Contains(schemaText, forbidden) {
+			t.Fatalf("trade schema %s must not contain M2.2 field %q", schemaPath, forbidden)
+		}
 	}
 }

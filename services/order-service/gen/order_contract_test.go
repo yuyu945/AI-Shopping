@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 func TestOrderServiceContractExposesAuthenticatedCartAndOrderRPCs(t *testing.T) {
@@ -35,6 +36,9 @@ func TestOrderServiceContractExposesAuthenticatedCartAndOrderRPCs(t *testing.T) 
 	if order.GetOrderNo() != "ORD-1" || order.GetTotalAmount() != "99.00" || order.GetPaidAmount() != "0.00" {
 		t.Fatalf("order money fields must remain strings: %#v", order)
 	}
+	assertStringFields(t, (&Order{}).ProtoReflect().Descriptor(), "total_amount", "paid_amount")
+	assertStringFields(t, (&OrderItem{}).ProtoReflect().Descriptor(), "unit_price", "discount_amount", "item_amount")
+	assertStringFields(t, (&PromotionSnapshot{}).ProtoReflect().Descriptor(), "threshold_amount", "discount_amount")
 
 	for _, request := range []any{
 		GetCartRequest{},
@@ -50,3 +54,36 @@ func TestOrderServiceContractExposesAuthenticatedCartAndOrderRPCs(t *testing.T) 
 		}
 	}
 }
+
+func TestOrderItemPromotionSnapshotContract(t *testing.T) {
+	firstCandidate := &PromotionSnapshot{PromotionId: 1, RuleType: "DIRECT", DiscountAmount: stringRef("5.00")}
+	appliedCandidate := &PromotionSnapshot{PromotionId: 2, RuleType: "DIRECT", DiscountAmount: stringRef("10.00")}
+	item := &OrderItem{
+		CandidatePromotions: []*PromotionSnapshot{firstCandidate, appliedCandidate},
+		AppliedPromotion:    appliedCandidate,
+	}
+	if len(item.GetCandidatePromotions()) != 2 || item.GetAppliedPromotion().GetPromotionId() != 2 {
+		t.Fatalf("candidate and applied promotions = %#v", item)
+	}
+	field := item.ProtoReflect().Descriptor().Fields().ByName("applied_promotion")
+	if field == nil || !item.ProtoReflect().Has(field) {
+		t.Fatal("applied_promotion must be present when a promotion is applied")
+	}
+
+	withoutPromotion := &OrderItem{CandidatePromotions: []*PromotionSnapshot{firstCandidate}}
+	if withoutPromotion.GetAppliedPromotion() != nil || withoutPromotion.ProtoReflect().Has(field) {
+		t.Fatal("applied_promotion must be unset when no promotion is applied")
+	}
+}
+
+func assertStringFields(t *testing.T, descriptor protoreflect.MessageDescriptor, names ...protoreflect.Name) {
+	t.Helper()
+	for _, name := range names {
+		field := descriptor.Fields().ByName(name)
+		if field == nil || field.Kind() != protoreflect.StringKind {
+			t.Fatalf("%s.%s must be a string field", descriptor.FullName(), name)
+		}
+	}
+}
+
+func stringRef(value string) *string { return &value }

@@ -45,6 +45,7 @@ func TestCacheInvalidationWorkerClaimsOnlyDueOrStaleTasks(t *testing.T) {
 			store := &fakeInvalidationStore{tasks: []CacheInvalidationTask{tt.task}}
 			cache := &fakeInvalidationCache{}
 			worker := newTestInvalidationWorker(t, store, cache, defaultInvalidationConfig())
+			worker.now = func() time.Time { return now }
 
 			if err := worker.RunOnce(context.Background(), now); err != nil {
 				t.Fatalf("RunOnce() error = %v", err)
@@ -103,6 +104,7 @@ func TestCacheInvalidationWorkerRetriesWithBoundedBackoffAndDeadLetter(t *testin
 			config.RetryBaseDelay = tt.baseDelay
 			config.RetryMaxDelay = tt.maxDelay
 			worker := newTestInvalidationWorker(t, store, cache, config)
+			worker.now = func() time.Time { return now }
 
 			if err := worker.RunOnce(context.Background(), now); err != nil {
 				t.Fatalf("RunOnce() error = %v", err)
@@ -126,6 +128,7 @@ func TestCacheInvalidationWorkerContinuesAfterDeleteFailure(t *testing.T) {
 	}}
 	cache := &fakeInvalidationCache{deleteErrors: map[string]error{"bad": errors.New("unavailable")}}
 	worker := newTestInvalidationWorker(t, store, cache, defaultInvalidationConfig())
+	worker.now = func() time.Time { return now }
 
 	if err := worker.RunOnce(context.Background(), now); err != nil {
 		t.Fatalf("RunOnce() error = %v", err)
@@ -143,6 +146,7 @@ func TestCacheInvalidationWorkerReturnsSafeStatePersistenceError(t *testing.T) {
 	}
 	cache := &fakeInvalidationCache{deleteErr: errors.New("redis secret")}
 	worker := newTestInvalidationWorker(t, store, cache, defaultInvalidationConfig())
+	worker.now = func() time.Time { return now }
 
 	err := worker.RunOnce(context.Background(), now)
 	if err == nil || !strings.Contains(err.Error(), "persist cache invalidation failure") {
@@ -160,6 +164,7 @@ func TestCacheInvalidationWorkerBoundsExternalCalls(t *testing.T) {
 	config := defaultInvalidationConfig()
 	config.CallTimeout = 10 * time.Millisecond
 	worker := newTestInvalidationWorker(t, store, cache, config)
+	worker.now = func() time.Time { return now }
 
 	if err := worker.RunOnce(context.Background(), now); err != nil {
 		t.Fatalf("RunOnce() error = %v", err)
@@ -189,6 +194,81 @@ func TestCacheInvalidationWorkerRunStopsOnCancellation(t *testing.T) {
 	}
 }
 
+func TestCacheInvalidationWorkerRunRecoversAfterTransientCycleError(t *testing.T) {
+	now := time.Date(2026, time.August, 21, 12, 0, 0, 0, time.UTC)
+	store := &fakeInvalidationStore{
+		tasks:       []CacheInvalidationTask{{ID: 1, CacheKey: "eventual", ExecuteAt: now, Status: CacheInvalidationPending}},
+		claimErrors: []error{errors.New("mysql password=secret temporarily unavailable")},
+		doneSignal:  make(chan struct{}),
+	}
+	config := defaultInvalidationConfig()
+	config.PollInterval = 5 * time.Millisecond
+	config.BatchSize = 1
+	config.CallTimeout = 20 * time.Millisecond
+	config.LeaseDuration = 20 * time.Millisecond
+	worker := newTestInvalidationWorker(t, store, &fakeInvalidationCache{}, config)
+	worker.now = func() time.Time { return now }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- worker.Run(ctx) }()
+	select {
+	case <-store.doneSignal:
+		cancel()
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("Run() did not recover after transient claim failure")
+	}
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run() error = %v, want context.Canceled", err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.claimCalls < 2 {
+		t.Fatalf("ClaimDue calls = %d, want at least 2", store.claimCalls)
+	}
+	for _, claimNow := range store.claimNows {
+		if !claimNow.Equal(now) {
+			t.Fatalf("ClaimDue now = %s, want injected current time %s", claimNow, now)
+		}
+	}
+}
+
+func TestCacheInvalidationWorkerUsesFreshPostDeleteTime(t *testing.T) {
+	claimNow := time.Date(2026, time.August, 21, 12, 0, 0, 0, time.UTC)
+	outcomeNow := claimNow.Add(7 * time.Second)
+	tests := []struct {
+		name        string
+		deleteErr   error
+		wantDone    bool
+		wantRetryAt time.Time
+	}{
+		{name: "successful delete marks actual completion time", wantDone: true},
+		{name: "failed delete schedules from actual failure time", deleteErr: errors.New("unavailable"), wantRetryAt: outcomeNow.Add(time.Second)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeInvalidationStore{tasks: []CacheInvalidationTask{{ID: 1, CacheKey: "key", ExecuteAt: claimNow, Status: CacheInvalidationPending}}}
+			worker := newTestInvalidationWorker(t, store, &fakeInvalidationCache{deleteErr: tt.deleteErr}, defaultInvalidationConfig())
+			worker.now = func() time.Time { return outcomeNow }
+
+			if err := worker.RunOnce(context.Background(), claimNow); err != nil {
+				t.Fatalf("RunOnce() error = %v", err)
+			}
+			if tt.wantDone {
+				if len(store.done) != 1 || !store.done[0].doneAt.Equal(outcomeNow) {
+					t.Fatalf("MarkDone calls = %#v, want done_at %s", store.done, outcomeNow)
+				}
+				return
+			}
+			if len(store.failures) != 1 || !store.failures[0].executeAt.Equal(tt.wantRetryAt) {
+				t.Fatalf("MarkFailure calls = %#v, want execute_at %s", store.failures, tt.wantRetryAt)
+			}
+		})
+	}
+}
+
 func TestNewCacheInvalidationWorkerValidatesConfig(t *testing.T) {
 	valid := defaultInvalidationConfig()
 	tests := []struct {
@@ -207,6 +287,14 @@ func TestNewCacheInvalidationWorkerValidatesConfig(t *testing.T) {
 		{name: "retry max delay", store: &fakeInvalidationStore{}, cache: &fakeInvalidationCache{}, mutate: func(c *CacheInvalidationConfig) { c.RetryMaxDelay = 0 }},
 		{name: "base exceeds max", store: &fakeInvalidationStore{}, cache: &fakeInvalidationCache{}, mutate: func(c *CacheInvalidationConfig) { c.RetryBaseDelay = c.RetryMaxDelay + time.Second }},
 		{name: "call timeout", store: &fakeInvalidationStore{}, cache: &fakeInvalidationCache{}, mutate: func(c *CacheInvalidationConfig) { c.CallTimeout = 0 }},
+		{name: "lease shorter than batch budget", store: &fakeInvalidationStore{}, cache: &fakeInvalidationCache{}, mutate: func(c *CacheInvalidationConfig) {
+			c.LeaseDuration = c.CallTimeout*time.Duration(c.BatchSize) - time.Nanosecond
+		}},
+		{name: "batch budget overflows duration", store: &fakeInvalidationStore{}, cache: &fakeInvalidationCache{}, mutate: func(c *CacheInvalidationConfig) {
+			c.BatchSize = 2
+			c.CallTimeout = time.Duration(1<<63 - 1)
+			c.LeaseDuration = time.Duration(1<<63 - 1)
+		}},
 	}
 
 	for _, tt := range tests {
@@ -229,19 +317,20 @@ func TestCacheInvalidationRepositoryClaimDueUsesLeaseAndSkipLocked(t *testing.T)
 		t.Fatal(err)
 	}
 	defer db.Close()
-	now := time.Date(2026, time.August, 21, 12, 0, 0, 0, time.UTC)
-	staleBefore := now.Add(-time.Minute)
+	now := time.Date(2026, time.August, 21, 12, 0, 0, 123456789, time.UTC)
+	leaseNow := time.Date(2026, time.August, 21, 12, 0, 0, 123000000, time.UTC)
+	staleBefore := leaseNow.Add(-time.Minute)
 
 	mock.ExpectBegin()
 	claimSQL := regexp.QuoteMeta("SELECT id, cache_key, execute_at, retry_count, status, locked_at FROM cache_invalidation_tasks WHERE (status = ? AND execute_at <= ?) OR (status = ? AND locked_at <= ?) ORDER BY execute_at ASC, id ASC LIMIT ? FOR UPDATE SKIP LOCKED")
 	mock.ExpectQuery(claimSQL).
-		WithArgs(CacheInvalidationPending, now, CacheInvalidationRunning, staleBefore, 2).
+		WithArgs(CacheInvalidationPending, leaseNow, CacheInvalidationRunning, staleBefore, 2).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "cache_key", "execute_at", "retry_count", "status", "locked_at"}).
 			AddRow(uint64(4), "key-4", now.Add(-2*time.Minute), 0, CacheInvalidationPending, nil).
 			AddRow(uint64(9), "key-9", now.Add(-time.Minute), 1, CacheInvalidationRunning, staleBefore.Add(-time.Second)))
 	claimUpdate := regexp.QuoteMeta("UPDATE cache_invalidation_tasks SET status = ?, locked_at = ? WHERE id = ?")
-	mock.ExpectExec(claimUpdate).WithArgs(CacheInvalidationRunning, now, uint64(4)).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(claimUpdate).WithArgs(CacheInvalidationRunning, now, uint64(9)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(claimUpdate).WithArgs(CacheInvalidationRunning, leaseNow, uint64(4)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(claimUpdate).WithArgs(CacheInvalidationRunning, leaseNow, uint64(9)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	tasks, err := NewCacheInvalidationRepository(db).ClaimDue(context.Background(), now, time.Minute, 2)
@@ -252,8 +341,8 @@ func TestCacheInvalidationRepositoryClaimDueUsesLeaseAndSkipLocked(t *testing.T)
 		t.Fatalf("ClaimDue() = %#v", tasks)
 	}
 	for _, task := range tasks {
-		if task.Status != CacheInvalidationRunning || !task.LockedAt.Equal(now) {
-			t.Fatalf("claimed task lease = %#v, want RUNNING at %s", task, now)
+		if task.Status != CacheInvalidationRunning || !task.LockedAt.Equal(leaseNow) {
+			t.Fatalf("claimed task lease = %#v, want RUNNING at %s", task, leaseNow)
 		}
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -267,12 +356,14 @@ func TestCacheInvalidationRepositoryMarkDoneRequiresCurrentLease(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	lease := time.Date(2026, time.August, 21, 12, 0, 0, 0, time.UTC)
+	lease := time.Date(2026, time.August, 21, 12, 0, 0, 123456789, time.UTC)
+	normalizedLease := lease.Truncate(time.Millisecond)
 	doneAt := lease.Add(time.Second)
+	normalizedDoneAt := doneAt.Truncate(time.Millisecond)
 
 	query := regexp.QuoteMeta("UPDATE cache_invalidation_tasks SET status = ?, locked_at = NULL, last_error = NULL, executed_at = ? WHERE id = ? AND status = ? AND locked_at = ?")
 	mock.ExpectExec(query).
-		WithArgs(CacheInvalidationDone, doneAt, uint64(7), CacheInvalidationRunning, lease).
+		WithArgs(CacheInvalidationDone, normalizedDoneAt, uint64(7), CacheInvalidationRunning, normalizedLease).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := NewCacheInvalidationRepository(db).MarkDone(context.Background(), 7, lease, doneAt); err != nil {
@@ -289,8 +380,10 @@ func TestCacheInvalidationRepositoryMarkFailureUsesSafeErrorAndCurrentLease(t *t
 		t.Fatal(err)
 	}
 	defer db.Close()
-	lease := time.Date(2026, time.August, 21, 12, 0, 0, 0, time.UTC)
+	lease := time.Date(2026, time.August, 21, 12, 0, 0, 123456789, time.UTC)
+	normalizedLease := lease.Truncate(time.Millisecond)
 	retryAt := lease.Add(time.Minute)
+	normalizedRetryAt := retryAt.Truncate(time.Millisecond)
 
 	tests := []struct {
 		name   string
@@ -302,12 +395,12 @@ func TestCacheInvalidationRepositoryMarkFailureUsesSafeErrorAndCurrentLease(t *t
 		{
 			name: "pending retry", status: CacheInvalidationPending,
 			query: "UPDATE cache_invalidation_tasks SET retry_count = ?, status = ?, execute_at = ?, last_error = ?, locked_at = NULL WHERE id = ? AND status = ? AND locked_at = ?",
-			args:  []driver.Value{2, CacheInvalidationPending, retryAt, "cache delete failed", uint64(8), CacheInvalidationRunning, lease},
+			args:  []driver.Value{2, CacheInvalidationPending, normalizedRetryAt, "cache delete failed", uint64(8), CacheInvalidationRunning, normalizedLease},
 		},
 		{
 			name: "dead", dead: true, status: CacheInvalidationDead,
 			query: "UPDATE cache_invalidation_tasks SET retry_count = ?, status = ?, last_error = ?, locked_at = NULL WHERE id = ? AND status = ? AND locked_at = ?",
-			args:  []driver.Value{2, CacheInvalidationDead, "cache delete failed", uint64(8), CacheInvalidationRunning, lease},
+			args:  []driver.Value{2, CacheInvalidationDead, "cache delete failed", uint64(8), CacheInvalidationRunning, normalizedLease},
 		},
 	}
 
@@ -331,9 +424,14 @@ type fakeInvalidationStore struct {
 	done             []doneCall
 	failures         []failureCall
 	claimErr         error
+	claimErrors      []error
+	claimCalls       int
+	claimNows        []time.Time
 	markErr          error
 	claimHadDeadline bool
 	markHadDeadline  bool
+	doneSignal       chan struct{}
+	doneOnce         sync.Once
 }
 
 type doneCall struct {
@@ -355,6 +453,12 @@ func (s *fakeInvalidationStore) ClaimDue(ctx context.Context, now time.Time, lea
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, s.claimHadDeadline = ctx.Deadline()
+	s.claimNows = append(s.claimNows, now)
+	claimCall := s.claimCalls
+	s.claimCalls++
+	if claimCall < len(s.claimErrors) && s.claimErrors[claimCall] != nil {
+		return nil, s.claimErrors[claimCall]
+	}
 	if s.claimErr != nil {
 		return nil, s.claimErr
 	}
@@ -384,6 +488,9 @@ func (s *fakeInvalidationStore) MarkDone(ctx context.Context, id uint64, leaseAt
 		return s.markErr
 	}
 	s.done = append(s.done, doneCall{id: id, leaseAt: leaseAt, doneAt: doneAt})
+	if s.doneSignal != nil {
+		s.doneOnce.Do(func() { close(s.doneSignal) })
+	}
 	return nil
 }
 

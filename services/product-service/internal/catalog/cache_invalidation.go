@@ -70,6 +70,8 @@ func NewCacheInvalidationRepository(db *sql.DB) *CacheInvalidationRepository {
 
 // ClaimDue leases due pending tasks and running tasks whose previous lease expired.
 func (r *CacheInvalidationRepository) ClaimDue(ctx context.Context, now time.Time, leaseDuration time.Duration, limit int) ([]CacheInvalidationTask, error) {
+	leaseNow := normalizeMySQLTimestamp(now)
+	staleBefore := normalizeMySQLTimestamp(leaseNow.Add(-leaseDuration))
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, errors.New("begin cache invalidation claim failed")
@@ -80,9 +82,9 @@ func (r *CacheInvalidationRepository) ClaimDue(ctx context.Context, now time.Tim
 		ctx,
 		claimCacheInvalidationTasksQuery,
 		CacheInvalidationPending,
-		now,
+		leaseNow,
 		CacheInvalidationRunning,
-		now.Add(-leaseDuration),
+		staleBefore,
 		limit,
 	)
 	if err != nil {
@@ -110,7 +112,7 @@ func (r *CacheInvalidationRepository) ClaimDue(ctx context.Context, now time.Tim
 	}
 
 	for i := range tasks {
-		result, err := tx.ExecContext(ctx, leaseCacheInvalidationTaskQuery, CacheInvalidationRunning, now, tasks[i].ID)
+		result, err := tx.ExecContext(ctx, leaseCacheInvalidationTaskQuery, CacheInvalidationRunning, leaseNow, tasks[i].ID)
 		if err != nil {
 			return nil, errors.New("lease cache invalidation task failed")
 		}
@@ -118,7 +120,7 @@ func (r *CacheInvalidationRepository) ClaimDue(ctx context.Context, now time.Tim
 			return nil, err
 		}
 		tasks[i].Status = CacheInvalidationRunning
-		tasks[i].LockedAt = now
+		tasks[i].LockedAt = leaseNow
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, errors.New("commit cache invalidation claim failed")
@@ -128,6 +130,8 @@ func (r *CacheInvalidationRepository) ClaimDue(ctx context.Context, now time.Tim
 
 // MarkDone completes a task only while the caller still owns its lease.
 func (r *CacheInvalidationRepository) MarkDone(ctx context.Context, id uint64, leaseAt, doneAt time.Time) error {
+	leaseAt = normalizeMySQLTimestamp(leaseAt)
+	doneAt = normalizeMySQLTimestamp(doneAt)
 	result, err := r.db.ExecContext(
 		ctx,
 		markCacheInvalidationDoneQuery,
@@ -145,6 +149,8 @@ func (r *CacheInvalidationRepository) MarkDone(ctx context.Context, id uint64, l
 
 // MarkFailure schedules a retry or marks a task dead while the caller owns its lease.
 func (r *CacheInvalidationRepository) MarkFailure(ctx context.Context, id uint64, leaseAt time.Time, retryCount int, executeAt time.Time, dead bool) error {
+	leaseAt = normalizeMySQLTimestamp(leaseAt)
+	executeAt = normalizeMySQLTimestamp(executeAt)
 	var (
 		result sql.Result
 		err    error
@@ -187,11 +193,16 @@ func requireOneLeaseRow(result sql.Result) error {
 	return nil
 }
 
+func normalizeMySQLTimestamp(value time.Time) time.Time {
+	return value.UTC().Truncate(time.Millisecond)
+}
+
 // CacheInvalidationWorker polls durable tasks and deletes cache keys under bounded calls.
 type CacheInvalidationWorker struct {
 	store  CacheInvalidationTaskStore
 	cache  DetailCache
 	config CacheInvalidationConfig
+	now    func() time.Time
 }
 
 // NewCacheInvalidationWorker validates dependencies and constructs an invalidation worker.
@@ -226,10 +237,16 @@ func NewCacheInvalidationWorker(store CacheInvalidationTaskStore, cache DetailCa
 	if config.CallTimeout <= 0 {
 		return nil, errors.New("call timeout must be positive")
 	}
-	return &CacheInvalidationWorker{store: store, cache: cache, config: config}, nil
+	if config.CallTimeout > time.Duration((1<<63-1)/int64(config.BatchSize)) {
+		return nil, errors.New("batch call timeout budget exceeds duration limit")
+	}
+	if config.LeaseDuration < config.CallTimeout*time.Duration(config.BatchSize) {
+		return nil, errors.New("lease duration must cover the batch call timeout budget")
+	}
+	return &CacheInvalidationWorker{store: store, cache: cache, config: config, now: time.Now}, nil
 }
 
-// Run polls until the context is canceled or one polling cycle cannot be persisted safely.
+// Run polls until the context is canceled, retrying transient cycle failures on later ticks.
 func (w *CacheInvalidationWorker) Run(ctx context.Context) error {
 	ticker := time.NewTicker(w.config.PollInterval)
 	defer ticker.Stop()
@@ -237,9 +254,12 @@ func (w *CacheInvalidationWorker) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case now := <-ticker.C:
-			if err := w.RunOnce(ctx, now); err != nil {
-				return err
+		case <-ticker.C:
+			if err := w.RunOnce(ctx, w.now()); err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				continue
 			}
 		}
 	}
@@ -258,10 +278,11 @@ func (w *CacheInvalidationWorker) RunOnce(ctx context.Context, now time.Time) er
 		deleteCtx, cancelDelete := context.WithTimeout(ctx, w.config.CallTimeout)
 		deleteErr := w.cache.Delete(deleteCtx, task.CacheKey)
 		cancelDelete()
+		outcomeAt := w.now()
 
 		if deleteErr == nil {
 			markCtx, cancelMark := context.WithTimeout(ctx, w.config.CallTimeout)
-			err = w.store.MarkDone(markCtx, task.ID, task.LockedAt, now)
+			err = w.store.MarkDone(markCtx, task.ID, task.LockedAt, outcomeAt)
 			cancelMark()
 			if err != nil {
 				return errors.New("persist cache invalidation completion failed")
@@ -271,9 +292,9 @@ func (w *CacheInvalidationWorker) RunOnce(ctx context.Context, now time.Time) er
 
 		newRetryCount := task.RetryCount + 1
 		dead := newRetryCount >= w.config.MaxRetries
-		executeAt := now
+		executeAt := outcomeAt
 		if !dead {
-			executeAt = now.Add(cacheInvalidationRetryDelay(newRetryCount, w.config.RetryBaseDelay, w.config.RetryMaxDelay))
+			executeAt = outcomeAt.Add(cacheInvalidationRetryDelay(newRetryCount, w.config.RetryBaseDelay, w.config.RetryMaxDelay))
 		}
 		markCtx, cancelMark := context.WithTimeout(ctx, w.config.CallTimeout)
 		err = w.store.MarkFailure(markCtx, task.ID, task.LockedAt, newRetryCount, executeAt, dead)

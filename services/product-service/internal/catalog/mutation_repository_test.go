@@ -27,10 +27,10 @@ func TestMutationRepositoryUpdateProductDetailAndCreateTasksCommitsAllCacheKeys(
 		WithArgs("updated detail", uint64(10)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	insertTask := regexp.QuoteMeta("INSERT INTO cache_invalidation_tasks (cache_key, execute_at, status) VALUES (?, ?, 'PENDING')")
-	mock.ExpectExec(insertTask).WithArgs(ProductCacheKey(10, nil), executeAt).WillReturnResult(sqlmock.NewResult(1, 1))
-	for _, skuID := range []uint64{100, 101} {
+	mock.ExpectExec(insertTask).WithArgs(ProductCacheKey(10, nil), executeAt).WillReturnResult(sqlmock.NewResult(301, 1))
+	for index, skuID := range []uint64{100, 101} {
 		skuID := skuID
-		mock.ExpectExec(insertTask).WithArgs(ProductCacheKey(10, &skuID), executeAt).WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec(insertTask).WithArgs(ProductCacheKey(10, &skuID), executeAt).WillReturnResult(sqlmock.NewResult(int64(302+index), 1))
 	}
 	mock.ExpectCommit()
 
@@ -39,7 +39,7 @@ func TestMutationRepositoryUpdateProductDetailAndCreateTasksCommitsAllCacheKeys(
 		t.Fatalf("UpdateProductDetailAndCreateTasks() error = %v", err)
 	}
 	wantKeys := []string{ProductCacheKey(10, nil), ProductCacheKey(10, uint64Ptr(100)), ProductCacheKey(10, uint64Ptr(101))}
-	if got.ProductID != 10 || got.DetailMarkdown != "updated detail" || !sameStrings(got.CacheKeys, wantKeys) {
+	if got.ProductID != 10 || got.DetailMarkdown != "updated detail" || !sameStrings(got.CacheKeys, wantKeys) || !sameUint64s(got.TaskIDs, []uint64{301, 302, 303}) {
 		t.Fatalf("UpdateProductDetailAndCreateTasks() = %#v, want product detail and keys %#v", got, wantKeys)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -145,6 +145,18 @@ func uint64Ptr(value uint64) *uint64 {
 }
 
 func sameStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func sameUint64s(got, want []uint64) bool {
 	if len(got) != len(want) {
 		return false
 	}

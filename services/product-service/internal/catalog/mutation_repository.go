@@ -64,13 +64,20 @@ func (r *MutationRepository) UpdateProductDetailAndCreateTasks(ctx context.Conte
 		return MutationResult{}, &NotFoundError{Resource: "product", ID: productID}
 	}
 
+	taskIDs := make([]uint64, 0, len(cacheKeys))
 	for _, cacheKey := range cacheKeys {
-		if _, err := tx.ExecContext(ctx, insertInvalidationTaskQuery, cacheKey, executeAt); err != nil {
+		taskResult, err := tx.ExecContext(ctx, insertInvalidationTaskQuery, cacheKey, executeAt)
+		if err != nil {
 			return MutationResult{}, errors.New("create cache invalidation task failed")
 		}
+		taskID, err := taskResult.LastInsertId()
+		if err != nil || taskID <= 0 {
+			return MutationResult{}, errors.New("read cache invalidation task ID failed")
+		}
+		taskIDs = append(taskIDs, uint64(taskID))
 	}
 	if err := tx.Commit(); err != nil {
 		return MutationResult{}, errors.New("commit product detail update failed")
 	}
-	return MutationResult{ProductID: productID, DetailMarkdown: detailMarkdown, CacheKeys: cacheKeys}, nil
+	return MutationResult{ProductID: productID, DetailMarkdown: detailMarkdown, CacheKeys: cacheKeys, TaskIDs: taskIDs}, nil
 }

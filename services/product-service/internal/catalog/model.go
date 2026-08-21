@@ -45,6 +45,7 @@ type MutationResult struct {
 	ProductID      uint64
 	DetailMarkdown string
 	CacheKeys      []string
+	TaskIDs        []uint64
 }
 
 // SKUDetail contains the current price, specification, and MySQL inventory snapshot.

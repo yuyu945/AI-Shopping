@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/yuyu945/AI-Shopping/services/product-service/internal/catalog"
+	"github.com/zeromicro/go-zero/core/conf"
 )
 
 func TestCatalogDSNUsesCatalogDatabase(t *testing.T) {
@@ -37,3 +39,42 @@ func TestBuildDetailCacheFallsBackWhenRedisUnavailable(t *testing.T) {
 		t.Fatalf("unsafe error: %v", err)
 	}
 }
+
+func TestBuildCacheInvalidationWorker(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var serviceConfig productServiceConfig
+	if err := conf.Load("../etc/product-service.yaml", &serviceConfig); err != nil {
+		t.Fatal(err)
+	}
+	worker, err := buildCacheInvalidationWorker(db, &fakeDetailCache{}, serviceConfig.CacheInvalidation)
+	if err != nil {
+		t.Fatalf("buildCacheInvalidationWorker() error = %v", err)
+	}
+	if worker == nil {
+		t.Fatal("buildCacheInvalidationWorker() = nil, want worker")
+	}
+}
+
+func TestBuildCacheInvalidationWorkerSkipsRedisDegradedStartup(t *testing.T) {
+	worker, err := buildCacheInvalidationWorker(nil, nil, catalog.CacheInvalidationConfig{})
+	if err != nil {
+		t.Fatalf("buildCacheInvalidationWorker() error = %v", err)
+	}
+	if worker != nil {
+		t.Fatalf("buildCacheInvalidationWorker() = %#v, want nil", worker)
+	}
+}
+
+type fakeDetailCache struct{}
+
+func (*fakeDetailCache) Get(context.Context, string) ([]byte, error) {
+	return nil, catalog.ErrCacheMiss
+}
+func (*fakeDetailCache) Set(context.Context, string, []byte, time.Duration) error {
+	return nil
+}
+func (*fakeDetailCache) Delete(context.Context, string) error { return nil }

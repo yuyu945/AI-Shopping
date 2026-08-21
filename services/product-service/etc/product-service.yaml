@@ -5,3 +5,11 @@ Etcd:
   Hosts:
     - 127.0.0.1:2379
   Key: product-service.rpc
+CacheInvalidation:
+  PollInterval: 1s
+  BatchSize: 10
+  LeaseDuration: 30s
+  MaxRetries: 3
+  RetryBaseDelay: 1s
+  RetryMaxDelay: 1m
+  CallTimeout: 1s

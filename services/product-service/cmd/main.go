@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -21,12 +22,17 @@ import (
 
 const SERVICE_NAME = "product-service"
 
+type productServiceConfig struct {
+	zrpc.RpcServerConf
+	CacheInvalidation catalog.CacheInvalidationConfig
+}
+
 func main() {
 	var configFile string
 	flag.StringVar(&configFile, "f", "services/product-service/etc/product-service.yaml", "Service configuration file")
 	flag.Parse()
 
-	var config zrpc.RpcServerConf
+	var config productServiceConfig
 	if err := conf.Load(configFile, &config); err != nil {
 		log.Fatalf("%s startup: %v", SERVICE_NAME, err)
 	}
@@ -62,13 +68,37 @@ func main() {
 
 	catalogRepository := catalog.NewRepository(db)
 	productService := catalog.NewProductService(catalogRepository, detailCache)
-	rpcServer, err := zrpc.NewServer(config, func(server *grpc.Server) {
+	mutationRepository := catalog.NewMutationRepository(db)
+	if _, err := catalog.NewCatalogMutationService(
+		mutationRepository,
+		detailCache,
+		time.Now,
+		config.CacheInvalidation.RetryBaseDelay,
+		config.CacheInvalidation.CallTimeout,
+	); err != nil {
+		log.Fatalf("%s startup: invalid cache invalidation configuration", SERVICE_NAME)
+	}
+	worker, err := buildCacheInvalidationWorker(db, detailCache, config.CacheInvalidation)
+	if err != nil {
+		log.Fatalf("%s startup: invalid cache invalidation configuration", SERVICE_NAME)
+	}
+
+	rpcServer, err := zrpc.NewServer(config.RpcServerConf, func(server *grpc.Server) {
 		productpb.RegisterProductServiceServer(server, productserver.NewGRPCServer(productService, time.Duration(config.Timeout)*time.Millisecond))
 	})
 	if err != nil {
 		log.Fatalf("%s create rpc server: %v", SERVICE_NAME, err)
 	}
 	defer rpcServer.Stop()
+	if worker != nil {
+		workerCtx, cancelWorker := context.WithCancel(context.Background())
+		defer cancelWorker()
+		go func() {
+			if err := worker.Run(workerCtx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Printf("%s cache invalidation worker stopped", SERVICE_NAME)
+			}
+		}()
+	}
 	rpcServer.Start()
 }
 
@@ -107,6 +137,13 @@ func buildDetailCache(ctx context.Context, address string, timeout time.Duration
 		return nil, nil, fmt.Errorf("product cache unavailable")
 	}
 	return client.DetailCache(), func() { _ = client.Close() }, nil
+}
+
+func buildCacheInvalidationWorker(db *sql.DB, detailCache catalog.DetailCache, config catalog.CacheInvalidationConfig) (*catalog.CacheInvalidationWorker, error) {
+	if detailCache == nil {
+		return nil, nil
+	}
+	return catalog.NewCacheInvalidationWorker(catalog.NewCacheInvalidationRepository(db), detailCache, config)
 }
 
 func catalogDSN(dsn string) (string, error) {

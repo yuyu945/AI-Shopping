@@ -280,13 +280,18 @@ func TestNewCacheInvalidationWorkerValidatesConfig(t *testing.T) {
 		{name: "nil store", cache: &fakeInvalidationCache{}},
 		{name: "nil cache", store: &fakeInvalidationStore{}},
 		{name: "poll interval", store: &fakeInvalidationStore{}, cache: &fakeInvalidationCache{}, mutate: func(c *CacheInvalidationConfig) { c.PollInterval = 0 }},
+		{name: "negative poll interval", store: &fakeInvalidationStore{}, cache: &fakeInvalidationCache{}, mutate: func(c *CacheInvalidationConfig) { c.PollInterval = -time.Second }},
 		{name: "batch size", store: &fakeInvalidationStore{}, cache: &fakeInvalidationCache{}, mutate: func(c *CacheInvalidationConfig) { c.BatchSize = 0 }},
 		{name: "lease duration", store: &fakeInvalidationStore{}, cache: &fakeInvalidationCache{}, mutate: func(c *CacheInvalidationConfig) { c.LeaseDuration = 0 }},
+		{name: "negative lease duration", store: &fakeInvalidationStore{}, cache: &fakeInvalidationCache{}, mutate: func(c *CacheInvalidationConfig) { c.LeaseDuration = -time.Second }},
 		{name: "max retries", store: &fakeInvalidationStore{}, cache: &fakeInvalidationCache{}, mutate: func(c *CacheInvalidationConfig) { c.MaxRetries = 0 }},
 		{name: "retry base delay", store: &fakeInvalidationStore{}, cache: &fakeInvalidationCache{}, mutate: func(c *CacheInvalidationConfig) { c.RetryBaseDelay = 0 }},
+		{name: "negative retry base delay", store: &fakeInvalidationStore{}, cache: &fakeInvalidationCache{}, mutate: func(c *CacheInvalidationConfig) { c.RetryBaseDelay = -time.Second }},
 		{name: "retry max delay", store: &fakeInvalidationStore{}, cache: &fakeInvalidationCache{}, mutate: func(c *CacheInvalidationConfig) { c.RetryMaxDelay = 0 }},
+		{name: "negative retry max delay", store: &fakeInvalidationStore{}, cache: &fakeInvalidationCache{}, mutate: func(c *CacheInvalidationConfig) { c.RetryMaxDelay = -time.Second }},
 		{name: "base exceeds max", store: &fakeInvalidationStore{}, cache: &fakeInvalidationCache{}, mutate: func(c *CacheInvalidationConfig) { c.RetryBaseDelay = c.RetryMaxDelay + time.Second }},
 		{name: "call timeout", store: &fakeInvalidationStore{}, cache: &fakeInvalidationCache{}, mutate: func(c *CacheInvalidationConfig) { c.CallTimeout = 0 }},
+		{name: "negative call timeout", store: &fakeInvalidationStore{}, cache: &fakeInvalidationCache{}, mutate: func(c *CacheInvalidationConfig) { c.CallTimeout = -time.Second }},
 		{name: "lease shorter than batch budget", store: &fakeInvalidationStore{}, cache: &fakeInvalidationCache{}, mutate: func(c *CacheInvalidationConfig) {
 			c.LeaseDuration = c.CallTimeout*time.Duration(c.BatchSize) - time.Nanosecond
 		}},

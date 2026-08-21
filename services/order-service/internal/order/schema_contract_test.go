@@ -41,6 +41,9 @@ func TestTradeSchemaOwnsCartAndOrderSnapshots(t *testing.T) {
 			t.Fatalf("trade schema %s must define %s as DECIMAL(12,2)", schemaPath, column)
 		}
 	}
+	if count := strings.Count(schemaText, "DECIMAL(12,2)"); count != 5 {
+		t.Fatalf("trade schema %s must define exactly five DECIMAL(12,2) amount columns, got %d", schemaPath, count)
+	}
 	foreignKeys := regexp.MustCompile(`(?m)CONSTRAINT\s+\w+\s+FOREIGN KEY\s+\([^)]*\)\s+REFERENCES\s+\w+\([^)]*\)`).FindAllString(schemaText, -1)
 	if len(foreignKeys) != 2 {
 		t.Fatalf("trade schema %s may only define cart_items->carts and order_items->orders foreign keys: %v", schemaPath, foreignKeys)

@@ -19,22 +19,20 @@ import (
 const integrationTimeout = 5 * time.Second
 
 func TestCacheInvalidationIntegration(t *testing.T) {
-	if os.Getenv("AI_SHOPPING_INTEGRATION") != "1" {
-		t.Skip("set AI_SHOPPING_INTEGRATION=1 to run integration tests")
+	config, run, err := cacheInvalidationIntegrationConfig(os.Getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !run {
+		t.Skip("set AI_SHOPPING_INTEGRATION=1 and AI_SHOPPING_INTEGRATION_ISOLATED=m12cacheverify to run isolated integration tests")
 	}
 
-	mysqlDSN := os.Getenv("AI_SHOPPING_MYSQL_DSN")
-	redisAddress := os.Getenv("AI_SHOPPING_REDIS_ADDR")
-	if mysqlDSN == "" || redisAddress == "" {
-		t.Fatal("AI_SHOPPING_MYSQL_DSN and AI_SHOPPING_REDIS_ADDR are required")
-	}
-
-	db, err := sql.Open("mysql", mysqlDSN)
+	db, err := sql.Open("mysql", config.mysqlDSN)
 	if err != nil {
 		t.Fatalf("open catalog database: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	redisClient := redis.NewClient(&redis.Options{Addr: redisAddress})
+	redisClient := redis.NewClient(&redis.Options{Addr: config.redisAddr, DB: config.redisDB})
 	t.Cleanup(func() { _ = redisClient.Close() })
 
 	pingCtx, cancelPing := context.WithTimeout(context.Background(), integrationTimeout)
@@ -52,6 +50,7 @@ func TestCacheInvalidationIntegration(t *testing.T) {
 	if err := redisClient.Ping(pingCtx).Err(); err != nil {
 		t.Fatalf("ping Redis: %v", err)
 	}
+	assertIsolatedIntegrationState(t, db, redisClient)
 
 	fixture := discoverCatalogFixture(t, db)
 	cacheKeys := make([]string, 0, len(fixture.skuIDs)+1)
@@ -131,6 +130,27 @@ func TestCacheInvalidationIntegration(t *testing.T) {
 		assertCacheKeysExist(t, redisClient, cacheKeys, false)
 		assertTaskStatuses(t, loadTasksByID(t, db, taskIDs(tasks)), CacheInvalidationDone)
 	})
+}
+
+func assertIsolatedIntegrationState(t *testing.T, db *sql.DB, redisClient *redis.Client) {
+	t.Helper()
+	ctx := testContext(t)
+
+	var taskCount int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM cache_invalidation_tasks").Scan(&taskCount); err != nil {
+		t.Fatalf("count cache invalidation tasks: %v", err)
+	}
+	if taskCount != 0 {
+		t.Fatalf("cache_invalidation_tasks count = %d, want 0 in isolated integration database", taskCount)
+	}
+
+	keyCount, err := redisClient.DBSize(ctx).Result()
+	if err != nil {
+		t.Fatalf("read Redis DB size: %v", err)
+	}
+	if keyCount != 0 {
+		t.Fatalf("Redis DB size = %d, want 0 in isolated integration database", keyCount)
+	}
 }
 
 type catalogFixture struct {

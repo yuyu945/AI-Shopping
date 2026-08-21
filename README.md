@@ -27,11 +27,13 @@ M1.2 的商品读链路已完成真实 Docker MySQL/Redis 依赖和 Gateway HTTP
 
 真实 Docker MySQL 验证覆盖两位用户的注册与登录、JWT Profile 访问、首地址默认、切换默认地址、地址列表及跨用户地址删除返回 404。JWT、密码、密码 Hash、地址和电话不会出现在 HTTP 响应或服务日志中。
 
-缓存失效 integration test 使用真实 MySQL/Redis，默认不连接外部依赖。先设置仅限本地测试环境的 `AI_SHOPPING_MYSQL_DSN`（指向 `catalog_db`）和 `AI_SHOPPING_REDIS_ADDR`，再显式运行：
+缓存失效 integration test 使用真实 MySQL/Redis，默认不连接外部依赖。`AI_SHOPPING_MYSQL_DSN` 必须指向专用 Docker project 的 `catalog_db`，`AI_SHOPPING_REDIS_ADDR` 必须指向同一专用环境；测试会在写入前确认 `cache_invalidation_tasks` 和所选 Redis DB 都为空。再显式运行：
 
 ```powershell
 $env:AI_SHOPPING_INTEGRATION = '1'
+$env:AI_SHOPPING_INTEGRATION_ISOLATED = 'm12cacheverify'
+$env:AI_SHOPPING_REDIS_DB = '15'
 go test -tags=integration ./services/product-service/internal/catalog -run '^TestCacheInvalidationIntegration$' -count=1 -v
 ```
 
-测试会动态发现 seed 商品、预载全商品与 SKU cache key，并验证正常立即删除、持久化延迟任务、worker 完成，以及首次 Redis 删除失败后由 `PENDING` 收敛到 `DONE`；测试结束会恢复商品详情和版本并清理 task/cache key。M1.2 已完成，下一里程碑是 M2 交易闭环与一致性；RAG 和 Agent 功能随后按 `docs/TASKS.md` 实现。
+`AI_SHOPPING_INTEGRATION_ISOLATED` 必须精确为 `m12cacheverify`，`AI_SHOPPING_REDIS_DB` 必须为非零的专用 Redis DB index；任一隔离条件不满足时测试不会执行写入。测试会动态发现 seed 商品、预载全商品与 SKU cache key，并验证正常立即删除、持久化延迟任务、worker 完成，以及首次 Redis 删除失败后由 `PENDING` 收敛到 `DONE`；测试结束只恢复该商品并清理它创建的 task/cache key。M1.2 已完成，下一里程碑是 M2 交易闭环与一致性；RAG 和 Agent 功能随后按 `docs/TASKS.md` 实现。

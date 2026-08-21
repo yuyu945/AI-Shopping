@@ -52,6 +52,19 @@ func (f *fakeRepository) FindUserByEmail(ctx context.Context, email string) (Use
 
 type fakeHasher struct{}
 
+func (*fakeRepository) GetProfile(context.Context, uint64) (Profile, error) { return Profile{}, nil }
+func (*fakeRepository) UpdateProfile(context.Context, uint64, ProfileUpdate) (Profile, error) {
+	return Profile{}, nil
+}
+func (*fakeRepository) ListAddresses(context.Context, uint64) ([]Address, error) { return nil, nil }
+func (*fakeRepository) CreateAddress(context.Context, uint64, AddressInput) (Address, error) {
+	return Address{}, nil
+}
+func (*fakeRepository) UpdateAddress(context.Context, uint64, uint64, AddressInput) (Address, error) {
+	return Address{}, nil
+}
+func (*fakeRepository) DeleteAddress(context.Context, uint64, uint64) error { return nil }
+
 func (fakeHasher) Hash(string) (string, error)  { return "hash", nil }
 func (fakeHasher) Compare(string, string) error { return nil }
 func newTestManager(t *testing.T) *platformauth.Manager {

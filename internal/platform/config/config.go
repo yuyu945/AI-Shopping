@@ -12,6 +12,7 @@ const (
 	kafkaBrokersEnv  = "AI_SHOPPING_KAFKA_BROKERS"
 	minIOEndpointEnv = "AI_SHOPPING_MINIO_ENDPOINT"
 	milvusAddressEnv = "AI_SHOPPING_MILVUS_ADDRESS"
+	jwtSecretEnv     = "AI_SHOPPING_JWT_SECRET"
 )
 
 // Config contains the infrastructure endpoints required by the MVP services.
@@ -22,18 +23,20 @@ type Config struct {
 	KafkaBrokers  string
 	MinIOEndpoint string
 	MilvusAddress string
+	JWTSecret     string
 }
 
 // Load reads and validates the required AI_SHOPPING_ environment variables.
 // Validation errors identify only the missing variable and never include values.
 func Load() (Config, error) {
-	values := make(map[string]string, 5)
+	values := make(map[string]string, 6)
 	for _, name := range []string{
 		mysqlDSNEnv,
 		redisAddrEnv,
 		kafkaBrokersEnv,
 		minIOEndpointEnv,
 		milvusAddressEnv,
+		jwtSecretEnv,
 	} {
 		value := os.Getenv(name)
 		if value == "" {
@@ -48,5 +51,6 @@ func Load() (Config, error) {
 		KafkaBrokers:  values[kafkaBrokersEnv],
 		MinIOEndpoint: values[minIOEndpointEnv],
 		MilvusAddress: values[milvusAddressEnv],
+		JWTSecret:     values[jwtSecretEnv],
 	}, nil
 }

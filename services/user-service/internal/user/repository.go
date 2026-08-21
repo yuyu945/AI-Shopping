@@ -90,6 +90,26 @@ func (r *Repository) UpdateProfile(ctx context.Context, userID uint64, update Pr
 	return r.GetProfile(ctx, userID)
 }
 
+func (r *Repository) ListAddresses(ctx context.Context, userID uint64) ([]Address, error) {
+	rows, err := r.db.QueryContext(ctx, "SELECT id, receiver_name, receiver_phone, province, city, district, detail, is_default FROM user_addresses WHERE user_id = ? ORDER BY is_default DESC, id ASC", userID)
+	if err != nil {
+		return nil, fmt.Errorf("list addresses: %w", err)
+	}
+	defer rows.Close()
+	addresses := make([]Address, 0)
+	for rows.Next() {
+		var item Address
+		if err := rows.Scan(&item.ID, &item.ReceiverName, &item.ReceiverPhone, &item.Province, &item.City, &item.District, &item.Detail, &item.IsDefault); err != nil {
+			return nil, fmt.Errorf("scan address: %w", err)
+		}
+		addresses = append(addresses, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate addresses: %w", err)
+	}
+	return addresses, nil
+}
+
 func (r *Repository) CreateAddress(ctx context.Context, userID uint64, input AddressInput) (Address, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {

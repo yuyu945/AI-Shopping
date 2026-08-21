@@ -14,6 +14,7 @@ var requiredEnvironment = map[string]string{
 	"AI_SHOPPING_KAFKA_BROKERS":  "kafka-1:9092,kafka-2:9092",
 	"AI_SHOPPING_MINIO_ENDPOINT": "minio:9000",
 	"AI_SHOPPING_MILVUS_ADDRESS": "milvus:19530",
+	"AI_SHOPPING_JWT_SECRET":     "01234567890123456789012345678901",
 }
 
 func setRequiredEnvironment(t *testing.T) {
@@ -68,6 +69,9 @@ func TestLoadReadsCompleteRequiredEnvironment(t *testing.T) {
 	}
 	if got.MilvusAddress != requiredEnvironment["AI_SHOPPING_MILVUS_ADDRESS"] {
 		t.Errorf("MilvusAddress = %q, want configured value", got.MilvusAddress)
+	}
+	if got.JWTSecret != requiredEnvironment["AI_SHOPPING_JWT_SECRET"] {
+		t.Errorf("JWTSecret = %q, want configured value", got.JWTSecret)
 	}
 }
 

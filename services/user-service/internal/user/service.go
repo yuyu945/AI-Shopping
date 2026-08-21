@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/mail"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,7 +23,56 @@ type AuthResult struct {
 type userRepository interface {
 	CreateUserWithProfile(context.Context, string, string) (User, error)
 	FindUserByEmail(context.Context, string) (User, error)
+	GetProfile(context.Context, uint64) (Profile, error)
+	UpdateProfile(context.Context, uint64, ProfileUpdate) (Profile, error)
+	ListAddresses(context.Context, uint64) ([]Address, error)
+	CreateAddress(context.Context, uint64, AddressInput) (Address, error)
+	UpdateAddress(context.Context, uint64, uint64, AddressInput) (Address, error)
+	DeleteAddress(context.Context, uint64, uint64) error
 }
+
+var decimalPattern = regexp.MustCompile(`^\d{1,10}(?:\.\d{1,2})?$`)
+
+func (s *UserService) GetMyProfile(ctx context.Context, userID uint64) (Profile, error) {
+	return s.repo.GetProfile(ctx, userID)
+}
+func (s *UserService) UpdateMyProfile(ctx context.Context, userID uint64, update ProfileUpdate) (Profile, error) {
+	if (update.BudgetMin != nil && !decimalPattern.MatchString(*update.BudgetMin)) || (update.BudgetMax != nil && !decimalPattern.MatchString(*update.BudgetMax)) || (update.BudgetMin != nil && update.BudgetMax != nil && *update.BudgetMin > *update.BudgetMax) {
+		return Profile{}, apperror.New(apperror.InvalidArgument, "invalid budget range")
+	}
+	return s.repo.UpdateProfile(ctx, userID, update)
+}
+func (s *UserService) ListMyAddresses(ctx context.Context, userID uint64) ([]Address, error) {
+	return s.repo.ListAddresses(ctx, userID)
+}
+func (s *UserService) CreateMyAddress(ctx context.Context, userID uint64, input AddressInput) (Address, error) {
+	if err := validateAddress(input); err != nil {
+		return Address{}, err
+	}
+	return s.repo.CreateAddress(ctx, userID, input)
+}
+func (s *UserService) UpdateMyAddress(ctx context.Context, userID, addressID uint64, input AddressInput) (Address, error) {
+	if addressID == 0 {
+		return Address{}, apperror.New(apperror.InvalidArgument, "address id is required")
+	}
+	if err := validateAddress(input); err != nil {
+		return Address{}, err
+	}
+	return s.repo.UpdateAddress(ctx, userID, addressID, input)
+}
+func (s *UserService) DeleteMyAddress(ctx context.Context, userID, addressID uint64) error {
+	if addressID == 0 {
+		return apperror.New(apperror.InvalidArgument, "address id is required")
+	}
+	return s.repo.DeleteAddress(ctx, userID, addressID)
+}
+func validateAddress(input AddressInput) error {
+	if strings.TrimSpace(input.ReceiverName) == "" || strings.TrimSpace(input.ReceiverPhone) == "" || strings.TrimSpace(input.Province) == "" || strings.TrimSpace(input.City) == "" || strings.TrimSpace(input.District) == "" || strings.TrimSpace(input.Detail) == "" || len(input.ReceiverName) > 128 || len(input.ReceiverPhone) > 32 || len(input.Province) > 64 || len(input.City) > 64 || len(input.District) > 64 || len(input.Detail) > 512 {
+		return apperror.New(apperror.InvalidArgument, "invalid address")
+	}
+	return nil
+}
+
 type passwordHasher interface {
 	Hash(string) (string, error)
 	Compare(string, string) error
@@ -38,6 +88,9 @@ type UserService struct {
 }
 
 func NewUserService(repo userRepository, hasher passwordHasher, tokens tokenIssuer, now func() time.Time) *UserService {
+	if hasher == nil {
+		hasher = bcryptHasher{}
+	}
 	if now == nil {
 		now = time.Now
 	}

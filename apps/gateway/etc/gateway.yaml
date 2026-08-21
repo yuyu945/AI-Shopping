@@ -6,3 +6,7 @@ ProductRPC:
   Endpoints:
     - 127.0.0.1:9002
   Timeout: 2000
+UserRPC:
+  Endpoints:
+    - 127.0.0.1:9001
+  Timeout: 2000

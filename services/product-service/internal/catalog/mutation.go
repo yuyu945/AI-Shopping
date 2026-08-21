@@ -24,6 +24,9 @@ type CatalogMutationService struct {
 
 // NewCatalogMutationService constructs a catalog mutation service with explicit timing dependencies.
 func NewCatalogMutationService(store ProductMutationStore, cache DetailCache, now func() time.Time, delayedDeleteDelay, cacheCallTimeout time.Duration) (*CatalogMutationService, error) {
+	if delayedDeleteDelay <= 0 {
+		return nil, apperror.New(apperror.InvalidArgument, "delayed_delete_delay must be positive")
+	}
 	if cacheCallTimeout <= 0 {
 		return nil, apperror.New(apperror.InvalidArgument, "cache_call_timeout must be positive")
 	}

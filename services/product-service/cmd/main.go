@@ -24,7 +24,37 @@ const SERVICE_NAME = "product-service"
 
 type productServiceConfig struct {
 	zrpc.RpcServerConf
-	CacheInvalidation catalog.CacheInvalidationConfig
+	CacheInvalidation cacheInvalidationConfig
+}
+
+type cacheInvalidationConfig struct {
+	PollInterval       time.Duration
+	BatchSize          int
+	DelayedDeleteDelay time.Duration
+	LeaseDuration      time.Duration
+	MaxRetries         int
+	RetryBaseDelay     time.Duration
+	RetryMaxDelay      time.Duration
+}
+
+func (c productServiceConfig) cacheInvalidationWorkerConfig() catalog.CacheInvalidationConfig {
+	callTimeout := time.Duration(c.Timeout) * time.Millisecond
+	if c.CacheInvalidation.BatchSize > 0 {
+		// The worker processes a claimed batch serially, so individual calls must fit its lease.
+		leaseCallBudget := c.CacheInvalidation.LeaseDuration / time.Duration(c.CacheInvalidation.BatchSize)
+		if leaseCallBudget > 0 && callTimeout > leaseCallBudget {
+			callTimeout = leaseCallBudget
+		}
+	}
+	return catalog.CacheInvalidationConfig{
+		PollInterval:   c.CacheInvalidation.PollInterval,
+		BatchSize:      c.CacheInvalidation.BatchSize,
+		LeaseDuration:  c.CacheInvalidation.LeaseDuration,
+		MaxRetries:     c.CacheInvalidation.MaxRetries,
+		RetryBaseDelay: c.CacheInvalidation.RetryBaseDelay,
+		RetryMaxDelay:  c.CacheInvalidation.RetryMaxDelay,
+		CallTimeout:    callTimeout,
+	}
 }
 
 func main() {
@@ -68,17 +98,7 @@ func main() {
 
 	catalogRepository := catalog.NewRepository(db)
 	productService := catalog.NewProductService(catalogRepository, detailCache)
-	mutationRepository := catalog.NewMutationRepository(db)
-	if _, err := catalog.NewCatalogMutationService(
-		mutationRepository,
-		detailCache,
-		time.Now,
-		config.CacheInvalidation.RetryBaseDelay,
-		config.CacheInvalidation.CallTimeout,
-	); err != nil {
-		log.Fatalf("%s startup: invalid cache invalidation configuration", SERVICE_NAME)
-	}
-	worker, err := buildCacheInvalidationWorker(db, detailCache, config.CacheInvalidation)
+	_, worker, err := buildCatalogMutationComponents(db, detailCache, config)
 	if err != nil {
 		log.Fatalf("%s startup: invalid cache invalidation configuration", SERVICE_NAME)
 	}
@@ -139,11 +159,26 @@ func buildDetailCache(ctx context.Context, address string, timeout time.Duration
 	return client.DetailCache(), func() { _ = client.Close() }, nil
 }
 
-func buildCacheInvalidationWorker(db *sql.DB, detailCache catalog.DetailCache, config catalog.CacheInvalidationConfig) (*catalog.CacheInvalidationWorker, error) {
-	if detailCache == nil {
-		return nil, nil
+func buildCatalogMutationComponents(db *sql.DB, detailCache catalog.DetailCache, config productServiceConfig) (*catalog.CatalogMutationService, *catalog.CacheInvalidationWorker, error) {
+	workerConfig := config.cacheInvalidationWorkerConfig()
+	mutationService, err := catalog.NewCatalogMutationService(
+		catalog.NewMutationRepository(db),
+		detailCache,
+		time.Now,
+		config.CacheInvalidation.DelayedDeleteDelay,
+		workerConfig.CallTimeout,
+	)
+	if err != nil {
+		return nil, nil, err
 	}
-	return catalog.NewCacheInvalidationWorker(catalog.NewCacheInvalidationRepository(db), detailCache, config)
+	if detailCache == nil {
+		return mutationService, nil, nil
+	}
+	worker, err := catalog.NewCacheInvalidationWorker(catalog.NewCacheInvalidationRepository(db), detailCache, workerConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	return mutationService, worker, nil
 }
 
 func catalogDSN(dsn string) (string, error) {

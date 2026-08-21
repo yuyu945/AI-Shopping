@@ -99,7 +99,7 @@ CREATE TABLE cache_invalidation_tasks (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     cache_key VARCHAR(256) NOT NULL,
     execute_at DATETIME(3) NOT NULL,
-    retry_count INT NOT NULL DEFAULT 0,
+    retry_count INT UNSIGNED NOT NULL DEFAULT 0,
     status VARCHAR(16) NOT NULL,
     last_error VARCHAR(512) NULL,
     locked_at DATETIME(3) NULL,

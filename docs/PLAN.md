@@ -6,13 +6,13 @@
 
 ## Current Behavior
 
-当前仓库已完成 M1.1 工程 bootstrap 与 M1.2 商品读链路：Go workspace、Gateway/五个服务启动骨架、Docker Compose 依赖栈、五个逻辑 schema、catalog seed、商品 gRPC/HTTP 读接口和 Redis Cache Aside 均已建立。用户认证、交易、RAG 和 Agent 仍待后续里程碑开发。详见 [智选购 AI 导购 MVP 设计文档](智选购-ai导购-mvp-design.md)。
+当前仓库已完成 M1.1 工程 bootstrap 和 M1.2 用户、商品与缓存路径：Go workspace、Gateway/五个服务启动骨架、Docker Compose 依赖栈、五个逻辑 schema、catalog seed、商品 gRPC/HTTP 读接口、Redis Cache Aside、用户认证与资源归属校验均已建立。商品详情写入会在同一 MySQL transaction 中更新商品事实并持久化 cache invalidation task，提交后执行 best-effort immediate delete；scheduler/worker 负责延迟二次删除、lease、退避重试和重试耗尽后的 `DEAD` 状态。真实 MySQL/Redis integration test 已验证正常删除和首次 Redis 删除失败后的 `PENDING -> DONE` 收敛。下一里程碑是 M2 交易闭环；RAG 和 Agent 仍待后续里程碑开发。详见 [智选购 AI 导购 MVP 设计文档](智选购-ai导购-mvp-design.md)。
 
 ## Proposed Solution
 
 按 [TASKS.md](TASKS.md) 的 M1-M6 依赖顺序建设：先让商品读路径和本地依赖可用，再完成本地强一致交易，随后建立可重放的 RAG 事件链和受控 Agent，最后接入页面、运营排障和端到端验证。
 
-任何实现都以以下边界为前提：MySQL 是交易事实源；Redis 仅承担读缓存和短期状态；Kafka 承担知识库和行为/评价事件，不承担缓存删除；LLM 仅输出候选 SKU 与理由，业务 Tool 负责最终校验。
+任何实现都以以下边界为前提：MySQL 是商品、库存、cache invalidation task 和交易的事实源；Redis 仅承担读缓存和短期状态，Redis 不可用时商品读取回源 MySQL，写入提交后的 immediate delete failure 由持久化 task 异步收敛；Kafka 承担知识库和行为/评价事件，不承担缓存删除；LLM 仅输出候选 SKU 与理由，业务 Tool 负责最终校验。
 
 ## Risks
 

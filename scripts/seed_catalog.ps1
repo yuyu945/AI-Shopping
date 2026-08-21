@@ -15,12 +15,12 @@ if (-not (Test-Path -LiteralPath $SeedFile)) {
 
 Write-Output "Applying catalog seed to $Container..."
 Get-Content -LiteralPath $SeedFile -Raw |
-    docker exec -i -e MYSQL_PWD=$env:MYSQL_ROOT_PASSWORD $Container mysql -uroot
+    docker exec -i $Container sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot'
 if ($LASTEXITCODE -ne 0) {
     throw 'Catalog seed failed.'
 }
 
-$counts = docker exec -e MYSQL_PWD=$env:MYSQL_ROOT_PASSWORD $Container mysql -uroot -N -e "SELECT CONCAT('products=', COUNT(*)) FROM catalog_db.products; SELECT CONCAT('skus=', COUNT(*)) FROM catalog_db.product_skus; SELECT CONCAT('promotions=', COUNT(*)) FROM catalog_db.promotion_rules;"
+$counts = docker exec $Container sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -N -e "$1"' -- "SELECT CONCAT('products=', COUNT(*)) FROM catalog_db.products; SELECT CONCAT('skus=', COUNT(*)) FROM catalog_db.product_skus; SELECT CONCAT('promotions=', COUNT(*)) FROM catalog_db.promotion_rules;"
 if ($LASTEXITCODE -ne 0) {
     throw 'Catalog seed verification failed.'
 }

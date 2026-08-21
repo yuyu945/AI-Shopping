@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -21,12 +22,47 @@ import (
 
 const SERVICE_NAME = "product-service"
 
+type productServiceConfig struct {
+	zrpc.RpcServerConf
+	CacheInvalidation cacheInvalidationConfig
+}
+
+type cacheInvalidationConfig struct {
+	PollInterval       time.Duration
+	BatchSize          int
+	DelayedDeleteDelay time.Duration
+	LeaseDuration      time.Duration
+	MaxRetries         int
+	RetryBaseDelay     time.Duration
+	RetryMaxDelay      time.Duration
+}
+
+func (c productServiceConfig) cacheInvalidationWorkerConfig() catalog.CacheInvalidationConfig {
+	callTimeout := time.Duration(c.Timeout) * time.Millisecond
+	if c.CacheInvalidation.BatchSize > 0 {
+		// The worker processes a claimed batch serially, so individual calls must fit its lease.
+		leaseCallBudget := c.CacheInvalidation.LeaseDuration / time.Duration(c.CacheInvalidation.BatchSize)
+		if leaseCallBudget > 0 && callTimeout > leaseCallBudget {
+			callTimeout = leaseCallBudget
+		}
+	}
+	return catalog.CacheInvalidationConfig{
+		PollInterval:   c.CacheInvalidation.PollInterval,
+		BatchSize:      c.CacheInvalidation.BatchSize,
+		LeaseDuration:  c.CacheInvalidation.LeaseDuration,
+		MaxRetries:     c.CacheInvalidation.MaxRetries,
+		RetryBaseDelay: c.CacheInvalidation.RetryBaseDelay,
+		RetryMaxDelay:  c.CacheInvalidation.RetryMaxDelay,
+		CallTimeout:    callTimeout,
+	}
+}
+
 func main() {
 	var configFile string
 	flag.StringVar(&configFile, "f", "services/product-service/etc/product-service.yaml", "Service configuration file")
 	flag.Parse()
 
-	var config zrpc.RpcServerConf
+	var config productServiceConfig
 	if err := conf.Load(configFile, &config); err != nil {
 		log.Fatalf("%s startup: %v", SERVICE_NAME, err)
 	}
@@ -62,13 +98,27 @@ func main() {
 
 	catalogRepository := catalog.NewRepository(db)
 	productService := catalog.NewProductService(catalogRepository, detailCache)
-	rpcServer, err := zrpc.NewServer(config, func(server *grpc.Server) {
+	_, worker, err := buildCatalogMutationComponents(db, detailCache, config)
+	if err != nil {
+		log.Fatalf("%s startup: invalid cache invalidation configuration", SERVICE_NAME)
+	}
+
+	rpcServer, err := zrpc.NewServer(config.RpcServerConf, func(server *grpc.Server) {
 		productpb.RegisterProductServiceServer(server, productserver.NewGRPCServer(productService, time.Duration(config.Timeout)*time.Millisecond))
 	})
 	if err != nil {
 		log.Fatalf("%s create rpc server: %v", SERVICE_NAME, err)
 	}
 	defer rpcServer.Stop()
+	if worker != nil {
+		workerCtx, cancelWorker := context.WithCancel(context.Background())
+		defer cancelWorker()
+		go func() {
+			if err := worker.Run(workerCtx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Printf("%s cache invalidation worker stopped", SERVICE_NAME)
+			}
+		}()
+	}
 	rpcServer.Start()
 }
 
@@ -107,6 +157,68 @@ func buildDetailCache(ctx context.Context, address string, timeout time.Duration
 		return nil, nil, fmt.Errorf("product cache unavailable")
 	}
 	return client.DetailCache(), func() { _ = client.Close() }, nil
+}
+
+func buildCatalogMutationComponents(db *sql.DB, detailCache catalog.DetailCache, config productServiceConfig) (*catalog.CatalogMutationService, *catalog.CacheInvalidationWorker, error) {
+	workerConfig := config.cacheInvalidationWorkerConfig()
+	if err := validateCacheInvalidationConfig(config.CacheInvalidation.DelayedDeleteDelay, workerConfig); err != nil {
+		return nil, nil, err
+	}
+	mutationService, err := catalog.NewCatalogMutationService(
+		catalog.NewMutationRepository(db),
+		detailCache,
+		time.Now,
+		config.CacheInvalidation.DelayedDeleteDelay,
+		workerConfig.CallTimeout,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	if detailCache == nil {
+		return mutationService, nil, nil
+	}
+	worker, err := catalog.NewCacheInvalidationWorker(catalog.NewCacheInvalidationRepository(db), detailCache, workerConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	return mutationService, worker, nil
+}
+
+func validateCacheInvalidationConfig(delayedDeleteDelay time.Duration, config catalog.CacheInvalidationConfig) error {
+	if delayedDeleteDelay <= 0 {
+		return errors.New("delayed delete delay must be positive")
+	}
+	if config.PollInterval <= 0 {
+		return errors.New("poll interval must be positive")
+	}
+	if config.BatchSize <= 0 {
+		return errors.New("batch size must be positive")
+	}
+	if config.LeaseDuration <= 0 {
+		return errors.New("lease duration must be positive")
+	}
+	if config.MaxRetries <= 0 {
+		return errors.New("max retries must be positive")
+	}
+	if config.RetryBaseDelay <= 0 {
+		return errors.New("retry base delay must be positive")
+	}
+	if config.RetryMaxDelay <= 0 {
+		return errors.New("retry max delay must be positive")
+	}
+	if config.RetryBaseDelay > config.RetryMaxDelay {
+		return errors.New("retry base delay must not exceed retry max delay")
+	}
+	if config.CallTimeout <= 0 {
+		return errors.New("call timeout must be positive")
+	}
+	if config.CallTimeout > time.Duration((1<<63-1)/int64(config.BatchSize)) {
+		return errors.New("batch call timeout budget exceeds duration limit")
+	}
+	if config.LeaseDuration < config.CallTimeout*time.Duration(config.BatchSize) {
+		return errors.New("lease duration must cover the batch call timeout budget")
+	}
+	return nil
 }
 
 func catalogDSN(dsn string) (string, error) {

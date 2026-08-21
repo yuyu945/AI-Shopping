@@ -1,6 +1,6 @@
 # 智选购 AI Shopping
 
-M1.1 已完成：Go-zero Gateway 与五个服务启动骨架、共享运行时基础、MySQL/Redis/Kafka/Milvus/MinIO 本地依赖和五个逻辑 schema 已建立。
+M1 已完成：Go-zero Gateway 与五个服务启动骨架、共享运行时基础、MySQL/Redis/Kafka/Milvus/MinIO 本地依赖、五个逻辑 schema，以及用户认证、商品读取和商品缓存失效链路均已建立。
 
 ## Local bootstrap
 
@@ -11,7 +11,7 @@ M1.1 已完成：Go-zero Gateway 与五个服务启动骨架、共享运行时�
 
 Compose 宿主端口默认只绑定 `127.0.0.1`。如果本机 `6379` 已被占用，可用 `REDIS_PORT=6380` 启动，并将应用连接地址同步为 `localhost:6380`；容器网络内仍使用 `redis:6379`。
 
-## M1.2 商品读链路
+## M1.2 商品与用户读链路
 
 商品 seed 是幂等的。设置本地 `MYSQL_ROOT_PASSWORD` 后运行：
 
@@ -19,8 +19,26 @@ Compose 宿主端口默认只绑定 `127.0.0.1`。如果本机 `6379` 已被占�
 pwsh -File scripts/seed_catalog.ps1
 ```
 
-product-service 读取 MySQL 商品事实并以 Cache Aside 方式缓存详情；Redis 不可用时会自动回源 MySQL。Gateway 商品接口：`GET /api/v1/products`、`GET /api/v1/products/{id}`，支持 `keyword`、`category_id`、`page`、`page_size` 和可选 `sku_id`。
+product-service 读取 MySQL 商品事实并以 Cache Aside 方式缓存详情；Redis 不可用时会自动回源 MySQL。商品详情写入 transaction 同时持久化 `cache_invalidation_tasks`，提交后立即删除全商品和各 SKU cache key；立即删除失败不会回滚已经提交的 MySQL 事实，scheduler/worker 会执行延迟二次删除并对失败任务退避重试。Redis 只承担读优化，不是商品、库存或失效任务的事实源。Gateway 商品接口：`GET /api/v1/products`、`GET /api/v1/products/{id}`，支持 `keyword`、`category_id`、`page`、`page_size` 和可选 `sku_id`。
 
 默认 product-service 配置使用 etcd 服务发现；宿主机直连调试需确保 etcd 暴露 `127.0.0.1:2379`，或使用不含 `Etcd` 段的临时 RPC 配置。
 
-M1.2 已完成真实 Docker MySQL/Redis 依赖和 Gateway HTTP 读链路验证。后续交易、RAG 和 Agent 功能按 `docs/TASKS.md` 的里程碑实现。
+M1.2 的商品读链路已完成真实 Docker MySQL/Redis 依赖和 Gateway HTTP 验证。用户认证链路也已完成：Gateway 公开 `POST /api/v1/auth/register`、`POST /api/v1/auth/login`，并通过 JWT 保护 `/api/v1/users/me`、`/api/v1/users/me/profile` 和 `/api/v1/users/me/addresses`。`AI_SHOPPING_JWT_SECRET` 是 Gateway 和 user-service 的必填环境变量，必须至少 32 bytes，且只保存在本地环境或秘密管理系统。
+
+真实 Docker MySQL 验证覆盖两位用户的注册与登录、JWT Profile 访问、首地址默认、切换默认地址、地址列表及跨用户地址删除返回 404。JWT、密码、密码 Hash、地址和电话不会出现在 HTTP 响应或服务日志中。
+
+缓存失效 integration test 使用真实 MySQL/Redis，默认不连接外部依赖。`AI_SHOPPING_MYSQL_DSN` 必须指向专用 Docker project 的 `catalog_db`，`AI_SHOPPING_REDIS_ADDR` 必须指向同一专用环境；测试会在写入前确认 `cache_invalidation_tasks` 和所选 Redis DB 都为空。再显式运行：
+
+```powershell
+$runID = [guid]::NewGuid().ToString()
+$env:MYSQL_ROOT_PASSWORD = '<temporary local value>'
+pwsh -File scripts/prepare_cache_invalidation_integration.ps1 -RunID $runID
+
+$env:AI_SHOPPING_INTEGRATION = '1'
+$env:AI_SHOPPING_INTEGRATION_ISOLATED = 'm12cacheverify'
+$env:AI_SHOPPING_REDIS_DB = '15'
+$env:AI_SHOPPING_INTEGRATION_RUN_ID = $runID
+go test -tags=integration ./services/product-service/internal/catalog -run '^TestCacheInvalidationIntegration$' -count=1 -v
+```
+
+先以 `COMPOSE_PROJECT_NAME=m12cacheverify` 启动专用 MySQL/Redis project；准备脚本只接受健康的 `m12cacheverify-mysql-1` 容器，并在该 disposable `catalog_db` 写入 UUID guard row。`AI_SHOPPING_INTEGRATION_ISOLATED` 必须精确为 `m12cacheverify`，`AI_SHOPPING_REDIS_DB` 必须为非零的专用 Redis DB index，`AI_SHOPPING_INTEGRATION_RUN_ID` 必须匹配数据库中的 guard row；任一隔离条件不满足时测试不会执行写入。测试会动态发现 seed 商品、预载全商品与 SKU cache key，并验证正常立即删除、持久化延迟任务、worker 完成，以及首次 Redis 删除失败后由 `PENDING` 收敛到 `DONE`；测试结束只删除实际创建的 task ID，并仅在产品仍处于测试写入的版本时恢复 fixture。M1.2 已完成，下一里程碑是 M2 交易闭环与一致性；RAG 和 Agent 功能随后按 `docs/TASKS.md` 实现。

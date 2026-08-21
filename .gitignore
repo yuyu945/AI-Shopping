@@ -27,3 +27,6 @@ coverage/
 
 # Docker Compose local data
 deploy/volumes/
+
+# Local Git worktrees
+.worktrees/

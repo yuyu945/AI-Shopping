@@ -29,11 +29,12 @@ func (f *fakeProductRepository) GetProduct(ctx context.Context, id uint64, skuID
 }
 
 type fakeDetailCache struct {
-	values map[string][]byte
-	gets   []string
-	sets   []cacheSet
-	dels   []string
-	getErr error
+	values    map[string][]byte
+	gets      []string
+	sets      []cacheSet
+	dels      []string
+	getErr    error
+	beforeGet func()
 }
 
 type cacheSet struct {
@@ -45,6 +46,9 @@ type cacheSet struct {
 func newFakeDetailCache() *fakeDetailCache { return &fakeDetailCache{values: map[string][]byte{}} }
 func (f *fakeDetailCache) Get(_ context.Context, key string) ([]byte, error) {
 	f.gets = append(f.gets, key)
+	if f.beforeGet != nil {
+		f.beforeGet()
+	}
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
@@ -122,6 +126,62 @@ func TestProductServiceGetProductCacheHitSkipsRepository(t *testing.T) {
 	got, err := NewProductService(repo, cache).GetProduct(context.Background(), 10, nil)
 	if err != nil || got.Title != "cached" {
 		t.Fatalf("unexpected cached result: %#v, %v", got, err)
+	}
+}
+
+func TestProductServiceGetProductFreezesSKUIdentityBeforeCacheRead(t *testing.T) {
+	requestedSKU := uint64(7)
+	cache := newFakeDetailCache()
+	cache.beforeGet = func() { requestedSKU = 8 }
+	repo := &fakeProductRepository{getFn: func(_ context.Context, id uint64, skuID *uint64) (ProductDetail, error) {
+		if id != 10 || skuID == nil || *skuID != 7 {
+			t.Fatalf("repository received mutable SKU: %d, %v", id, skuID)
+		}
+		return ProductDetail{ProductSummary: ProductSummary{ID: id}, SKUs: []SKUDetail{{ID: 7}}}, nil
+	}}
+	_, err := NewProductService(repo, cache).GetProduct(context.Background(), 10, &requestedSKU)
+	if err != nil || len(cache.gets) != 1 || cache.gets[0] != ProductCacheKey(10, func() *uint64 { v := uint64(7); return &v }()) {
+		t.Fatalf("SKU identity was not frozen: gets=%v err=%v", cache.gets, err)
+	}
+}
+
+func TestProductServiceRejectsInvalidCachedDetailIdentity(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload ProductDetail
+		skuID   *uint64
+	}{
+		{name: "null", payload: ProductDetail{}, skuID: nil},
+		{name: "wrong product", payload: ProductDetail{ProductSummary: ProductSummary{ID: 11}}, skuID: nil},
+	}
+	requestedSKU := uint64(7)
+	tests = append(tests, struct {
+		name    string
+		payload ProductDetail
+		skuID   *uint64
+	}{name: "missing requested sku", payload: ProductDetail{ProductSummary: ProductSummary{ID: 10}, SKUs: []SKUDetail{{ID: 8}}}, skuID: &requestedSKU})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cache := newFakeDetailCache()
+			key := ProductCacheKey(10, tt.skuID)
+			if tt.name == "null" {
+				cache.values[key] = []byte("null")
+			} else {
+				cache.values[key], _ = json.Marshal(tt.payload)
+			}
+			repo := &fakeProductRepository{getFn: func(_ context.Context, id uint64, skuID *uint64) (ProductDetail, error) {
+				result := ProductDetail{ProductSummary: ProductSummary{ID: id}}
+				if skuID != nil {
+					result.SKUs = []SKUDetail{{ID: *skuID}}
+				}
+				return result, nil
+			}}
+			got, err := NewProductService(repo, cache).GetProduct(context.Background(), 10, tt.skuID)
+			if err != nil || got.ID != 10 || len(cache.dels) != 1 || repo.getN != 1 {
+				t.Fatalf("invalid cache was accepted: got=%#v err=%v deletes=%v repo=%d", got, err, cache.dels, repo.getN)
+			}
+		})
 	}
 }
 

@@ -54,11 +54,14 @@ func (s *ProductService) ListProducts(ctx context.Context, filter ProductFilter)
 
 // GetProduct reads a detail from cache first and falls back to the repository.
 func (s *ProductService) GetProduct(ctx context.Context, productID uint64, skuID *uint64) (ProductDetailDTO, error) {
-	key := ProductCacheKey(productID, skuID)
+	// Freeze the optional identifier before any cache or repository call. The
+	// caller may reuse and mutate its pointer while an external dependency runs.
+	requestedSKU := cloneUint64Ptr(skuID)
+	key := ProductCacheKey(productID, requestedSKU)
 	if s.cache != nil {
 		if payload, err := s.cache.Get(ctx, key); err == nil {
 			var cached ProductDetail
-			if json.Unmarshal(payload, &cached) == nil {
+			if json.Unmarshal(payload, &cached) == nil && validCachedDetail(cached, productID, requestedSKU) {
 				return cloneProductDetail(cached), nil
 			}
 			// A malformed value must not poison subsequent reads.
@@ -66,7 +69,7 @@ func (s *ProductService) GetProduct(ctx context.Context, productID uint64, skuID
 		}
 	}
 
-	detail, err := s.repository.GetProduct(ctx, productID, skuID)
+	detail, err := s.repository.GetProduct(ctx, productID, requestedSKU)
 	if err != nil {
 		return ProductDetailDTO{}, safeProductError(err)
 	}
@@ -77,6 +80,21 @@ func (s *ProductService) GetProduct(ctx context.Context, productID uint64, skuID
 		}
 	}
 	return result, nil
+}
+
+func validCachedDetail(detail ProductDetail, productID uint64, skuID *uint64) bool {
+	if detail.ID == 0 || detail.ID != productID {
+		return false
+	}
+	if skuID == nil {
+		return true
+	}
+	for _, sku := range detail.SKUs {
+		if sku.ID == *skuID {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeProductFilter(filter ProductFilter) (ProductFilter, error) {

@@ -19,8 +19,14 @@ func TestTradeSchemaOwnsCartAndOrderSnapshots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read trade schema: %v", err)
 	}
+	migrationPath := filepath.Join(filepath.Dir(sourceFile), "..", "..", "..", "..", "deploy", "mysql", "migrations", "20260822_m2_1_trade_schema.sql")
+	migration, err := os.ReadFile(migrationPath)
+	if err != nil {
+		t.Fatalf("read trade migration: %v", err)
+	}
 
 	schemaText := string(schema)
+	migrationText := string(migration)
 	required := []string{
 		"CREATE TABLE carts",
 		"CREATE TABLE cart_items",
@@ -51,9 +57,21 @@ func TestTradeSchemaOwnsCartAndOrderSnapshots(t *testing.T) {
 	if strings.Contains(schemaText, "REFERENCES user_db.") || strings.Contains(schemaText, "REFERENCES catalog_db.") {
 		t.Fatalf("trade schema %s must not define cross-service foreign keys", schemaPath)
 	}
-	for _, forbidden := range []string{"inventory_reservations", "payment_attempt_id", "reservation_id"} {
-		if strings.Contains(schemaText, forbidden) {
-			t.Fatalf("trade schema %s must not contain M2.2 field %q", schemaPath, forbidden)
+	for name, source := range map[string]string{"init schema": schemaText, "M2.1 migration": migrationText} {
+		for _, forbidden := range []string{"inventory_reservations", "payment_attempt_id", "reservation_id"} {
+			if strings.Contains(source, forbidden) {
+				t.Fatalf("%s must not contain M2.2 field %q", name, forbidden)
+			}
+		}
+	}
+	for name, source := range map[string]string{"init schema": schemaText, "M2.1 migration": migrationText} {
+		for _, check := range []string{
+			"CONSTRAINT chk_cart_items_quantity_positive CHECK (quantity > 0)",
+			"CONSTRAINT chk_order_items_quantity_positive CHECK (quantity > 0)",
+		} {
+			if !strings.Contains(source, check) {
+				t.Fatalf("%s must contain %q", name, check)
+			}
 		}
 	}
 }

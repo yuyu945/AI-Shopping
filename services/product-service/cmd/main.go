@@ -53,17 +53,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("%s ping catalog database: database unavailable", SERVICE_NAME)
 	}
-	redisClient := redis.NewClient(&redis.Options{Addr: runtimeConfig.RedisAddr, DialTimeout: 5 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second})
-	redisCtx, redisCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	err = redisClient.Ping(redisCtx).Err()
-	redisCancel()
-	if err != nil {
-		log.Fatalf("%s ping product cache: dependency unavailable", SERVICE_NAME)
+	detailCache, closeCache, cacheErr := buildDetailCache(context.Background(), runtimeConfig.RedisAddr, 5*time.Second, newRedisCacheClient)
+	if cacheErr != nil {
+		log.Printf("%s product cache disabled: dependency unavailable", SERVICE_NAME)
+	} else {
+		defer closeCache()
 	}
-	defer redisClient.Close()
 
 	catalogRepository := catalog.NewRepository(db)
-	productService := catalog.NewProductService(catalogRepository, catalog.NewRedisDetailCache(redisClient))
+	productService := catalog.NewProductService(catalogRepository, detailCache)
 	rpcServer, err := zrpc.NewServer(config, func(server *grpc.Server) {
 		productpb.RegisterProductServiceServer(server, productserver.NewGRPCServer(productService, time.Duration(config.Timeout)*time.Millisecond))
 	})
@@ -72,6 +70,43 @@ func main() {
 	}
 	defer rpcServer.Stop()
 	rpcServer.Start()
+}
+
+type redisOptions struct {
+	Addr    string
+	Timeout time.Duration
+}
+
+type cacheClient interface {
+	Ping(context.Context) error
+	Close() error
+	DetailCache() catalog.DetailCache
+}
+
+type redisCacheClient struct{ client *redis.Client }
+
+func newRedisCacheClient(options redisOptions) cacheClient {
+	return &redisCacheClient{client: redis.NewClient(&redis.Options{
+		Addr: options.Addr, DialTimeout: options.Timeout, ReadTimeout: options.Timeout, WriteTimeout: options.Timeout,
+	})}
+}
+
+func (c *redisCacheClient) Ping(ctx context.Context) error { return c.client.Ping(ctx).Err() }
+func (c *redisCacheClient) Close() error                   { return c.client.Close() }
+func (c *redisCacheClient) DetailCache() catalog.DetailCache {
+	return catalog.NewRedisDetailCache(c.client)
+}
+
+func buildDetailCache(ctx context.Context, address string, timeout time.Duration, newClient func(redisOptions) cacheClient) (catalog.DetailCache, func(), error) {
+	client := newClient(redisOptions{Addr: address, Timeout: timeout})
+	pingCtx, cancel := context.WithTimeout(ctx, timeout)
+	err := client.Ping(pingCtx)
+	cancel()
+	if err != nil {
+		_ = client.Close()
+		return nil, nil, fmt.Errorf("product cache unavailable")
+	}
+	return client.DetailCache(), func() { _ = client.Close() }, nil
 }
 
 func catalogDSN(dsn string) (string, error) {

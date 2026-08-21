@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"sort"
 	"sync"
@@ -17,6 +18,8 @@ import (
 )
 
 const integrationTimeout = 5 * time.Second
+
+const cacheInvalidationIntegrationGuardTable = "cache_invalidation_integration_guards"
 
 func TestCacheInvalidationIntegration(t *testing.T) {
 	config, run, err := cacheInvalidationIntegrationConfig(os.Getenv)
@@ -47,12 +50,17 @@ func TestCacheInvalidationIntegration(t *testing.T) {
 	if databaseName != "catalog_db" {
 		t.Fatalf("current database = %q, want catalog_db", databaseName)
 	}
+	assertDatabaseIntegrationGuard(t, db, config.runID)
 	if err := redisClient.Ping(pingCtx).Err(); err != nil {
 		t.Fatalf("ping Redis: %v", err)
 	}
 	assertIsolatedIntegrationState(t, db, redisClient)
 
 	fixture := discoverCatalogFixture(t, db)
+	cleanup := integrationFixtureCleanup{
+		expectedVersion: fixture.version,
+		expectedDetail:  fixture.detailMarkdown,
+	}
 	cacheKeys := make([]string, 0, len(fixture.skuIDs)+1)
 	cacheKeys = append(cacheKeys, ProductCacheKey(fixture.productID, nil))
 	for _, skuID := range fixture.skuIDs {
@@ -62,13 +70,16 @@ func TestCacheInvalidationIntegration(t *testing.T) {
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), integrationTimeout)
 		defer cancel()
-		for _, key := range cacheKeys {
-			if _, err := db.ExecContext(cleanupCtx, "DELETE FROM cache_invalidation_tasks WHERE cache_key = ? AND id > ?", key, fixture.initialTaskID); err != nil {
-				t.Errorf("clean up cache invalidation tasks for %q: %v", key, err)
+		for _, taskID := range cleanup.taskIDs {
+			if _, err := db.ExecContext(cleanupCtx, "DELETE FROM cache_invalidation_tasks WHERE id = ?", taskID); err != nil {
+				t.Errorf("clean up cache invalidation task %d: %v", taskID, err)
 			}
 		}
-		if _, err := db.ExecContext(cleanupCtx, "UPDATE products SET detail_markdown = ?, version = ?, updated_at = ? WHERE id = ?", fixture.detailMarkdown, fixture.version, fixture.updatedAt, fixture.productID); err != nil {
+		result, err := db.ExecContext(cleanupCtx, "UPDATE products SET detail_markdown = ?, version = ?, updated_at = ? WHERE id = ? AND version = ? AND detail_markdown <=> ?", fixture.detailMarkdown, fixture.version, fixture.updatedAt, fixture.productID, cleanup.expectedVersion, cleanup.expectedDetail)
+		if err != nil {
 			t.Errorf("restore seeded product: %v", err)
+		} else if affected, err := result.RowsAffected(); err != nil || affected != 1 {
+			t.Errorf("restore seeded product affected %d rows, want 1", affected)
 		}
 		if err := redisClient.Del(cleanupCtx, cacheKeys...).Err(); err != nil {
 			t.Errorf("clean up Redis keys: %v", err)
@@ -81,7 +92,6 @@ func TestCacheInvalidationIntegration(t *testing.T) {
 
 	t.Run("immediate deletion and delayed worker completion", func(t *testing.T) {
 		preloadCacheKeys(t, realCache, cacheKeys)
-		baselineTaskID := maxInvalidationTaskID(t, db)
 		mutationNow := time.Now().UTC()
 		service := newIntegrationMutationService(t, mutationRepository, realCache, mutationNow)
 
@@ -89,9 +99,12 @@ func TestCacheInvalidationIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("UpdateProductDetail() error = %v", err)
 		}
+		if err := cleanup.recordMutation(result); err != nil {
+			t.Fatal(err)
+		}
 		assertSameCacheKeys(t, result.CacheKeys, cacheKeys)
 		assertCacheKeysExist(t, redisClient, cacheKeys, false)
-		tasks := loadCreatedTasks(t, db, baselineTaskID, cacheKeys)
+		tasks := loadTasksByID(t, db, result.TaskIDs)
 		assertTaskStatuses(t, tasks, CacheInvalidationPending)
 
 		runCtx, cancel := context.WithTimeout(context.Background(), integrationTimeout)
@@ -104,7 +117,6 @@ func TestCacheInvalidationIntegration(t *testing.T) {
 
 	t.Run("failed immediate deletion remains durable until worker retry", func(t *testing.T) {
 		preloadCacheKeys(t, realCache, cacheKeys)
-		baselineTaskID := maxInvalidationTaskID(t, db)
 		mutationNow := time.Now().UTC()
 		failingCache := &failFirstDeleteCache{DetailCache: realCache}
 		service := newIntegrationMutationService(t, mutationRepository, failingCache, mutationNow)
@@ -113,13 +125,16 @@ func TestCacheInvalidationIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("UpdateProductDetail() error = %v", err)
 		}
+		if err := cleanup.recordMutation(result); err != nil {
+			t.Fatal(err)
+		}
 		assertSameCacheKeys(t, result.CacheKeys, cacheKeys)
 		if got := failingCache.failedKey(); got != cacheKeys[0] {
 			t.Fatalf("failed immediate delete key = %q, want %q", got, cacheKeys[0])
 		}
 		assertCacheKeyExists(t, redisClient, cacheKeys[0], true)
 		assertCacheKeysExist(t, redisClient, cacheKeys[1:], false)
-		tasks := loadCreatedTasks(t, db, baselineTaskID, cacheKeys)
+		tasks := loadTasksByID(t, db, result.TaskIDs)
 		assertTaskStatuses(t, tasks, CacheInvalidationPending)
 
 		runCtx, cancel := context.WithTimeout(context.Background(), integrationTimeout)
@@ -130,6 +145,18 @@ func TestCacheInvalidationIntegration(t *testing.T) {
 		assertCacheKeysExist(t, redisClient, cacheKeys, false)
 		assertTaskStatuses(t, loadTasksByID(t, db, taskIDs(tasks)), CacheInvalidationDone)
 	})
+}
+
+func assertDatabaseIntegrationGuard(t *testing.T, db *sql.DB, runID string) {
+	t.Helper()
+	var guardCount int
+	query := "SELECT COUNT(*) FROM " + cacheInvalidationIntegrationGuardTable + " WHERE run_id = ?"
+	if err := db.QueryRowContext(testContext(t), query, runID).Scan(&guardCount); err != nil {
+		t.Fatalf("verify database integration guard: %v", err)
+	}
+	if guardCount != 1 {
+		t.Fatalf("database integration guard count = %d, want 1 for run ID", guardCount)
+	}
 }
 
 func assertIsolatedIntegrationState(t *testing.T, db *sql.DB, redisClient *redis.Client) {
@@ -159,7 +186,44 @@ type catalogFixture struct {
 	detailMarkdown sql.NullString
 	version        uint64
 	updatedAt      time.Time
-	initialTaskID  uint64
+}
+
+type integrationFixtureCleanup struct {
+	taskIDs         []uint64
+	expectedVersion uint64
+	expectedDetail  sql.NullString
+}
+
+func (c *integrationFixtureCleanup) recordMutation(result MutationResult) error {
+	c.taskIDs = append(c.taskIDs, result.TaskIDs...)
+	c.expectedVersion++
+	c.expectedDetail = sql.NullString{String: result.DetailMarkdown, Valid: true}
+	if len(result.TaskIDs) != len(result.CacheKeys) {
+		return fmt.Errorf("mutation task ID count = %d, want %d", len(result.TaskIDs), len(result.CacheKeys))
+	}
+	return nil
+}
+
+func TestIntegrationFixtureCleanupRecordsRestoreStateBeforeTaskIDValidation(t *testing.T) {
+	cleanup := integrationFixtureCleanup{
+		expectedVersion: 7,
+	}
+	result := MutationResult{
+		DetailMarkdown: "updated detail",
+		CacheKeys:      []string{"cache-one", "cache-two"},
+		TaskIDs:        []uint64{101},
+	}
+
+	err := cleanup.recordMutation(result)
+	if err == nil {
+		t.Fatal("recordMutation() error = nil, want task ID mismatch")
+	}
+	if cleanup.expectedVersion != 8 || !cleanup.expectedDetail.Valid || cleanup.expectedDetail.String != "updated detail" {
+		t.Fatalf("cleanup restore state = %#v, want next mutation state", cleanup)
+	}
+	if len(cleanup.taskIDs) != 1 || cleanup.taskIDs[0] != 101 {
+		t.Fatalf("cleanup task IDs = %v, want [101]", cleanup.taskIDs)
+	}
 }
 
 func discoverCatalogFixture(t *testing.T, db *sql.DB) catalogFixture {
@@ -195,7 +259,6 @@ func discoverCatalogFixture(t *testing.T, db *sql.DB) catalogFixture {
 	if len(fixture.skuIDs) == 0 {
 		t.Fatal("seeded catalog product has no SKUs")
 	}
-	fixture.initialTaskID = maxInvalidationTaskID(t, db)
 	return fixture
 }
 

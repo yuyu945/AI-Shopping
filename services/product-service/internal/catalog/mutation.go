@@ -23,7 +23,10 @@ type CatalogMutationService struct {
 }
 
 // NewCatalogMutationService constructs a catalog mutation service with explicit timing dependencies.
-func NewCatalogMutationService(store ProductMutationStore, cache DetailCache, now func() time.Time, delayedDeleteDelay, cacheCallTimeout time.Duration) *CatalogMutationService {
+func NewCatalogMutationService(store ProductMutationStore, cache DetailCache, now func() time.Time, delayedDeleteDelay, cacheCallTimeout time.Duration) (*CatalogMutationService, error) {
+	if cacheCallTimeout <= 0 {
+		return nil, apperror.New(apperror.InvalidArgument, "cache_call_timeout must be positive")
+	}
 	if now == nil {
 		now = time.Now
 	}
@@ -33,7 +36,7 @@ func NewCatalogMutationService(store ProductMutationStore, cache DetailCache, no
 		now:                now,
 		delayedDeleteDelay: delayedDeleteDelay,
 		cacheCallTimeout:   cacheCallTimeout,
-	}
+	}, nil
 }
 
 // UpdateProductDetail persists a product detail update and immediately invalidates its committed cache keys.
@@ -44,7 +47,7 @@ func (s *CatalogMutationService) UpdateProductDetail(ctx context.Context, produc
 
 	result, err := s.store.UpdateProductDetailAndCreateTasks(ctx, productID, detailMarkdown, s.now().Add(s.delayedDeleteDelay))
 	if err != nil {
-		return MutationResult{}, safeMutationError(err)
+		return MutationResult{}, safeMutationError(ctx, err)
 	}
 	if s.cache == nil {
 		return result, nil
@@ -58,7 +61,10 @@ func (s *CatalogMutationService) UpdateProductDetail(ctx context.Context, produc
 	return result, nil
 }
 
-func safeMutationError(err error) error {
+func safeMutationError(ctx context.Context, err error) error {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return apperror.Wrap(apperror.DependencyTimeout, "product mutation dependency timed out", err)
+	}
 	var notFound *NotFoundError
 	if errors.As(err, &notFound) {
 		return apperror.Wrap(apperror.NotFound, "product not found", err)

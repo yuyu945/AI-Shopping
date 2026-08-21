@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -22,7 +23,7 @@ func TestCatalogMutationServiceUpdateProductDetailCreatesScheduledTasksBeforeDel
 	cache := &fakeMutationDetailCache{}
 	delay := 2 * time.Minute
 	timeout := 3 * time.Second
-	service := NewCatalogMutationService(store, cache, func() time.Time { return now }, delay, timeout)
+	service := newTestCatalogMutationService(t, store, cache, func() time.Time { return now }, delay, timeout)
 
 	got, err := service.UpdateProductDetail(context.Background(), 10, "updated detail")
 	if err != nil {
@@ -43,6 +44,12 @@ func TestCatalogMutationServiceUpdateProductDetailCreatesScheduledTasksBeforeDel
 	if len(cache.deleteDeadlines) != len(result.CacheKeys) {
 		t.Fatalf("delete deadline count = %d, want %d", len(cache.deleteDeadlines), len(result.CacheKeys))
 	}
+	for i, deadline := range cache.deleteDeadlines {
+		remaining := time.Until(deadline)
+		if remaining > timeout || remaining < timeout-200*time.Millisecond {
+			t.Fatalf("delete %d remaining timeout = %s, want close to %s", i, remaining, timeout)
+		}
+	}
 	if cache.deleteWithoutDeadline {
 		t.Fatal("cache delete did not receive a bounded context")
 	}
@@ -53,6 +60,7 @@ func TestCatalogMutationServiceUpdateProductDetailErrorHandling(t *testing.T) {
 		name           string
 		productID      uint64
 		storeErr       error
+		newContext     func() (context.Context, context.CancelFunc)
 		wantCode       apperror.Code
 		wantStoreCalls int
 		wantNotFound   bool
@@ -80,15 +88,40 @@ func TestCatalogMutationServiceUpdateProductDetailErrorHandling(t *testing.T) {
 			wantStoreCalls: 1,
 			wantNotFound:   true,
 		},
+		{
+			name:           "store deadline exceeded",
+			productID:      10,
+			storeErr:       fmt.Errorf("mysql password=highly-sensitive-value: %w", context.DeadlineExceeded),
+			wantCode:       apperror.DependencyTimeout,
+			wantStoreCalls: 1,
+			forbiddenText:  "highly-sensitive-value",
+		},
+		{
+			name:      "request deadline exceeded",
+			productID: 10,
+			storeErr:  errors.New("mysql dsn=root:secret@tcp(db)/catalog_db unavailable"),
+			newContext: func() (context.Context, context.CancelFunc) {
+				return context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+			},
+			wantCode:       apperror.DependencyTimeout,
+			wantStoreCalls: 1,
+			forbiddenText:  "root:secret",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &fakeProductMutationStore{err: tt.storeErr}
 			cache := &fakeMutationDetailCache{}
-			service := NewCatalogMutationService(store, cache, time.Now, time.Minute, time.Second)
+			service := newTestCatalogMutationService(t, store, cache, time.Now, time.Minute, time.Second)
+			ctx := context.Background()
+			cancel := func() {}
+			if tt.newContext != nil {
+				ctx, cancel = tt.newContext()
+			}
+			defer cancel()
 
-			_, err := service.UpdateProductDetail(context.Background(), tt.productID, "updated detail")
+			_, err := service.UpdateProductDetail(ctx, tt.productID, "updated detail")
 			assertAppErrorCode(t, err, tt.wantCode)
 			if store.calls != tt.wantStoreCalls {
 				t.Fatalf("store calls = %d, want %d", store.calls, tt.wantStoreCalls)
@@ -109,11 +142,36 @@ func TestCatalogMutationServiceUpdateProductDetailErrorHandling(t *testing.T) {
 	}
 }
 
+func TestNewCatalogMutationServiceRejectsNonPositiveCacheCallTimeout(t *testing.T) {
+	for _, timeout := range []time.Duration{0, -time.Second} {
+		t.Run(timeout.String(), func(t *testing.T) {
+			service, err := NewCatalogMutationService(&fakeProductMutationStore{}, &fakeMutationDetailCache{}, time.Now, time.Minute, timeout)
+			assertAppErrorCode(t, err, apperror.InvalidArgument)
+			if service != nil {
+				t.Fatalf("NewCatalogMutationService() = %#v, want nil", service)
+			}
+		})
+	}
+}
+
+func TestCatalogMutationServiceUpdateProductDetailAllowsNilCache(t *testing.T) {
+	result := MutationResult{ProductID: 10, DetailMarkdown: "updated detail", CacheKeys: []string{"key-one"}}
+	service := newTestCatalogMutationService(t, &fakeProductMutationStore{result: result}, nil, time.Now, time.Minute, time.Second)
+
+	got, err := service.UpdateProductDetail(context.Background(), 10, "updated detail")
+	if err != nil {
+		t.Fatalf("UpdateProductDetail() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, result) {
+		t.Fatalf("UpdateProductDetail() = %#v, want %#v", got, result)
+	}
+}
+
 func TestCatalogMutationServiceUpdateProductDetailIgnoresCacheDeleteErrors(t *testing.T) {
 	result := MutationResult{ProductID: 10, DetailMarkdown: "updated detail", CacheKeys: []string{"key-one", "key-two"}}
 	store := &fakeProductMutationStore{result: result}
 	cache := &fakeMutationDetailCache{deleteErrors: map[string]error{"key-one": errors.New("redis password=highly-sensitive-value unavailable")}}
-	service := NewCatalogMutationService(store, cache, time.Now, time.Minute, time.Second)
+	service := newTestCatalogMutationService(t, store, cache, time.Now, time.Minute, time.Second)
 
 	got, err := service.UpdateProductDetail(context.Background(), 10, "updated detail")
 	if err != nil {
@@ -124,6 +182,24 @@ func TestCatalogMutationServiceUpdateProductDetailIgnoresCacheDeleteErrors(t *te
 	}
 	if !sameStrings(cache.deletedKeys, result.CacheKeys) {
 		t.Fatalf("deleted cache keys = %#v, want %#v", cache.deletedKeys, result.CacheKeys)
+	}
+}
+
+func TestCatalogMutationServiceUpdateProductDetailIgnoresCacheDeadlineExceeded(t *testing.T) {
+	result := MutationResult{ProductID: 10, DetailMarkdown: "updated detail", CacheKeys: []string{"key-one"}}
+	store := &fakeProductMutationStore{result: result}
+	cache := &fakeMutationDetailCache{waitForContextDone: true}
+	service := newTestCatalogMutationService(t, store, cache, time.Now, time.Minute, 15*time.Millisecond)
+
+	got, err := service.UpdateProductDetail(context.Background(), 10, "updated detail")
+	if err != nil {
+		t.Fatalf("UpdateProductDetail() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, result) {
+		t.Fatalf("UpdateProductDetail() = %#v, want %#v", got, result)
+	}
+	if !errors.Is(cache.deleteErrors["key-one"], context.DeadlineExceeded) {
+		t.Fatalf("cache Delete() error = %v, want context deadline exceeded", cache.deleteErrors["key-one"])
 	}
 }
 
@@ -149,6 +225,7 @@ type fakeMutationDetailCache struct {
 	deleteDeadlines       []time.Time
 	deleteWithoutDeadline bool
 	deleteErrors          map[string]error
+	waitForContextDone    bool
 }
 
 func (c *fakeMutationDetailCache) Get(context.Context, string) ([]byte, error) {
@@ -167,7 +244,23 @@ func (c *fakeMutationDetailCache) Delete(ctx context.Context, key string) error 
 		return nil
 	}
 	c.deleteDeadlines = append(c.deleteDeadlines, deadline)
+	if c.waitForContextDone {
+		<-ctx.Done()
+		if c.deleteErrors == nil {
+			c.deleteErrors = make(map[string]error)
+		}
+		c.deleteErrors[key] = ctx.Err()
+	}
 	return c.deleteErrors[key]
+}
+
+func newTestCatalogMutationService(t *testing.T, store ProductMutationStore, cache DetailCache, now func() time.Time, delayedDeleteDelay, cacheCallTimeout time.Duration) *CatalogMutationService {
+	t.Helper()
+	service, err := NewCatalogMutationService(store, cache, now, delayedDeleteDelay, cacheCallTimeout)
+	if err != nil {
+		t.Fatalf("NewCatalogMutationService() error = %v", err)
+	}
+	return service
 }
 
 func assertAppErrorCode(t *testing.T, err error, want apperror.Code) {

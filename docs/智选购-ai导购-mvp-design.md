@@ -119,7 +119,7 @@ flowchart LR
 
 ### 6.3 order-service
 
-负责购物车、订单、余额支付和评价。订单创建使用 `request_id` 幂等，库存和余额流水在 MySQL 本地事务中完成。
+负责购物车、订单、余额支付和评价。订单创建使用 `request_id` 幂等；余额扣款、订单状态和 Outbox 在 `trade_db` 本地 transaction 中完成，库存预留与确认只经由 product-service 的受控 gRPC 完成。
 
 ### 6.4 knowledge-service
 
@@ -265,6 +265,11 @@ inventory(
   sku_id PK/FK product_skus.id, available_qty,
   version, updated_at
 )
+inventory_reservations(
+  id PK, reservation_id, order_no, payment_attempt_id, sku_id, quantity,
+  status, expires_at, confirmed_at, released_at, created_at, updated_at,
+  UNIQUE(reservation_id, sku_id)
+)
 ```
 
 关键索引：
@@ -276,6 +281,15 @@ inventory(
 - `user_addresses(user_id, is_default)`：默认收货地址查询。
 - `promotion_rules(product_id, status, start_at, end_at)`：可用优惠筛选。
 - `user_coupons(user_id, status, expired_at)`：用户可用优惠查询。
+
+### 9.2.1 建单快照契约
+
+`order-service` 不直接读取 `user_db` 或 `catalog_db`。创建订单前，它通过受保护的 gRPC 读取两个不可变输入：
+
+- `user-service.GetMyAddressSnapshot(address_id)`：从 bearer JWT 派生当前用户，只返回该用户拥有的地址；未找到或不属于当前用户都返回稳定的 `NOT_FOUND`。
+- `product-service.GetCheckoutSKUs(sku_ids)`：绕过 Redis Cache Aside，直接从 `catalog_db` 查询当前可售 SKU，返回 `product_id`、标题、SKU 编码、规格 JSON、`DECIMAL(12,2)` 字符串价格和商品级优惠规则快照。下架、缺失或无效 SKU 不得进入订单。
+
+订单金额不使用浮点数。MVP 的商品级优惠采用每个 SKU 可用规则中的最高固定减免，不与用户券叠加；订单项保存原始单价、应用优惠快照、订单项优惠总额和应付金额。所有跨 RPC 金额以固定两位小数字符串传输，落库使用 `DECIMAL(12,2)`。
 
 ### 9.3 购物车、订单与钱包
 
@@ -289,7 +303,8 @@ cart_items(
 )
 orders(
   id PK, order_no UNIQUE, user_id FK, request_id,
-  status, total_amount DECIMAL(12,2), paid_amount DECIMAL(12,2),
+  status, payment_attempt_id, reservation_id, payment_started_at,
+  total_amount DECIMAL(12,2), paid_amount DECIMAL(12,2),
   shipping_name_snapshot, shipping_phone_snapshot, shipping_address_snapshot,
   created_at, paid_at, closed_at, updated_at,
   UNIQUE(user_id, request_id)
@@ -315,13 +330,13 @@ reviews(
 )
 ```
 
-订单和支付的本地事务边界：
+订单支付使用库存预留 Saga。`inventory_reservations` 属于 `catalog_db/product-service`，表中的 `order_no` 与 `payment_attempt_id` 是逻辑关联，不创建跨 schema 外键。
 
 1. 创建订单时校验用户、购物车、地址和 `request_id`，并写入商品、价格和地址快照，状态为 `PENDING_PAYMENT`。
-2. 余额支付时锁定 `wallet_accounts` 行，校验订单状态和余额。
-3. 使用库存条件更新扣减 `available_qty`，受影响行数为 0 时返回库存不足。
-4. 更新订单为 `PAID`，写入 `wallet_ledger` 和 `outbox_events`。
-5. 同一 MySQL transaction 内提交；Go Worker 在提交后投递 Kafka。
+2. 支付认领 transaction 将订单更新为 `PAYMENT_PROCESSING` 并保存不可复用的 `payment_attempt_id` 与 `reservation_id`。请求重复到达时，`PAID` 返回原结果，处理中返回 `PAYMENT_IN_PROGRESS`。
+3. `product-service.ReserveStock` 在自己的 transaction 内对所有 SKU 执行库存条件更新并写 `RESERVED` 预留；任一 SKU 失败则整体 rollback。
+4. `order-service` 仅在 `trade_db` transaction 内锁定钱包和支付尝试，写流水、订单 `PAID` 与 `inventory.reservation.confirm` Outbox。此 transaction 不访问库存表。
+5. `product-service` 幂等消费确认事件，把预留置为 `CONFIRMED`。预留过期时先查询 order 的结算状态，`PAID` 则确认，未支付或已取消才置为 `RELEASED` 并返还库存；查询失败保留预留并退避。
 
 库存扣减 SQL：
 
@@ -331,7 +346,7 @@ SET available_qty = available_qty - ?, version = version + 1, updated_at = NOW(3
 WHERE sku_id = ? AND available_qty >= ?;
 ```
 
-`request_id` 防止重复建单，`wallet_ledger` 的业务唯一键防止重复扣款；Redis 只用于读缓存和会话，不参与资金和库存事实判断。
+`request_id` 防止重复建单，`wallet_ledger` 的业务唯一键防止重复扣款，`reservation_id + sku_id` 防止重复预留；Redis 只用于读缓存和会话，不参与资金和库存事实判断。
 
 ### 9.4 Agent 会话、运行和推荐快照
 
@@ -439,7 +454,8 @@ products 1--N knowledge_documents 1--N knowledge_chunks
 
 核心状态：
 
-- `orders`: `PENDING_PAYMENT -> PAID -> COMPLETED`，未支付或异常进入 `CLOSED`。
+- `orders`: `PENDING_PAYMENT -> PAYMENT_PROCESSING -> PAID -> COMPLETED`；支付认领失败或恢复判定未支付时回到 `PENDING_PAYMENT`，取消或超时进入 `CLOSED`。
+- `inventory_reservations`: `RESERVED -> CONFIRMED / RELEASED`；只有结算状态查询失败时允许维持 `RESERVED` 并重试。
 - `agent_runs`: `RUNNING -> SUCCEEDED / FAILED / TIMEOUT`。
 - `knowledge_documents`: `PENDING -> PROCESSING -> READY / FAILED`。
 - `outbox_events`: `PENDING -> PUBLISHED / DEAD`。
@@ -452,6 +468,7 @@ products 1--N knowledge_documents 1--N knowledge_chunks
 | `orders` | `(user_id, status, created_at)` | 用户订单分页和状态筛选 |
 | `order_items` | `(order_id)` | 订单详情聚合 |
 | `wallet_ledger` | `(user_id, created_at)` + `UNIQUE(biz_type, biz_id, direction)` | 余额流水查询与防重复扣款 |
+| `inventory_reservations` | `(status, expires_at)` + `UNIQUE(reservation_id, sku_id)` | 过期扫描、幂等预留与确认 |
 | `reviews` | `(product_id, status, created_at)` | 商品评价列表和 Kafka 事件补偿 |
 | `agent_messages` | `(session_id, seq_no)` | 多轮会话顺序读取 |
 | `agent_runs` | `(status, created_at)` | 扫描超时 Run 和运营端筛选 |
@@ -512,7 +529,7 @@ products 1--N knowledge_documents 1--N knowledge_chunks
 
 `POST /api/v1/orders/{order_no}/payments/wallet`
 
-服务端在一个 MySQL transaction 内锁定订单和钱包账户，校验余额后使用库存条件更新扣减库存，写入钱包流水并将订单更新为 `PAID`。重复支付请求直接返回已支付状态，不重复扣款。
+服务端先在 `trade_db` 认领 `PAYMENT_PROCESSING` 支付尝试，再调用 product-service 创建库存预留。扣款 transaction 只锁定订单与钱包、写入流水和 `inventory.reservation.confirm` Outbox；产品侧异步确认预留。重复支付返回已支付结果或 `PAYMENT_IN_PROGRESS`，订单服务不能直接更新 `catalog_db.inventory`。详见 9.3 的库存预留 Saga。
 
 ## 11. 原型与交互
 

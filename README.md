@@ -11,4 +11,16 @@ M1.1 已完成：Go-zero Gateway 与五个服务启动骨架、共享运行时�
 
 Compose 宿主端口默认只绑定 `127.0.0.1`。如果本机 `6379` 已被占用，可用 `REDIS_PORT=6380` 启动，并将应用连接地址同步为 `localhost:6380`；容器网络内仍使用 `redis:6379`。
 
-当前阶段只验证基础设施与启动契约；用户、商品读路径、交易、RAG 和 Agent 功能按 `docs/TASKS.md` 的后续里程碑实现。
+## M1.2 商品读链路
+
+商品 seed 是幂等的。设置本地 `MYSQL_ROOT_PASSWORD` 后运行：
+
+```powershell
+pwsh -File scripts/seed_catalog.ps1
+```
+
+product-service 读取 MySQL 商品事实并以 Cache Aside 方式缓存详情；Redis 不可用时会自动回源 MySQL。Gateway 商品接口：`GET /api/v1/products`、`GET /api/v1/products/{id}`，支持 `keyword`、`category_id`、`page`、`page_size` 和可选 `sku_id`。
+
+默认 product-service 配置使用 etcd 服务发现；宿主机直连调试需确保 etcd 暴露 `127.0.0.1:2379`，或使用不含 `Etcd` 段的临时 RPC 配置。
+
+M1.2 已完成真实 Docker MySQL/Redis 依赖和 Gateway HTTP 读链路验证。后续交易、RAG 和 Agent 功能按 `docs/TASKS.md` 的里程碑实现。

@@ -69,3 +69,33 @@ CREATE TABLE IF NOT EXISTS order_items (
     CONSTRAINT chk_order_items_quantity_positive CHECK (quantity > 0),
     CONSTRAINT fk_order_items_order FOREIGN KEY (order_id) REFERENCES orders(id)
 ) ENGINE=InnoDB;
+
+SET @cart_check_exists = (
+    SELECT COUNT(*) FROM information_schema.table_constraints
+    WHERE constraint_schema = 'trade_db'
+      AND table_name = 'cart_items'
+      AND constraint_name = 'chk_cart_items_quantity_positive'
+);
+SET @cart_check_sql = IF(
+    @cart_check_exists = 0,
+    'ALTER TABLE cart_items ADD CONSTRAINT chk_cart_items_quantity_positive CHECK (quantity > 0)',
+    'SELECT 1'
+);
+PREPARE cart_check_statement FROM @cart_check_sql;
+EXECUTE cart_check_statement;
+DEALLOCATE PREPARE cart_check_statement;
+
+SET @order_check_exists = (
+    SELECT COUNT(*) FROM information_schema.table_constraints
+    WHERE constraint_schema = 'trade_db'
+      AND table_name = 'order_items'
+      AND constraint_name = 'chk_order_items_quantity_positive'
+);
+SET @order_check_sql = IF(
+    @order_check_exists = 0,
+    'ALTER TABLE order_items ADD CONSTRAINT chk_order_items_quantity_positive CHECK (quantity > 0)',
+    'SELECT 1'
+);
+PREPARE order_check_statement FROM @order_check_sql;
+EXECUTE order_check_statement;
+DEALLOCATE PREPARE order_check_statement;

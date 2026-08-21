@@ -23,11 +23,6 @@ type DetailCache interface {
 	Delete(context.Context, string) error
 }
 
-// ProductSummaryDTO and ProductDetailDTO identify service response DTOs while
-// retaining the catalog's existing read models as the stable wire shape.
-type ProductSummaryDTO = ProductSummary
-type ProductDetailDTO = ProductDetail
-
 // ProductService validates catalog reads and applies cache-aside detail reads.
 type ProductService struct {
 	repository ProductRepository
@@ -40,7 +35,7 @@ func NewProductService(repository ProductRepository, cache DetailCache) *Product
 }
 
 // ListProducts validates and normalizes a product filter before querying the repository.
-func (s *ProductService) ListProducts(ctx context.Context, filter ProductFilter) ([]ProductSummaryDTO, error) {
+func (s *ProductService) ListProducts(ctx context.Context, filter ProductFilter) ([]ProductSummary, error) {
 	normalized, err := normalizeProductFilter(filter)
 	if err != nil {
 		return nil, err
@@ -53,7 +48,7 @@ func (s *ProductService) ListProducts(ctx context.Context, filter ProductFilter)
 }
 
 // GetProduct reads a detail from cache first and falls back to the repository.
-func (s *ProductService) GetProduct(ctx context.Context, productID uint64, skuID *uint64) (ProductDetailDTO, error) {
+func (s *ProductService) GetProduct(ctx context.Context, productID uint64, skuID *uint64) (ProductDetail, error) {
 	// Freeze the optional identifier before any cache or repository call. The
 	// caller may reuse and mutate its pointer while an external dependency runs.
 	requestedSKU := cloneUint64Ptr(skuID)
@@ -71,7 +66,7 @@ func (s *ProductService) GetProduct(ctx context.Context, productID uint64, skuID
 
 	detail, err := s.repository.GetProduct(ctx, productID, requestedSKU)
 	if err != nil {
-		return ProductDetailDTO{}, safeProductError(err)
+		return ProductDetail{}, safeProductError(err)
 	}
 	result := cloneProductDetail(detail)
 	if s.cache != nil {
@@ -111,8 +106,8 @@ func normalizeProductFilter(filter ProductFilter) (ProductFilter, error) {
 	return filter, nil
 }
 
-func mapProductSummaries(rows []ProductSummary) []ProductSummaryDTO {
-	result := make([]ProductSummaryDTO, len(rows))
+func mapProductSummaries(rows []ProductSummary) []ProductSummary {
+	result := make([]ProductSummary, len(rows))
 	copy(result, rows)
 	for i := range result {
 		result[i].BrandID = cloneUint64Ptr(rows[i].BrandID)
@@ -134,6 +129,10 @@ func cloneProductDetail(detail ProductDetail) ProductDetail {
 	}
 	result.Images = append([]ImageRef(nil), detail.Images...)
 	result.Promotions = append([]PromotionSummary(nil), detail.Promotions...)
+	for i := range result.Promotions {
+		result.Promotions[i].ThresholdAmount = cloneStringPtr(detail.Promotions[i].ThresholdAmount)
+		result.Promotions[i].DiscountAmount = cloneStringPtr(detail.Promotions[i].DiscountAmount)
+	}
 	return result
 }
 

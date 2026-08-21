@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"flag"
+	"fmt"
 	"log"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
+	"github.com/redis/go-redis/v9"
 	platformconfig "github.com/yuyu945/AI-Shopping/internal/platform/config"
 	productpb "github.com/yuyu945/AI-Shopping/services/product-service/gen"
 	"github.com/yuyu945/AI-Shopping/services/product-service/internal/catalog"
@@ -36,7 +38,11 @@ func main() {
 		log.Fatalf("%s load runtime configuration: %v", SERVICE_NAME, err)
 	}
 
-	db, err := sql.Open("mysql", runtimeConfig.MySQLDSN)
+	dsn, err := catalogDSN(runtimeConfig.MySQLDSN)
+	if err != nil {
+		log.Fatalf("%s validate catalog database configuration: invalid DSN", SERVICE_NAME)
+	}
+	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		log.Fatalf("%s open catalog database: %v", SERVICE_NAME, err)
 	}
@@ -47,9 +53,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("%s ping catalog database: database unavailable", SERVICE_NAME)
 	}
+	redisClient := redis.NewClient(&redis.Options{Addr: runtimeConfig.RedisAddr, DialTimeout: 5 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second})
+	redisCtx, redisCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	err = redisClient.Ping(redisCtx).Err()
+	redisCancel()
+	if err != nil {
+		log.Fatalf("%s ping product cache: dependency unavailable", SERVICE_NAME)
+	}
+	defer redisClient.Close()
 
 	catalogRepository := catalog.NewRepository(db)
-	productService := catalog.NewProductService(catalogRepository, nil)
+	productService := catalog.NewProductService(catalogRepository, catalog.NewRedisDetailCache(redisClient))
 	rpcServer, err := zrpc.NewServer(config, func(server *grpc.Server) {
 		productpb.RegisterProductServiceServer(server, productserver.NewGRPCServer(productService, time.Duration(config.Timeout)*time.Millisecond))
 	})
@@ -58,4 +72,16 @@ func main() {
 	}
 	defer rpcServer.Stop()
 	rpcServer.Start()
+}
+
+func catalogDSN(dsn string) (string, error) {
+	config, err := mysql.ParseDSN(dsn)
+	if err != nil {
+		return "", fmt.Errorf("parse mysql dsn: %w", err)
+	}
+	if config.DBName == "" {
+		return "", fmt.Errorf("missing mysql database")
+	}
+	config.DBName = "catalog_db"
+	return config.FormatDSN(), nil
 }

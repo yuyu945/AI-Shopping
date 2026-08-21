@@ -83,3 +83,45 @@ func TestProductHandlerMapsDependencyTimeout(t *testing.T) {
 		t.Fatalf("dependency error leaked: %s", recorder.Body.String())
 	}
 }
+
+func TestProductHandlerMapsUnavailableToDependencyTimeout(t *testing.T) {
+	client := &fakeProductClient{listFn: func(context.Context, *productpb.ListProductsRequest) (*productpb.ListProductsResponse, error) {
+		return nil, status.Error(codes.Unavailable, "upstream dial details")
+	}}
+	recorder := httptest.NewRecorder()
+	NewProductHandler(client).List().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/products", nil))
+	if recorder.Code != http.StatusGatewayTimeout || !strings.Contains(recorder.Body.String(), `"code":"DEPENDENCY_TIMEOUT"`) {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "dial details") {
+		t.Fatalf("unsafe body=%s", recorder.Body.String())
+	}
+}
+
+func TestProductHandlerRejectsInvalidNumericFilters(t *testing.T) {
+	for _, path := range []string{"/api/v1/products?page=bad", "/api/v1/products?page_size=101", "/api/v1/products?category_id=x", "/api/v1/products/abc"} {
+		recorder := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		h := NewProductHandler(&fakeProductClient{})
+		if strings.HasPrefix(path, "/api/v1/products/") {
+			h.Get().ServeHTTP(recorder, req)
+		} else {
+			h.List().ServeHTTP(recorder, req)
+		}
+		if recorder.Code != http.StatusBadRequest {
+			t.Errorf("%s status=%d", path, recorder.Code)
+		}
+	}
+}
+
+func TestProductHandlerReturnsEmptyFoundDetail(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/products/10", nil)
+	client := &fakeProductClient{getFn: func(context.Context, *productpb.GetProductRequest) (*productpb.GetProductResponse, error) {
+		return &productpb.GetProductResponse{Product: &productpb.Product{ProductId: 10, Title: "No SKU"}}, nil
+	}}
+	NewProductHandler(client).Get().ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"product_id":10`) {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}

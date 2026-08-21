@@ -151,6 +151,28 @@ func (r *Repository) GetProduct(ctx context.Context, productID uint64, optionalS
 	if err := imageRows.Err(); err != nil {
 		return ProductDetail{}, fmt.Errorf("iterate product images: %w", err)
 	}
+	promotionRows, err := r.db.QueryContext(ctx, "SELECT id, rule_type, threshold_amount, discount_amount FROM promotion_rules WHERE product_id = ? AND status = 'ACTIVE' AND starts_at <= NOW() AND (ends_at IS NULL OR ends_at > NOW()) ORDER BY id ASC", productID)
+	if err != nil {
+		return ProductDetail{}, fmt.Errorf("get product promotions: %w", err)
+	}
+	defer promotionRows.Close()
+	for promotionRows.Next() {
+		var promotion PromotionSummary
+		var threshold, discount sql.NullString
+		if err := promotionRows.Scan(&promotion.ID, &promotion.RuleType, &threshold, &discount); err != nil {
+			return ProductDetail{}, fmt.Errorf("scan product promotion: %w", err)
+		}
+		if threshold.Valid {
+			promotion.ThresholdAmount = &threshold.String
+		}
+		if discount.Valid {
+			promotion.DiscountAmount = &discount.String
+		}
+		detail.Promotions = append(detail.Promotions, promotion)
+	}
+	if err := promotionRows.Err(); err != nil {
+		return ProductDetail{}, fmt.Errorf("iterate product promotions: %w", err)
+	}
 	return detail, nil
 }
 

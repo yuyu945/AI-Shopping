@@ -570,7 +570,7 @@ type PromotionSummary struct {
 	PromotionId     uint64                 `protobuf:"varint,1,opt,name=promotion_id,json=promotionId,proto3" json:"promotion_id,omitempty"`
 	RuleType        string                 `protobuf:"bytes,2,opt,name=rule_type,json=ruleType,proto3" json:"rule_type,omitempty"`
 	ThresholdAmount *string                `protobuf:"bytes,3,opt,name=threshold_amount,json=thresholdAmount,proto3,oneof" json:"threshold_amount,omitempty"`
-	DiscountAmount  string                 `protobuf:"bytes,4,opt,name=discount_amount,json=discountAmount,proto3" json:"discount_amount,omitempty"`
+	DiscountAmount  *string                `protobuf:"bytes,4,opt,name=discount_amount,json=discountAmount,proto3,oneof" json:"discount_amount,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -627,8 +627,8 @@ func (x *PromotionSummary) GetThresholdAmount() string {
 }
 
 func (x *PromotionSummary) GetDiscountAmount() string {
-	if x != nil {
-		return x.DiscountAmount
+	if x != nil && x.DiscountAmount != nil {
+		return *x.DiscountAmount
 	}
 	return ""
 }
@@ -697,13 +697,14 @@ const file_product_proto_rawDesc = "" +
 	"\bimage_id\x18\x01 \x01(\x04R\aimageId\x12\x1d\n" +
 	"\n" +
 	"object_key\x18\x02 \x01(\tR\tobjectKey\x12\x17\n" +
-	"\asort_no\x18\x03 \x01(\x04R\x06sortNo\"\xc0\x01\n" +
+	"\asort_no\x18\x03 \x01(\x04R\x06sortNo\"\xd9\x01\n" +
 	"\x10PromotionSummary\x12!\n" +
 	"\fpromotion_id\x18\x01 \x01(\x04R\vpromotionId\x12\x1b\n" +
 	"\trule_type\x18\x02 \x01(\tR\bruleType\x12.\n" +
-	"\x10threshold_amount\x18\x03 \x01(\tH\x00R\x0fthresholdAmount\x88\x01\x01\x12'\n" +
-	"\x0fdiscount_amount\x18\x04 \x01(\tR\x0ediscountAmountB\x13\n" +
-	"\x11_threshold_amount2\xb0\x01\n" +
+	"\x10threshold_amount\x18\x03 \x01(\tH\x00R\x0fthresholdAmount\x88\x01\x01\x12,\n" +
+	"\x0fdiscount_amount\x18\x04 \x01(\tH\x01R\x0ediscountAmount\x88\x01\x01B\x13\n" +
+	"\x11_threshold_amountB\x12\n" +
+	"\x10_discount_amount2\xb0\x01\n" +
 	"\x0eProductService\x12Q\n" +
 	"\fListProducts\x12\x1f.product.v1.ListProductsRequest\x1a .product.v1.ListProductsResponse\x12K\n" +
 	"\n" +

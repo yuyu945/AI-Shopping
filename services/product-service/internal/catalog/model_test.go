@@ -2,9 +2,9 @@ package catalog
 
 import "testing"
 
-func TestPromotionSummaryPreservesNullableThreshold(t *testing.T) {
-	promotion := PromotionSummary{ThresholdAmount: nil, DiscountAmount: "300.00"}
-	if promotion.ThresholdAmount != nil {
-		t.Fatalf("expected nullable threshold to remain nil, got %v", *promotion.ThresholdAmount)
+func TestPromotionSummaryPreservesNullableAmounts(t *testing.T) {
+	promotion := PromotionSummary{ThresholdAmount: nil, DiscountAmount: nil}
+	if promotion.ThresholdAmount != nil || promotion.DiscountAmount != nil {
+		t.Fatalf("expected nullable amounts to remain nil: %#v", promotion)
 	}
 }

@@ -57,5 +57,5 @@ type PromotionSummary struct {
 	ID              uint64
 	RuleType        string
 	ThresholdAmount *string
-	DiscountAmount  string
+	DiscountAmount  *string
 }

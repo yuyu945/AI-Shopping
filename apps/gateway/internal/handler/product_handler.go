@@ -158,9 +158,12 @@ func mapPromotionsJSON(items []*productpb.PromotionSummary) []map[string]any {
 		if item == nil {
 			continue
 		}
-		value := map[string]any{"promotion_id": item.GetPromotionId(), "rule_type": item.GetRuleType(), "discount_amount": item.GetDiscountAmount()}
+		value := map[string]any{"promotion_id": item.GetPromotionId(), "rule_type": item.GetRuleType()}
 		if item.ThresholdAmount != nil {
 			value["threshold_amount"] = item.GetThresholdAmount()
+		}
+		if item.DiscountAmount != nil {
+			value["discount_amount"] = item.GetDiscountAmount()
 		}
 		result = append(result, value)
 	}

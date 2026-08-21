@@ -35,7 +35,7 @@ func (s *GRPCServer) ListProducts(ctx context.Context, req *productpb.ListProduc
 	if page == 0 {
 		page = 1
 	}
-	items, err := s.withTimeoutList(ctx, func(callCtx context.Context) ([]catalog.ProductSummaryDTO, error) {
+	items, err := s.withTimeoutList(ctx, func(callCtx context.Context) ([]catalog.ProductSummary, error) {
 		return s.service.ListProducts(callCtx, catalog.ProductFilter{
 			Keyword: req.GetKeyword(), CategoryID: req.GetCategoryId(), Page: page, PageSize: int(req.GetPageSize()),
 		})
@@ -59,7 +59,7 @@ func (s *GRPCServer) GetProduct(ctx context.Context, req *productpb.GetProductRe
 		value := req.GetSkuId()
 		skuID = &value
 	}
-	detail, err := s.withTimeout(ctx, func(callCtx context.Context) (catalog.ProductDetailDTO, error) {
+	detail, err := s.withTimeout(ctx, func(callCtx context.Context) (catalog.ProductDetail, error) {
 		return s.service.GetProduct(callCtx, req.GetProductId(), skuID)
 	})
 	if err != nil {
@@ -68,55 +68,105 @@ func (s *GRPCServer) GetProduct(ctx context.Context, req *productpb.GetProductRe
 	return &productpb.GetProductResponse{Product: mapProductDetail(detail)}, nil
 }
 
-func (s *GRPCServer) withTimeout(ctx context.Context, fn func(context.Context) (catalog.ProductDetailDTO, error)) (catalog.ProductDetailDTO, error) {
+func (s *GRPCServer) withTimeout(ctx context.Context, fn func(context.Context) (catalog.ProductDetail, error)) (catalog.ProductDetail, error) {
 	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	return fn(callCtx)
 }
 
-func (s *GRPCServer) withTimeoutList(ctx context.Context, fn func(context.Context) ([]catalog.ProductSummaryDTO, error)) ([]catalog.ProductSummaryDTO, error) {
+func (s *GRPCServer) withTimeoutList(ctx context.Context, fn func(context.Context) ([]catalog.ProductSummary, error)) ([]catalog.ProductSummary, error) {
 	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	return fn(callCtx)
 }
 
-func mapProductSummary(item catalog.ProductSummaryDTO) *productpb.ProductSummary {
-	result := &productpb.ProductSummary{ProductId: item.ID, CategoryId: item.CategoryID, Title: item.Title, StockQty: item.StockQty, StockStatus: stockStatus(item.StockQty)}
-	if item.Subtitle != nil {
-		result.Subtitle = item.Subtitle
+type productSummaryWire struct {
+	ProductID, CategoryID, StockQty uint64
+	Title, StockStatus              string
+	Subtitle, MinSalePrice          *string
+}
+type productWire struct {
+	ProductID, CategoryID    uint64
+	Title                    string
+	Subtitle, DetailMarkdown *string
+	SKUs                     []skuWire
+	Images                   []imageWire
+	Promotions               []promotionWire
+}
+type skuWire struct {
+	SKUID                           uint64
+	SKUCode, SalePrice, StockStatus string
+	Specs                           map[string]string
+	StockQty                        uint64
+}
+type imageWire struct {
+	ImageID, SortNo uint64
+	ObjectKey       string
+}
+type promotionWire struct {
+	PromotionID     uint64
+	RuleType        string
+	ThresholdAmount *string
+	DiscountAmount  *string
+}
+
+func mapProductSummary(item catalog.ProductSummary) *productpb.ProductSummary {
+	wire := productSummaryWire{ProductID: item.ID, CategoryID: item.CategoryID, StockQty: item.StockQty, Title: item.Title, StockStatus: stockStatus(item.StockQty), Subtitle: item.Subtitle, MinSalePrice: item.MinPrice}
+	result := &productpb.ProductSummary{ProductId: wire.ProductID, CategoryId: wire.CategoryID, Title: wire.Title, StockQty: wire.StockQty, StockStatus: wire.StockStatus}
+	if wire.Subtitle != nil {
+		value := *wire.Subtitle
+		result.Subtitle = &value
 	}
-	if item.MinPrice != nil {
-		result.MinSalePrice = item.MinPrice
+	if wire.MinSalePrice != nil {
+		value := *wire.MinSalePrice
+		result.MinSalePrice = &value
 	}
 	return result
 }
 
-func mapProductDetail(item catalog.ProductDetailDTO) *productpb.Product {
-	result := &productpb.Product{ProductId: item.ID, CategoryId: item.CategoryID, Title: item.Title}
-	if item.Subtitle != nil {
-		result.Subtitle = item.Subtitle
-	}
-	if item.DetailMarkdown != nil {
-		result.DetailMarkdown = item.DetailMarkdown
-	}
+func mapProductDetail(item catalog.ProductDetail) *productpb.Product {
+	wire := productWire{ProductID: item.ID, CategoryID: item.CategoryID, Title: item.Title, Subtitle: item.Subtitle, DetailMarkdown: item.DetailMarkdown}
 	for _, sku := range item.SKUs {
-		result.Skus = append(result.Skus, mapSKU(sku))
+		wire.SKUs = append(wire.SKUs, mapSKUWire(sku))
 	}
 	for _, image := range item.Images {
-		result.Images = append(result.Images, &productpb.ImageRef{ImageId: image.ID, ObjectKey: image.ObjectKey, SortNo: image.SortNo})
+		wire.Images = append(wire.Images, imageWire{ImageID: image.ID, ObjectKey: image.ObjectKey, SortNo: image.SortNo})
 	}
-	for _, promotion := range item.Promotions {
-		mapped := &productpb.PromotionSummary{PromotionId: promotion.ID, RuleType: promotion.RuleType, DiscountAmount: promotion.DiscountAmount}
+	for _, p := range item.Promotions {
+		wire.Promotions = append(wire.Promotions, promotionWire{PromotionID: p.ID, RuleType: p.RuleType, ThresholdAmount: p.ThresholdAmount, DiscountAmount: p.DiscountAmount})
+	}
+	result := &productpb.Product{ProductId: wire.ProductID, CategoryId: wire.CategoryID, Title: wire.Title}
+	if wire.Subtitle != nil {
+		value := *wire.Subtitle
+		result.Subtitle = &value
+	}
+	if wire.DetailMarkdown != nil {
+		value := *wire.DetailMarkdown
+		result.DetailMarkdown = &value
+	}
+	for _, sku := range wire.SKUs {
+		result.Skus = append(result.Skus, &productpb.Sku{SkuId: sku.SKUID, SkuCode: sku.SKUCode, SalePrice: sku.SalePrice, StockQty: sku.StockQty, StockStatus: sku.StockStatus, Specs: sku.Specs})
+	}
+	for _, image := range wire.Images {
+		result.Images = append(result.Images, &productpb.ImageRef{ImageId: image.ImageID, ObjectKey: image.ObjectKey, SortNo: image.SortNo})
+	}
+	for _, promotion := range wire.Promotions {
+		mapped := &productpb.PromotionSummary{PromotionId: promotion.PromotionID, RuleType: promotion.RuleType}
 		if promotion.ThresholdAmount != nil {
-			mapped.ThresholdAmount = promotion.ThresholdAmount
+			value := *promotion.ThresholdAmount
+			mapped.ThresholdAmount = &value
+		}
+		if promotion.DiscountAmount != nil {
+			value := *promotion.DiscountAmount
+			mapped.DiscountAmount = &value
 		}
 		result.Promotions = append(result.Promotions, mapped)
 	}
 	return result
 }
 
-func mapSKU(item catalog.SKUDetail) *productpb.Sku {
-	result := &productpb.Sku{SkuId: item.ID, SkuCode: item.SKUCode, SalePrice: item.SalePrice, StockQty: item.Inventory.AvailableQty, StockStatus: stockStatus(item.Inventory.AvailableQty), Specs: map[string]string{}}
+func mapSKUWire(item catalog.SKUDetail) skuWire {
+	result := skuWire{SKUID: item.ID, SKUCode: item.SKUCode, SalePrice: item.SalePrice, StockQty: item.Inventory.AvailableQty, StockStatus: stockStatus(item.Inventory.AvailableQty), Specs: map[string]string{}}
 	var specs map[string]string
 	if json.Unmarshal(item.SpecJSON, &specs) == nil {
 		result.Specs = specs

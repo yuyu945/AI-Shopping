@@ -69,5 +69,5 @@ message PromotionSummary {
   uint64 promotion_id = 1;
   string rule_type = 2;
   optional string threshold_amount = 3;
-  string discount_amount = 4;
+  optional string discount_amount = 4;
 }

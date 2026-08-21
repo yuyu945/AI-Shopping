@@ -133,6 +133,7 @@ func cloneProductDetail(detail ProductDetail) ProductDetail {
 		result.SKUs[i].SpecJSON = append([]byte(nil), detail.SKUs[i].SpecJSON...)
 	}
 	result.Images = append([]ImageRef(nil), detail.Images...)
+	result.Promotions = append([]PromotionSummary(nil), detail.Promotions...)
 	return result
 }
 

@@ -27,6 +27,7 @@ type ProductDetail struct {
 	DetailMarkdown *string
 	SKUs           []SKUDetail
 	Images         []ImageRef
+	Promotions     []PromotionSummary
 }
 
 // SKUDetail contains the current price, specification, and MySQL inventory snapshot.

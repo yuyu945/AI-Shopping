@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
 	"time"
@@ -25,6 +26,8 @@ type GRPCServer struct {
 
 // InternalServiceTokenMetadataKey is the gRPC metadata key required by reservation RPCs.
 const InternalServiceTokenMetadataKey = "x-ai-shopping-service-token"
+
+const invalidInternalServiceTokenCandidate = "invalid-internal-service-token"
 
 // NewGRPCServerWithReservations constructs a server with catalog-owned inventory reservation operations.
 func NewGRPCServerWithReservations(service *catalog.ProductService, reservations *catalog.ReservationService, timeout time.Duration, internalServiceToken string) *GRPCServer {
@@ -126,10 +129,21 @@ func (s *GRPCServer) withTimeoutList(ctx context.Context, fn func(context.Contex
 
 func (s *GRPCServer) authorizeReservationRequest(ctx context.Context) error {
 	values := metadata.ValueFromIncomingContext(ctx, InternalServiceTokenMetadataKey)
-	if s.internalServiceToken == "" || len(values) != 1 || subtle.ConstantTimeCompare([]byte(values[0]), []byte(s.internalServiceToken)) != 1 {
+	candidate := invalidInternalServiceTokenCandidate
+	if len(values) == 1 {
+		candidate = values[0]
+	}
+	expectedDigest := internalServiceTokenDigest(s.internalServiceToken)
+	candidateDigest := internalServiceTokenDigest(candidate)
+	matched := subtle.ConstantTimeCompare(expectedDigest[:], candidateDigest[:]) == 1
+	if s.internalServiceToken == "" || len(values) != 1 || !matched {
 		return status.Error(codes.Unauthenticated, "internal service authentication required")
 	}
 	return nil
+}
+
+func internalServiceTokenDigest(token string) [sha256.Size]byte {
+	return sha256.Sum256([]byte(token))
 }
 
 type productSummaryWire struct {

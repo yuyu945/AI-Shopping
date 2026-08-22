@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,26 +89,38 @@ func TestGRPCServerReservationOperationsRequireServiceToken(t *testing.T) {
 			return err
 		}},
 	}
+	authCases := []struct {
+		name string
+		ctx  context.Context
+	}{
+		{name: "missing token", ctx: context.Background()},
+		{name: "short invalid token", ctx: metadata.NewIncomingContext(context.Background(), metadata.Pairs(InternalServiceTokenMetadataKey, "x"))},
+		{name: "long invalid token", ctx: metadata.NewIncomingContext(context.Background(), metadata.Pairs(InternalServiceTokenMetadataKey, strings.Repeat("x", 1024)))},
+		{name: "repeated token metadata", ctx: metadata.NewIncomingContext(context.Background(), metadata.Pairs(InternalServiceTokenMetadataKey, "test-service-token", InternalServiceTokenMetadataKey, "test-service-token"))},
+	}
 	for _, tt := range tests {
-		t.Run(tt.name+" missing token", func(t *testing.T) {
-			err := tt.call(context.Background())
-			if status.Code(err) != codes.Unauthenticated || status.Convert(err).Message() != "internal service authentication required" {
-				t.Fatalf("error = %v, want unauthenticated stable error", err)
-			}
-		})
-		t.Run(tt.name+" invalid token", func(t *testing.T) {
-			ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(InternalServiceTokenMetadataKey, "wrong-token"))
-			err := tt.call(ctx)
-			if status.Code(err) != codes.Unauthenticated || status.Convert(err).Message() != "internal service authentication required" {
-				t.Fatalf("error = %v, want unauthenticated stable error", err)
-			}
-		})
+		for _, authCase := range authCases {
+			t.Run(tt.name+" "+authCase.name, func(t *testing.T) {
+				err := tt.call(authCase.ctx)
+				if status.Code(err) != codes.Unauthenticated || status.Convert(err).Message() != "internal service authentication required" {
+					t.Fatalf("error = %v, want unauthenticated stable error", err)
+				}
+			})
+		}
 		t.Run(tt.name+" valid token", func(t *testing.T) {
 			ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(InternalServiceTokenMetadataKey, "test-service-token"))
 			if err := tt.valid(ctx); err != nil {
 				t.Fatalf("valid service token error = %v", err)
 			}
 		})
+	}
+}
+
+func TestInternalServiceTokenDigestHasFixedLength(t *testing.T) {
+	for _, token := range []string{"", "x", strings.Repeat("x", 1024)} {
+		if got := len(internalServiceTokenDigest(token)); got != sha256.Size {
+			t.Fatalf("digest length = %d, want %d", got, sha256.Size)
+		}
 	}
 }
 

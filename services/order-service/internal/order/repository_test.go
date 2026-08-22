@@ -7,11 +7,21 @@ import (
 	"errors"
 	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/go-sql-driver/mysql"
 )
+
+func TestOrderInsertStatementsCastJSONDocuments(t *testing.T) {
+	if !strings.Contains(insertOrder, "shipping_address_snapshot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON))") {
+		t.Fatalf("insertOrder must cast shipping address JSON parameter: %s", insertOrder)
+	}
+	if count := strings.Count(insertOrderItem, "CAST(? AS JSON)"); count != 3 {
+		t.Fatalf("insertOrderItem JSON casts = %d, want 3: %s", count, insertOrderItem)
+	}
+}
 
 func TestMySQLRepositoryGetCartReturnsStableEmptyCart(t *testing.T) {
 	db, mock, err := sqlmock.New()
@@ -158,6 +168,25 @@ func TestMySQLRepositoryCreateOrderRejectsUnpersistableMoney(t *testing.T) {
 	}
 }
 
+func TestMySQLRepositoryCreateOrderRejectsInvalidSKUSpecJSON(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	order := persistedOrder()
+	order.Items[0].SpecSnapshot = []byte(`{"color":`)
+	mock.ExpectQuery(regexp.QuoteMeta(queryOrderByRequest)).WithArgs(order.UserID, order.RequestID).WillReturnRows(sqlmock.NewRows(orderColumns()))
+
+	_, err = NewMySQLRepository(db).CreateOrder(context.Background(), order)
+	if err == nil || err.Error() != "sku spec snapshot is invalid JSON" {
+		t.Fatalf("CreateOrder error = %v, want invalid SKU spec JSON", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestMySQLRepositoryPersistsCandidateSnapshotsWithoutAppliedPromotion(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -175,6 +204,31 @@ func TestMySQLRepositoryPersistsCandidateSnapshotsWithoutAppliedPromotion(t *tes
 
 	created, err := NewMySQLRepository(db).CreateOrder(context.Background(), order)
 	if err != nil || created.Items[0].AppliedPromotion != nil || len(created.Items[0].CandidatePromotions) != 2 {
+		t.Fatalf("CreateOrder = %#v, %v", created, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMySQLRepositoryPersistsEmptyArrayForNilCandidatePromotions(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	order := persistedOrder()
+	order.Items[0].CandidatePromotions = nil
+	order.Items[0].AppliedPromotion = nil
+
+	mock.ExpectQuery(regexp.QuoteMeta(queryOrderByRequest)).WithArgs(order.UserID, order.RequestID).WillReturnRows(sqlmock.NewRows(orderColumns()))
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(insertOrder)).WithArgs(orderInsertArgs(order)...).WillReturnResult(sqlmock.NewResult(41, 1))
+	mock.ExpectExec(regexp.QuoteMeta(insertOrderItem)).WithArgs(orderItemInsertArgs(41, order.Items[0])...).WillReturnResult(sqlmock.NewResult(61, 1))
+	mock.ExpectCommit()
+
+	created, err := NewMySQLRepository(db).CreateOrder(context.Background(), order)
+	if err != nil || len(created.Items[0].CandidatePromotions) != 0 || created.Items[0].AppliedPromotion != nil {
 		t.Fatalf("CreateOrder = %#v, %v", created, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -330,13 +384,20 @@ func orderColumns() []string {
 }
 
 func orderInsertArgs(order Order) []driver.Value {
-	return []driver.Value{order.OrderNo, order.UserID, order.RequestID, string(order.Status), order.TotalAmount, order.PaidAmount, order.Shipping.ReceiverName, order.Shipping.ReceiverPhone, sqlmock.AnyArg()}
+	address, err := marshalAddress(order.Shipping)
+	if err != nil {
+		panic(err)
+	}
+	return []driver.Value{order.OrderNo, order.UserID, order.RequestID, string(order.Status), order.TotalAmount, order.PaidAmount, order.Shipping.ReceiverName, order.Shipping.ReceiverPhone, jsonDocumentArgument{expected: string(address)}}
 }
 
 func orderItemInsertArgs(orderID uint64, item OrderItem) []driver.Value {
 	candidates, err := json.Marshal(item.CandidatePromotions)
 	if err != nil {
 		panic(err)
+	}
+	if item.CandidatePromotions == nil {
+		candidates = []byte("[]")
 	}
 	applied := []byte("null")
 	if item.AppliedPromotion != nil {
@@ -345,19 +406,19 @@ func orderItemInsertArgs(orderID uint64, item OrderItem) []driver.Value {
 			panic(err)
 		}
 	}
-	return []driver.Value{orderID, item.ProductID, item.SKUID, item.ProductTitleSnapshot, item.SKUCodeSnapshot, item.SpecSnapshot, jsonArgument{expected: string(candidates)}, jsonArgument{expected: string(applied)}, item.UnitPrice, item.DiscountAmount, item.Quantity, item.ItemAmount}
+	return []driver.Value{orderID, item.ProductID, item.SKUID, item.ProductTitleSnapshot, item.SKUCodeSnapshot, jsonDocumentArgument{expected: string(item.SpecSnapshot)}, jsonDocumentArgument{expected: string(candidates)}, jsonDocumentArgument{expected: string(applied)}, item.UnitPrice, item.DiscountAmount, item.Quantity, item.ItemAmount}
 }
 
-type jsonArgument struct{ expected string }
+type jsonDocumentArgument struct{ expected string }
 
-func (a jsonArgument) Match(value driver.Value) bool {
-	actual, ok := value.([]byte)
+func (a jsonDocumentArgument) Match(value driver.Value) bool {
+	actual, ok := value.(string)
 	if !ok {
 		return false
 	}
 	var expectedValue any
 	var actualValue any
-	return json.Unmarshal([]byte(a.expected), &expectedValue) == nil && json.Unmarshal(actual, &actualValue) == nil && reflect.DeepEqual(expectedValue, actualValue)
+	return json.Unmarshal([]byte(a.expected), &expectedValue) == nil && json.Unmarshal([]byte(actual), &actualValue) == nil && reflect.DeepEqual(expectedValue, actualValue)
 }
 
 func expectStoredOrder(mock sqlmock.Sqlmock, order Order) {

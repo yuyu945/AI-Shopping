@@ -24,8 +24,8 @@ const queryOrderByRequest = `SELECT id, order_no, request_id, user_id, status, t
 const queryOrderByNumber = `SELECT id, order_no, request_id, user_id, status, total_amount, paid_amount, shipping_name_snapshot, shipping_phone_snapshot, shipping_address_snapshot FROM orders WHERE user_id = ? AND order_no = ?`
 const queryOrders = `SELECT id, order_no, request_id, user_id, status, total_amount, paid_amount, shipping_name_snapshot, shipping_phone_snapshot, shipping_address_snapshot FROM orders WHERE user_id = ? ORDER BY created_at DESC, id DESC`
 const queryOrderItems = `SELECT id, order_id, product_id, sku_id, product_title_snapshot, sku_code_snapshot, sku_spec_snapshot, candidate_promotions_snapshot, promotion_snapshot, unit_price, discount_amount, quantity, item_amount FROM order_items WHERE order_id = ? ORDER BY id`
-const insertOrder = `INSERT INTO orders (order_no, user_id, request_id, status, total_amount, paid_amount, shipping_name_snapshot, shipping_phone_snapshot, shipping_address_snapshot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-const insertOrderItem = `INSERT INTO order_items (order_id, product_id, sku_id, product_title_snapshot, sku_code_snapshot, sku_spec_snapshot, candidate_promotions_snapshot, promotion_snapshot, unit_price, discount_amount, quantity, item_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+const insertOrder = `INSERT INTO orders (order_no, user_id, request_id, status, total_amount, paid_amount, shipping_name_snapshot, shipping_phone_snapshot, shipping_address_snapshot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON))`
+const insertOrderItem = `INSERT INTO order_items (order_id, product_id, sku_id, product_title_snapshot, sku_code_snapshot, sku_spec_snapshot, candidate_promotions_snapshot, promotion_snapshot, unit_price, discount_amount, quantity, item_amount) VALUES (?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?)`
 
 // MySQLRepository persists only trade_db carts and immutable order snapshots.
 type MySQLRepository struct{ db *sql.DB }
@@ -170,6 +170,41 @@ func (r *MySQLRepository) CreateOrder(ctx context.Context, order Order) (created
 	if !validOrderMoney(order) {
 		return Order{}, errors.New("order amounts are invalid")
 	}
+	addressJSON, err := marshalAddress(order.Shipping)
+	if err != nil {
+		return Order{}, err
+	}
+	addressDocument, err := jsonDocument(addressJSON, "shipping address")
+	if err != nil {
+		return Order{}, err
+	}
+	itemDocuments := make([]orderItemDocuments, len(order.Items))
+	for index := range order.Items {
+		item := &order.Items[index]
+		if !appliedPromotionMatches(item.AppliedPromotion, item.CandidatePromotions) {
+			return Order{}, errors.New("applied promotion is not a candidate snapshot")
+		}
+		itemDocuments[index].spec, err = jsonDocument(item.SpecSnapshot, "sku spec snapshot")
+		if err != nil {
+			return Order{}, err
+		}
+		candidateJSON, marshalErr := marshalPromotions(item.CandidatePromotions)
+		if marshalErr != nil {
+			return Order{}, marshalErr
+		}
+		itemDocuments[index].candidates, err = jsonDocument(candidateJSON, "candidate promotions snapshot")
+		if err != nil {
+			return Order{}, err
+		}
+		promotionJSON, marshalErr := marshalPromotion(item.AppliedPromotion)
+		if marshalErr != nil {
+			return Order{}, marshalErr
+		}
+		itemDocuments[index].promotion, err = jsonDocument(promotionJSON, "promotion snapshot")
+		if err != nil {
+			return Order{}, err
+		}
+	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Order{}, fmt.Errorf("begin order transaction: %w", err)
@@ -179,11 +214,7 @@ func (r *MySQLRepository) CreateOrder(ctx context.Context, order Order) (created
 			_ = tx.Rollback()
 		}
 	}()
-	addressJSON, err := marshalAddress(order.Shipping)
-	if err != nil {
-		return Order{}, err
-	}
-	result, err := tx.ExecContext(ctx, insertOrder, order.OrderNo, order.UserID, order.RequestID, order.Status, order.TotalAmount, order.PaidAmount, order.Shipping.ReceiverName, order.Shipping.ReceiverPhone, addressJSON)
+	result, err := tx.ExecContext(ctx, insertOrder, order.OrderNo, order.UserID, order.RequestID, order.Status, order.TotalAmount, order.PaidAmount, order.Shipping.ReceiverName, order.Shipping.ReceiverPhone, addressDocument)
 	if err != nil {
 		if isDuplicate(err) {
 			_ = tx.Rollback()
@@ -199,21 +230,8 @@ func (r *MySQLRepository) CreateOrder(ctx context.Context, order Order) (created
 	created.ID = uint64(orderID)
 	for index := range created.Items {
 		item := &created.Items[index]
-		candidateJSON, marshalErr := marshalPromotions(item.CandidatePromotions)
-		if marshalErr != nil {
-			err = marshalErr
-			return Order{}, err
-		}
-		promotionJSON, marshalErr := marshalPromotion(item.AppliedPromotion)
-		if marshalErr != nil {
-			err = marshalErr
-			return Order{}, err
-		}
-		if !appliedPromotionMatches(item.AppliedPromotion, item.CandidatePromotions) {
-			err = errors.New("applied promotion is not a candidate snapshot")
-			return Order{}, err
-		}
-		itemResult, execErr := tx.ExecContext(ctx, insertOrderItem, orderID, item.ProductID, item.SKUID, item.ProductTitleSnapshot, item.SKUCodeSnapshot, item.SpecSnapshot, candidateJSON, promotionJSON, item.UnitPrice, item.DiscountAmount, item.Quantity, item.ItemAmount)
+		documents := itemDocuments[index]
+		itemResult, execErr := tx.ExecContext(ctx, insertOrderItem, orderID, item.ProductID, item.SKUID, item.ProductTitleSnapshot, item.SKUCodeSnapshot, documents.spec, documents.candidates, documents.promotion, item.UnitPrice, item.DiscountAmount, item.Quantity, item.ItemAmount)
 		if execErr != nil {
 			err = fmt.Errorf("insert order item: %w", execErr)
 			return Order{}, err
@@ -229,6 +247,10 @@ func (r *MySQLRepository) CreateOrder(ctx context.Context, order Order) (created
 		return Order{}, fmt.Errorf("commit order transaction: %w", err)
 	}
 	return cloneOrder(created), nil
+}
+
+type orderItemDocuments struct {
+	spec, candidates, promotion string
 }
 
 func (r *MySQLRepository) loadCartItems(ctx context.Context, cartID uint64) ([]CartItem, error) {
@@ -401,12 +423,22 @@ func marshalPromotion(promotion *PromotionSnapshot) ([]byte, error) {
 }
 
 func marshalPromotions(promotions []PromotionSnapshot) ([]byte, error) {
+	if promotions == nil {
+		return []byte("[]"), nil
+	}
 	for _, promotion := range promotions {
 		if !validPromotion(promotion) {
 			return nil, errors.New("invalid candidate promotion")
 		}
 	}
 	return json.Marshal(promotions)
+}
+
+func jsonDocument(encoded []byte, name string) (string, error) {
+	if !json.Valid(encoded) {
+		return "", fmt.Errorf("%s is invalid JSON", name)
+	}
+	return string(encoded), nil
 }
 
 func unmarshalPromotions(encoded []byte) ([]PromotionSnapshot, error) {

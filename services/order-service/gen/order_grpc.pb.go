@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v3.19.4
-// source: api/order/order.proto
+// source: order.proto
 
 package orderpb
 
@@ -19,14 +19,15 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	OrderService_GetCart_FullMethodName        = "/order.v1.OrderService/GetCart"
-	OrderService_AddCartItem_FullMethodName    = "/order.v1.OrderService/AddCartItem"
-	OrderService_UpdateCartItem_FullMethodName = "/order.v1.OrderService/UpdateCartItem"
-	OrderService_DeleteCartItem_FullMethodName = "/order.v1.OrderService/DeleteCartItem"
-	OrderService_CreateOrder_FullMethodName    = "/order.v1.OrderService/CreateOrder"
-	OrderService_PayWallet_FullMethodName      = "/order.v1.OrderService/PayWallet"
-	OrderService_ListOrders_FullMethodName     = "/order.v1.OrderService/ListOrders"
-	OrderService_GetOrder_FullMethodName       = "/order.v1.OrderService/GetOrder"
+	OrderService_GetCart_FullMethodName                    = "/order.v1.OrderService/GetCart"
+	OrderService_AddCartItem_FullMethodName                = "/order.v1.OrderService/AddCartItem"
+	OrderService_UpdateCartItem_FullMethodName             = "/order.v1.OrderService/UpdateCartItem"
+	OrderService_DeleteCartItem_FullMethodName             = "/order.v1.OrderService/DeleteCartItem"
+	OrderService_CreateOrder_FullMethodName                = "/order.v1.OrderService/CreateOrder"
+	OrderService_PayWallet_FullMethodName                  = "/order.v1.OrderService/PayWallet"
+	OrderService_GetPaymentSettlementStatus_FullMethodName = "/order.v1.OrderService/GetPaymentSettlementStatus"
+	OrderService_ListOrders_FullMethodName                 = "/order.v1.OrderService/ListOrders"
+	OrderService_GetOrder_FullMethodName                   = "/order.v1.OrderService/GetOrder"
 )
 
 // OrderServiceClient is the client API for OrderService service.
@@ -42,6 +43,8 @@ type OrderServiceClient interface {
 	DeleteCartItem(ctx context.Context, in *DeleteCartItemRequest, opts ...grpc.CallOption) (*Empty, error)
 	CreateOrder(ctx context.Context, in *CreateOrderRequest, opts ...grpc.CallOption) (*OrderResponse, error)
 	PayWallet(ctx context.Context, in *PayWalletRequest, opts ...grpc.CallOption) (*OrderResponse, error)
+	// GetPaymentSettlementStatus is an internal service-token protected read used only by reservation expiry recovery.
+	GetPaymentSettlementStatus(ctx context.Context, in *GetPaymentSettlementStatusRequest, opts ...grpc.CallOption) (*GetPaymentSettlementStatusResponse, error)
 	ListOrders(ctx context.Context, in *ListOrdersRequest, opts ...grpc.CallOption) (*ListOrdersResponse, error)
 	GetOrder(ctx context.Context, in *GetOrderRequest, opts ...grpc.CallOption) (*OrderResponse, error)
 }
@@ -114,6 +117,16 @@ func (c *orderServiceClient) PayWallet(ctx context.Context, in *PayWalletRequest
 	return out, nil
 }
 
+func (c *orderServiceClient) GetPaymentSettlementStatus(ctx context.Context, in *GetPaymentSettlementStatusRequest, opts ...grpc.CallOption) (*GetPaymentSettlementStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetPaymentSettlementStatusResponse)
+	err := c.cc.Invoke(ctx, OrderService_GetPaymentSettlementStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *orderServiceClient) ListOrders(ctx context.Context, in *ListOrdersRequest, opts ...grpc.CallOption) (*ListOrdersResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListOrdersResponse)
@@ -147,6 +160,8 @@ type OrderServiceServer interface {
 	DeleteCartItem(context.Context, *DeleteCartItemRequest) (*Empty, error)
 	CreateOrder(context.Context, *CreateOrderRequest) (*OrderResponse, error)
 	PayWallet(context.Context, *PayWalletRequest) (*OrderResponse, error)
+	// GetPaymentSettlementStatus is an internal service-token protected read used only by reservation expiry recovery.
+	GetPaymentSettlementStatus(context.Context, *GetPaymentSettlementStatusRequest) (*GetPaymentSettlementStatusResponse, error)
 	ListOrders(context.Context, *ListOrdersRequest) (*ListOrdersResponse, error)
 	GetOrder(context.Context, *GetOrderRequest) (*OrderResponse, error)
 	mustEmbedUnimplementedOrderServiceServer()
@@ -176,6 +191,9 @@ func (UnimplementedOrderServiceServer) CreateOrder(context.Context, *CreateOrder
 }
 func (UnimplementedOrderServiceServer) PayWallet(context.Context, *PayWalletRequest) (*OrderResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PayWallet not implemented")
+}
+func (UnimplementedOrderServiceServer) GetPaymentSettlementStatus(context.Context, *GetPaymentSettlementStatusRequest) (*GetPaymentSettlementStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetPaymentSettlementStatus not implemented")
 }
 func (UnimplementedOrderServiceServer) ListOrders(context.Context, *ListOrdersRequest) (*ListOrdersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListOrders not implemented")
@@ -312,6 +330,24 @@ func _OrderService_PayWallet_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OrderService_GetPaymentSettlementStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPaymentSettlementStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OrderServiceServer).GetPaymentSettlementStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OrderService_GetPaymentSettlementStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OrderServiceServer).GetPaymentSettlementStatus(ctx, req.(*GetPaymentSettlementStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _OrderService_ListOrders_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListOrdersRequest)
 	if err := dec(in); err != nil {
@@ -380,6 +416,10 @@ var OrderService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _OrderService_PayWallet_Handler,
 		},
 		{
+			MethodName: "GetPaymentSettlementStatus",
+			Handler:    _OrderService_GetPaymentSettlementStatus_Handler,
+		},
+		{
 			MethodName: "ListOrders",
 			Handler:    _OrderService_ListOrders_Handler,
 		},
@@ -389,5 +429,5 @@ var OrderService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "api/order/order.proto",
+	Metadata: "order.proto",
 }

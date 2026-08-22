@@ -10,6 +10,26 @@ import (
 
 const queryPaymentOrderForUpdate = `SELECT id, order_no, user_id, status, total_amount, paid_amount, payment_attempt_id, reservation_id FROM orders WHERE user_id = ? AND order_no = ? FOR UPDATE`
 const queryPaymentOrder = `SELECT id, order_no, user_id, status, total_amount, paid_amount, payment_attempt_id, reservation_id FROM orders WHERE user_id = ? AND order_no = ?`
+const queryPaymentSettlement = `SELECT status FROM orders WHERE order_no = ? AND payment_attempt_id = ?`
+
+// SettlementReader exposes the minimum order-owned state required by product expiry reconciliation.
+type SettlementReader interface {
+	PaymentSettlementStatus(context.Context, string, string) (OrderStatus, error)
+}
+
+// PaymentSettlementStatus reads only the status for the exact historical payment attempt.
+func (r *MySQLRepository) PaymentSettlementStatus(ctx context.Context, orderNo, paymentAttemptID string) (OrderStatus, error) {
+	var value OrderStatus
+	err := r.db.QueryRowContext(ctx, queryPaymentSettlement, orderNo, paymentAttemptID).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("read payment settlement status: %w", err)
+	}
+	return value, nil
+}
+
 const queryWalletForUpdate = `SELECT balance, version FROM wallet_accounts WHERE user_id = ? FOR UPDATE`
 const claimPaymentOrder = `UPDATE orders SET status = ?, payment_attempt_id = ?, reservation_id = ?, payment_started_at = CURRENT_TIMESTAMP(3) WHERE id = ? AND user_id = ? AND status = ?`
 const resetPaymentOrder = `UPDATE orders SET status = ?, payment_attempt_id = NULL, reservation_id = NULL, payment_started_at = NULL WHERE user_id = ? AND order_no = ? AND status = ? AND payment_attempt_id = ? AND reservation_id = ?`

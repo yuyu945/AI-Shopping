@@ -19,6 +19,27 @@ CREATE TABLE IF NOT EXISTS inventory_reservations (
     CONSTRAINT fk_inventory_reservation_sku FOREIGN KEY (sku_id) REFERENCES product_skus(id)
 ) ENGINE=InnoDB;
 
+SET @reservation_next_retry_exists = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'inventory_reservations' AND column_name = 'next_retry_at');
+SET @reservation_next_retry_sql = IF(@reservation_next_retry_exists = 0, 'ALTER TABLE inventory_reservations ADD COLUMN next_retry_at DATETIME(3) NULL AFTER released_at', 'SELECT 1');
+PREPARE reservation_next_retry_statement FROM @reservation_next_retry_sql;
+EXECUTE reservation_next_retry_statement;
+DEALLOCATE PREPARE reservation_next_retry_statement;
+SET @reservation_expiry_token_exists = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'inventory_reservations' AND column_name = 'expiry_lease_token');
+SET @reservation_expiry_token_sql = IF(@reservation_expiry_token_exists = 0, 'ALTER TABLE inventory_reservations ADD COLUMN expiry_lease_token CHAR(36) NULL AFTER next_retry_at', 'SELECT 1');
+PREPARE reservation_expiry_token_statement FROM @reservation_expiry_token_sql;
+EXECUTE reservation_expiry_token_statement;
+DEALLOCATE PREPARE reservation_expiry_token_statement;
+SET @reservation_expiry_lease_exists = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'inventory_reservations' AND column_name = 'expiry_lease_until');
+SET @reservation_expiry_lease_sql = IF(@reservation_expiry_lease_exists = 0, 'ALTER TABLE inventory_reservations ADD COLUMN expiry_lease_until DATETIME(3) NULL AFTER expiry_lease_token', 'SELECT 1');
+PREPARE reservation_expiry_lease_statement FROM @reservation_expiry_lease_sql;
+EXECUTE reservation_expiry_lease_statement;
+DEALLOCATE PREPARE reservation_expiry_lease_statement;
+SET @reservation_expiry_lease_index_exists = (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'inventory_reservations' AND index_name = 'idx_inventory_reservation_expiry_lease');
+SET @reservation_expiry_lease_index_sql = IF(@reservation_expiry_lease_index_exists = 0, 'ALTER TABLE inventory_reservations ADD KEY idx_inventory_reservation_expiry_lease (status, expires_at, next_retry_at, expiry_lease_until, id)', 'SELECT 1');
+PREPARE reservation_expiry_lease_index_statement FROM @reservation_expiry_lease_index_sql;
+EXECUTE reservation_expiry_lease_index_statement;
+DEALLOCATE PREPARE reservation_expiry_lease_index_statement;
+
 CREATE TABLE IF NOT EXISTS event_consumptions (
     event_id CHAR(36) NOT NULL,
     consumer_group VARCHAR(128) NOT NULL,

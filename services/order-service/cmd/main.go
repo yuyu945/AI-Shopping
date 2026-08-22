@@ -110,7 +110,7 @@ func main() {
 	zrpc.DontLogContentForMethod(orderpb.OrderService_GetOrder_FullMethodName)
 	zrpc.DontLogContentForMethod(orderpb.OrderService_ListOrders_FullMethodName)
 	server, err := zrpc.NewServer(config.RpcServerConf, func(g *grpc.Server) {
-		orderpb.RegisterOrderServiceServer(g, orderserver.NewGRPCServerWithPayment(service, payment, manager, timeout))
+		orderpb.RegisterOrderServiceServer(g, orderserver.NewGRPCServerWithPaymentAndSettlement(service, payment, repository, manager, timeout, runtimeConfig.InternalServiceToken))
 	})
 	if err != nil {
 		log.Fatalf("%s create rpc server: %v", SERVICE_NAME, err)

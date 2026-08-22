@@ -13,6 +13,8 @@ service OrderService {
   rpc DeleteCartItem(DeleteCartItemRequest) returns (Empty);
   rpc CreateOrder(CreateOrderRequest) returns (OrderResponse);
   rpc PayWallet(PayWalletRequest) returns (OrderResponse);
+  // GetPaymentSettlementStatus is an internal service-token protected read used only by reservation expiry recovery.
+  rpc GetPaymentSettlementStatus(GetPaymentSettlementStatusRequest) returns (GetPaymentSettlementStatusResponse);
   rpc ListOrders(ListOrdersRequest) returns (ListOrdersResponse);
   rpc GetOrder(GetOrderRequest) returns (OrderResponse);
 }
@@ -61,6 +63,15 @@ message CreateOrderRequest {
 
 message PayWalletRequest {
   string order_no = 1;
+}
+
+message GetPaymentSettlementStatusRequest {
+  string order_no = 1;
+  string payment_attempt_id = 2;
+}
+
+message GetPaymentSettlementStatusResponse {
+  string status = 1;
 }
 
 message ListOrdersRequest {}

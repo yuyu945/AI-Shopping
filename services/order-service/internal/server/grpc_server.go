@@ -3,6 +3,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"errors"
 	"time"
 
@@ -16,10 +18,12 @@ import (
 
 type GRPCServer struct {
 	orderpb.UnimplementedOrderServiceServer
-	service *order.Service
-	payment *order.PaymentService
-	auth    *platformauth.Manager
-	timeout time.Duration
+	service              *order.Service
+	payment              *order.PaymentService
+	settlements          order.SettlementReader
+	internalServiceToken string
+	auth                 *platformauth.Manager
+	timeout              time.Duration
 }
 
 // NewGRPCServerWithPayment exposes cart/order operations and wallet payment.
@@ -27,6 +31,14 @@ func NewGRPCServerWithPayment(service *order.Service, payment *order.PaymentServ
 	server := NewGRPCServer(service, auth, timeout)
 	server.payment = payment
 	return server
+}
+
+// NewGRPCServerWithPaymentAndSettlement adds the service-token protected expiry read path.
+func NewGRPCServerWithPaymentAndSettlement(service *order.Service, payment *order.PaymentService, settlements order.SettlementReader, auth *platformauth.Manager, timeout time.Duration, token string) *GRPCServer {
+	s := NewGRPCServerWithPayment(service, payment, auth, timeout)
+	s.settlements = settlements
+	s.internalServiceToken = token
+	return s
 }
 
 func NewGRPCServer(service *order.Service, auth *platformauth.Manager, timeout time.Duration) *GRPCServer {
@@ -141,6 +153,39 @@ func (s *GRPCServer) PayWallet(ctx context.Context, r *orderpb.PayWalletRequest)
 		return nil, err
 	}
 	return &orderpb.OrderResponse{Order: orderWire(out)}, nil
+}
+
+// GetPaymentSettlementStatus is intentionally read-only and only accepts a service credential.
+func (s *GRPCServer) GetPaymentSettlementStatus(ctx context.Context, r *orderpb.GetPaymentSettlementStatusRequest) (*orderpb.GetPaymentSettlementStatusResponse, error) {
+	if r == nil || r.GetOrderNo() == "" || r.GetPaymentAttemptId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "order number and payment attempt are required")
+	}
+	values := metadata.ValueFromIncomingContext(ctx, "x-ai-shopping-service-token")
+	candidate := "invalid"
+	if len(values) == 1 {
+		candidate = values[0]
+	}
+	want := sha256.Sum256([]byte(s.internalServiceToken))
+	got := sha256.Sum256([]byte(candidate))
+	if s.internalServiceToken == "" || len(values) != 1 || subtle.ConstantTimeCompare(want[:], got[:]) != 1 {
+		return nil, status.Error(codes.Unauthenticated, "internal service authentication required")
+	}
+	if s.settlements == nil {
+		return nil, status.Error(codes.Internal, "internal server error")
+	}
+	call, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	state, err := s.settlements.PaymentSettlementStatus(call, r.GetOrderNo(), r.GetPaymentAttemptId())
+	if errors.Is(err, order.ErrNotFound) {
+		return nil, status.Error(codes.NotFound, "resource not found")
+	}
+	if errors.Is(call.Err(), context.DeadlineExceeded) {
+		return nil, status.Error(codes.DeadlineExceeded, "dependency timeout")
+	}
+	if err != nil {
+		return nil, status.Error(codes.Internal, "internal server error")
+	}
+	return &orderpb.GetPaymentSettlementStatusResponse{Status: string(state)}, nil
 }
 func (s *GRPCServer) ListOrders(ctx context.Context, _ *orderpb.ListOrdersRequest) (*orderpb.ListOrdersResponse, error) {
 	var out []order.Order

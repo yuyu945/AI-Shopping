@@ -15,6 +15,7 @@ import (
 	platformconfig "github.com/yuyu945/AI-Shopping/internal/platform/config"
 	productpb "github.com/yuyu945/AI-Shopping/services/product-service/gen"
 	"github.com/yuyu945/AI-Shopping/services/product-service/internal/catalog"
+	orderclient "github.com/yuyu945/AI-Shopping/services/product-service/internal/client"
 	productserver "github.com/yuyu945/AI-Shopping/services/product-service/internal/server"
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/zrpc"
@@ -36,9 +37,16 @@ type productServiceConfig struct {
 	zrpc.RpcServerConf
 	CacheInvalidation    cacheInvalidationConfig
 	ConfirmationConsumer confirmationConsumerConfig
+	OrderRPC             zrpc.RpcClientConf
+	ReservationExpiry    reservationExpiryConfig
 }
 
 type confirmationConsumerConfig struct{ CallTimeout time.Duration }
+type reservationExpiryConfig struct {
+	PollInterval                           time.Duration
+	BatchSize                              int
+	LeaseDuration, CallTimeout, RetryDelay time.Duration
+}
 
 type cacheInvalidationConfig struct {
 	PollInterval       time.Duration
@@ -122,6 +130,12 @@ func main() {
 		log.Fatalf("%s startup: invalid inventory confirmation consumer configuration", SERVICE_NAME)
 	}
 	confirmationConsumer := catalog.NewKafkaConfirmationConsumer(strings.Split(runtimeConfig.KafkaBrokers, ","), catalog.NewConfirmationConsumer(catalog.NewReservationRepository(db), ""), config.ConfirmationConsumer.CallTimeout)
+	orderRPC, err := zrpc.NewClient(config.OrderRPC)
+	if err != nil {
+		log.Fatalf("%s connect order service: %v", SERVICE_NAME, err)
+	}
+	defer orderRPC.Conn().Close()
+	expiryWorker := catalog.NewReservationExpiryWorker(catalog.NewMySQLExpiryStore(db), orderclient.NewSettlementClient(orderRPC.Conn(), runtimeConfig.InternalServiceToken, config.ReservationExpiry.CallTimeout), catalog.ExpiryWorkerConfig{BatchSize: config.ReservationExpiry.BatchSize, LeaseDuration: config.ReservationExpiry.LeaseDuration, CallTimeout: config.ReservationExpiry.CallTimeout, RetryDelay: config.ReservationExpiry.RetryDelay})
 	defer confirmationConsumer.Close()
 	_, worker, err := buildCatalogMutationComponents(db, detailCache, config)
 	if err != nil {
@@ -149,6 +163,11 @@ func main() {
 	go func() {
 		if err := runConfirmationConsumer(consumerCtx, confirmationConsumer, confirmationConsumerRestartInitial); err != nil && !errors.Is(err, context.Canceled) {
 			log.Printf("%s inventory confirmation consumer stopped", SERVICE_NAME)
+		}
+	}()
+	go func() {
+		if err := expiryWorker.Run(consumerCtx, config.ReservationExpiry.PollInterval); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("%s reservation expiry worker stopped", SERVICE_NAME)
 		}
 	}()
 	rpcServer.Start()

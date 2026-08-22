@@ -2,7 +2,10 @@ package catalog
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
+	"github.com/google/uuid"
 	"time"
 )
 
@@ -45,6 +48,112 @@ type ReservationExpiryWorker struct {
 	config      ExpiryWorkerConfig
 }
 
+// MySQLExpiryStore persists catalog-owned expiry leases and fenced transitions.
+type MySQLExpiryStore struct{ db *sql.DB }
+
+func NewMySQLExpiryStore(db *sql.DB) *MySQLExpiryStore { return &MySQLExpiryStore{db: db} }
+func (s *MySQLExpiryStore) LeaseExpired(ctx context.Context, limit int, now time.Time, lease time.Duration) ([]ExpiredReservation, error) {
+	if s == nil || s.db == nil {
+		return nil, errors.New("catalog database is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT reservation_id, order_no, payment_attempt_id FROM inventory_reservations WHERE status='RESERVED' AND expires_at<=? AND (next_retry_at IS NULL OR next_retry_at<=?) GROUP BY reservation_id,order_no,payment_attempt_id ORDER BY reservation_id LIMIT ? FOR UPDATE SKIP LOCKED`, now, now, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ExpiredReservation
+	for rows.Next() {
+		var v ExpiredReservation
+		if err := rows.Scan(&v.ReservationID, &v.OrderNo, &v.PaymentAttemptID); err != nil {
+			return nil, err
+		}
+		v.LeaseToken = uuid.NewString()
+		items = append(items, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, v := range items {
+		r, e := tx.ExecContext(ctx, `UPDATE inventory_reservations SET expiry_lease_token=?, expiry_lease_until=? WHERE reservation_id=? AND status='RESERVED' AND expires_at<=? AND (next_retry_at IS NULL OR next_retry_at<=?) AND (expiry_lease_until IS NULL OR expiry_lease_until<=?)`, v.LeaseToken, now.Add(lease), v.ReservationID, now, now, now)
+		if e != nil {
+			return nil, e
+		}
+		n, e := r.RowsAffected()
+		if e != nil || n == 0 {
+			return nil, errors.New("reservation expiry lease lost")
+		}
+	}
+	return items, tx.Commit()
+}
+func (s *MySQLExpiryStore) ConfirmExpired(ctx context.Context, v ExpiredReservation, now time.Time) error {
+	return s.transition(ctx, v, now, ReservationConfirmed, "")
+}
+func (s *MySQLExpiryStore) ReleaseExpired(ctx context.Context, v ExpiredReservation, now time.Time) error {
+	tx, e := s.db.BeginTx(ctx, nil)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+	rows, e := tx.QueryContext(ctx, `SELECT sku_id, quantity FROM inventory_reservations WHERE reservation_id=? AND status='RESERVED' AND expiry_lease_token=? FOR UPDATE`, v.ReservationID, v.LeaseToken)
+	if e != nil {
+		return e
+	}
+	defer rows.Close()
+	type item struct {
+		id uint64
+		q  uint32
+	}
+	var items []item
+	for rows.Next() {
+		var i item
+		if e = rows.Scan(&i.id, &i.q); e != nil {
+			return e
+		}
+		items = append(items, i)
+	}
+	for _, i := range items {
+		if _, e = tx.ExecContext(ctx, releaseInventoryQuery, i.q, i.id); e != nil {
+			return e
+		}
+	}
+	r, e := tx.ExecContext(ctx, `UPDATE inventory_reservations SET status='RELEASED', released_at=?, expiry_lease_token=NULL, expiry_lease_until=NULL WHERE reservation_id=? AND status='RESERVED' AND expiry_lease_token=?`, now, v.ReservationID, v.LeaseToken)
+	if e != nil {
+		return e
+	}
+	n, e := r.RowsAffected()
+	if e != nil || n != int64(len(items)) {
+		return fmt.Errorf("reservation expiry release lease lost")
+	}
+	return tx.Commit()
+}
+func (s *MySQLExpiryStore) RetryExpired(ctx context.Context, v ExpiredReservation, next time.Time) error {
+	r, e := s.db.ExecContext(ctx, `UPDATE inventory_reservations SET next_retry_at=?, expiry_lease_token=NULL, expiry_lease_until=NULL WHERE reservation_id=? AND status='RESERVED' AND expiry_lease_token=?`, next, v.ReservationID, v.LeaseToken)
+	if e != nil {
+		return e
+	}
+	n, e := r.RowsAffected()
+	if e != nil || n == 0 {
+		return errors.New("reservation expiry retry lease lost")
+	}
+	return nil
+}
+func (s *MySQLExpiryStore) transition(ctx context.Context, v ExpiredReservation, now time.Time, status ReservationStatus, _ string) error {
+	r, e := s.db.ExecContext(ctx, `UPDATE inventory_reservations SET status=?, confirmed_at=?, expiry_lease_token=NULL, expiry_lease_until=NULL WHERE reservation_id=? AND status='RESERVED' AND expiry_lease_token=?`, status, now, v.ReservationID, v.LeaseToken)
+	if e != nil {
+		return e
+	}
+	n, e := r.RowsAffected()
+	if e != nil || n == 0 {
+		return errors.New("reservation expiry confirmation lease lost")
+	}
+	return nil
+}
+
 // NewReservationExpiryWorker creates the expiry reconciler.
 func NewReservationExpiryWorker(store ExpiryStore, settlements SettlementClient, config ExpiryWorkerConfig) *ReservationExpiryWorker {
 	return &ReservationExpiryWorker{store: store, settlements: settlements, config: config}
@@ -82,4 +191,23 @@ func (w *ReservationExpiryWorker) RunOnce(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// Run polls expiry reconciliation until cancellation.
+func (w *ReservationExpiryWorker) Run(ctx context.Context, interval time.Duration) error {
+	if interval <= 0 {
+		interval = time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if err := w.RunOnce(ctx); err != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }

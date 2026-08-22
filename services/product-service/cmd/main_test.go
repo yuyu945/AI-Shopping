@@ -20,6 +20,21 @@ func TestCatalogDSNUsesCatalogDatabase(t *testing.T) {
 	}
 }
 
+func TestValidateInternalServiceTokenRequiresSecretWithoutExposingIt(t *testing.T) {
+	for _, token := range []string{"", "secret-value-must-not-appear"} {
+		err := validateInternalServiceToken(token)
+		if token == "" && err == nil {
+			t.Fatal("validateInternalServiceToken(\"\") error = nil, want error")
+		}
+		if token != "" && err != nil {
+			t.Fatalf("validateInternalServiceToken(non-empty) error = %v", err)
+		}
+		if token != "" && err != nil && strings.Contains(err.Error(), token) {
+			t.Fatalf("validateInternalServiceToken() error = %q, leaked token", err)
+		}
+	}
+}
+
 type fakeCacheClient struct {
 	pingErr error
 	closed  bool

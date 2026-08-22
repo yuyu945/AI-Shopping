@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"time"
 
@@ -9,21 +10,27 @@ import (
 	productpb "github.com/yuyu945/AI-Shopping/services/product-service/gen"
 	"github.com/yuyu945/AI-Shopping/services/product-service/internal/catalog"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
 // GRPCServer exposes catalog APIs over the generated product contract.
 type GRPCServer struct {
 	productpb.UnimplementedProductServiceServer
-	service      *catalog.ProductService
-	reservations *catalog.ReservationService
-	timeout      time.Duration
+	service              *catalog.ProductService
+	reservations         *catalog.ReservationService
+	timeout              time.Duration
+	internalServiceToken string
 }
 
+// InternalServiceTokenMetadataKey is the gRPC metadata key required by reservation RPCs.
+const InternalServiceTokenMetadataKey = "x-ai-shopping-service-token"
+
 // NewGRPCServerWithReservations constructs a server with catalog-owned inventory reservation operations.
-func NewGRPCServerWithReservations(service *catalog.ProductService, reservations *catalog.ReservationService, timeout time.Duration) *GRPCServer {
+func NewGRPCServerWithReservations(service *catalog.ProductService, reservations *catalog.ReservationService, timeout time.Duration, internalServiceToken string) *GRPCServer {
 	server := NewGRPCServer(service, timeout)
 	server.reservations = reservations
+	server.internalServiceToken = internalServiceToken
 	return server
 }
 
@@ -115,6 +122,14 @@ func (s *GRPCServer) withTimeoutList(ctx context.Context, fn func(context.Contex
 	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	return fn(callCtx)
+}
+
+func (s *GRPCServer) authorizeReservationRequest(ctx context.Context) error {
+	values := metadata.ValueFromIncomingContext(ctx, InternalServiceTokenMetadataKey)
+	if s.internalServiceToken == "" || len(values) != 1 || subtle.ConstantTimeCompare([]byte(values[0]), []byte(s.internalServiceToken)) != 1 {
+		return status.Error(codes.Unauthenticated, "internal service authentication required")
+	}
+	return nil
 }
 
 type productSummaryWire struct {

@@ -73,6 +73,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("%s load runtime configuration: %v", SERVICE_NAME, err)
 	}
+	if err := validateInternalServiceToken(runtimeConfig.InternalServiceToken); err != nil {
+		log.Fatalf("%s startup: invalid internal service authentication configuration", SERVICE_NAME)
+	}
 
 	dsn, err := catalogDSN(runtimeConfig.MySQLDSN)
 	if err != nil {
@@ -108,7 +111,7 @@ func main() {
 	}
 
 	rpcServer, err := zrpc.NewServer(config.RpcServerConf, func(server *grpc.Server) {
-		productpb.RegisterProductServiceServer(server, productserver.NewGRPCServerWithReservations(productService, reservationService, time.Duration(config.Timeout)*time.Millisecond))
+		productpb.RegisterProductServiceServer(server, productserver.NewGRPCServerWithReservations(productService, reservationService, time.Duration(config.Timeout)*time.Millisecond, runtimeConfig.InternalServiceToken))
 	})
 	if err != nil {
 		log.Fatalf("%s create rpc server: %v", SERVICE_NAME, err)
@@ -132,6 +135,13 @@ func buildReservationService(db *sql.DB, detailCache catalog.DetailCache, config
 		return nil, err
 	}
 	return catalog.NewReservationService(catalog.NewReservationRepository(db), detailCache, time.Now, config.CacheInvalidation.DelayedDeleteDelay, workerConfig.CallTimeout)
+}
+
+func validateInternalServiceToken(token string) error {
+	if token == "" {
+		return errors.New("internal service token is required")
+	}
+	return nil
 }
 
 type redisOptions struct {

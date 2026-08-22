@@ -75,6 +75,19 @@ func TestLoadReadsCompleteRequiredEnvironment(t *testing.T) {
 	}
 }
 
+func TestLoadReadsInternalServiceTokenWithoutMakingItGlobalRequirement(t *testing.T) {
+	setRequiredEnvironment(t)
+	t.Setenv("AI_SHOPPING_INTERNAL_SERVICE_TOKEN", "test-internal-service-token")
+
+	got, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.InternalServiceToken != "test-internal-service-token" {
+		t.Fatalf("InternalServiceToken = %q, want configured value", got.InternalServiceToken)
+	}
+}
+
 func TestExampleEnvironmentSatisfiesLoadRequirements(t *testing.T) {
 	contents, err := os.ReadFile("../../../.env.example")
 	if err != nil {
@@ -92,7 +105,7 @@ func TestExampleEnvironmentSatisfiesLoadRequirements(t *testing.T) {
 	}
 	for name := range example {
 		if strings.HasPrefix(name, "AI_SHOPPING_") {
-			if _, ok := requiredEnvironment[name]; !ok {
+			if _, ok := requiredEnvironment[name]; !ok && name != "AI_SHOPPING_INTERNAL_SERVICE_TOKEN" {
 				t.Fatalf(".env.example contains unsupported runtime variable %s", name)
 			}
 		}

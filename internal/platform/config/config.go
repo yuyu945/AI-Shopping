@@ -7,23 +7,25 @@ import (
 )
 
 const (
-	mysqlDSNEnv      = "AI_SHOPPING_MYSQL_DSN"
-	redisAddrEnv     = "AI_SHOPPING_REDIS_ADDR"
-	kafkaBrokersEnv  = "AI_SHOPPING_KAFKA_BROKERS"
-	minIOEndpointEnv = "AI_SHOPPING_MINIO_ENDPOINT"
-	milvusAddressEnv = "AI_SHOPPING_MILVUS_ADDRESS"
-	jwtSecretEnv     = "AI_SHOPPING_JWT_SECRET"
+	mysqlDSNEnv             = "AI_SHOPPING_MYSQL_DSN"
+	redisAddrEnv            = "AI_SHOPPING_REDIS_ADDR"
+	kafkaBrokersEnv         = "AI_SHOPPING_KAFKA_BROKERS"
+	minIOEndpointEnv        = "AI_SHOPPING_MINIO_ENDPOINT"
+	milvusAddressEnv        = "AI_SHOPPING_MILVUS_ADDRESS"
+	jwtSecretEnv            = "AI_SHOPPING_JWT_SECRET"
+	internalServiceTokenEnv = "AI_SHOPPING_INTERNAL_SERVICE_TOKEN"
 )
 
 // Config contains the infrastructure endpoints required by the MVP services.
 // Values are loaded only from AI_SHOPPING_ environment variables.
 type Config struct {
-	MySQLDSN      string
-	RedisAddr     string
-	KafkaBrokers  string
-	MinIOEndpoint string
-	MilvusAddress string
-	JWTSecret     string
+	MySQLDSN             string
+	RedisAddr            string
+	KafkaBrokers         string
+	MinIOEndpoint        string
+	MilvusAddress        string
+	JWTSecret            string
+	InternalServiceToken string
 }
 
 // Load reads and validates the required AI_SHOPPING_ environment variables.
@@ -46,11 +48,12 @@ func Load() (Config, error) {
 	}
 
 	return Config{
-		MySQLDSN:      values[mysqlDSNEnv],
-		RedisAddr:     values[redisAddrEnv],
-		KafkaBrokers:  values[kafkaBrokersEnv],
-		MinIOEndpoint: values[minIOEndpointEnv],
-		MilvusAddress: values[milvusAddressEnv],
-		JWTSecret:     values[jwtSecretEnv],
+		MySQLDSN:             values[mysqlDSNEnv],
+		RedisAddr:            values[redisAddrEnv],
+		KafkaBrokers:         values[kafkaBrokersEnv],
+		MinIOEndpoint:        values[minIOEndpointEnv],
+		MilvusAddress:        values[milvusAddressEnv],
+		JWTSecret:            values[jwtSecretEnv],
+		InternalServiceToken: os.Getenv(internalServiceTokenEnv),
 	}, nil
 }

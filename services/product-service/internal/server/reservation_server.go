@@ -12,6 +12,9 @@ import (
 
 // ReserveStock holds all requested SKU quantities in one catalog transaction.
 func (s *GRPCServer) ReserveStock(ctx context.Context, req *productpb.ReserveStockRequest) (*productpb.ReservationResponse, error) {
+	if err := s.authorizeReservationRequest(ctx); err != nil {
+		return nil, err
+	}
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
@@ -41,6 +44,9 @@ func (s *GRPCServer) ReserveStock(ctx context.Context, req *productpb.ReserveSto
 
 // ConfirmReservation completes a held reservation idempotently.
 func (s *GRPCServer) ConfirmReservation(ctx context.Context, req *productpb.ReservationActionRequest) (*productpb.ReservationResponse, error) {
+	if err := s.authorizeReservationRequest(ctx); err != nil {
+		return nil, err
+	}
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
@@ -59,6 +65,9 @@ func (s *GRPCServer) ConfirmReservation(ctx context.Context, req *productpb.Rese
 
 // ReleaseReservation restores an unconfirmed reservation idempotently.
 func (s *GRPCServer) ReleaseReservation(ctx context.Context, req *productpb.ReservationActionRequest) (*productpb.ReservationResponse, error) {
+	if err := s.authorizeReservationRequest(ctx); err != nil {
+		return nil, err
+	}
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
@@ -77,6 +86,9 @@ func (s *GRPCServer) ReleaseReservation(ctx context.Context, req *productpb.Rese
 
 // GetReservation reads a complete deterministic reservation group.
 func (s *GRPCServer) GetReservation(ctx context.Context, req *productpb.GetReservationRequest) (*productpb.ReservationResponse, error) {
+	if err := s.authorizeReservationRequest(ctx); err != nil {
+		return nil, err
+	}
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}

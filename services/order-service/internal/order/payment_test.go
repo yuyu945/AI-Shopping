@@ -72,6 +72,36 @@ func TestPayWalletReturnsPreviouslyPaidOrderWithoutReservingAgain(t *testing.T) 
 	}
 }
 
+func TestPayWalletRejectsNonPayableOrderWithoutReservationSideEffects(t *testing.T) {
+	service := NewPaymentService(fakePaymentRepository{
+		claim: func(context.Context, uint64, string, PaymentAttempt) (Order, error) {
+			return Order{}, &Error{Code: IdempotencyConflict, Message: "order cannot be paid"}
+		},
+		reset: func(context.Context, uint64, string, PaymentAttempt) (bool, error) {
+			t.Fatal("ResetPaymentClaim must not be called")
+			return false, nil
+		},
+		settle: func(context.Context, uint64, string, PaymentAttempt) (Order, error) {
+			t.Fatal("SettleWalletPayment must not be called")
+			return Order{}, nil
+		},
+	}, fakeReservations{
+		reserve: func(context.Context, ReserveRequest) (Reservation, error) {
+			t.Fatal("ReserveStock must not be called")
+			return Reservation{}, nil
+		},
+		release: func(context.Context, string) error {
+			t.Fatal("ReleaseReservation must not be called")
+			return nil
+		},
+	}, fixedPaymentIDs(), time.Minute)
+
+	_, err := service.PayWallet(context.Background(), 7, "order-1")
+	if !IsCode(err, IdempotencyConflict) {
+		t.Fatalf("PayWallet error = %v, want %s", err, IdempotencyConflict)
+	}
+}
+
 func TestPayWalletSettlesFullyDiscountedOrder(t *testing.T) {
 	attempt := PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}
 	claimed := Order{OrderNo: "order-1", Status: PaymentProcessing, TotalAmount: "0.00", Payment: attempt, Items: []OrderItem{{SKUID: 101, Quantity: 1, UnitPrice: "12.00", DiscountAmount: "12.00", ItemAmount: "0.00"}}}

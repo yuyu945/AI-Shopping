@@ -124,6 +124,80 @@ func TestMySQLPaymentRepositoryClaimRejectsConcurrentProcessingPayment(t *testin
 	}
 }
 
+func TestMySQLPaymentRepositoryClaimTransitionsPendingPayment(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	attempt := PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(queryPaymentOrderForUpdate)).WithArgs(uint64(7), "order-1").WillReturnRows(
+		sqlmock.NewRows(paymentOrderColumns()).AddRow(uint64(11), "order-1", uint64(7), PendingPayment, "12.00", "0.00", nil, nil),
+	)
+	mock.ExpectExec(regexp.QuoteMeta(claimPaymentOrder)).WithArgs(PaymentProcessing, attempt.ID, attempt.ReservationID, uint64(11), uint64(7), PendingPayment).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	mock.ExpectQuery(regexp.QuoteMeta(queryOrderItems)).WithArgs(uint64(11)).WillReturnRows(sqlmock.NewRows(orderItemColumns()))
+
+	got, err := NewMySQLRepository(db).ClaimPayment(context.Background(), 7, "order-1", attempt)
+	if err != nil || got.Status != PaymentProcessing || got.Payment != attempt {
+		t.Fatalf("ClaimPayment() = %#v, %v", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMySQLPaymentRepositoryClaimReturnsPaidOrderForReplay(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	paid := PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(queryPaymentOrderForUpdate)).WithArgs(uint64(7), "order-1").WillReturnRows(
+		sqlmock.NewRows(paymentOrderColumns()).AddRow(uint64(11), "order-1", uint64(7), Paid, "12.00", "12.00", paid.ID, paid.ReservationID),
+	)
+	mock.ExpectCommit()
+
+	got, err := NewMySQLRepository(db).ClaimPayment(context.Background(), 7, "order-1", PaymentAttempt{ID: "attempt-2", ReservationID: "reservation-2"})
+	if err != nil || got.Status != Paid || got.Payment != paid {
+		t.Fatalf("ClaimPayment() = %#v, %v", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMySQLPaymentRepositoryClaimRejectsNonPayableOrderStates(t *testing.T) {
+	for _, orderStatus := range []OrderStatus{"CLOSED", "UNKNOWN"} {
+		t.Run(string(orderStatus), func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+
+			mock.ExpectBegin()
+			mock.ExpectQuery(regexp.QuoteMeta(queryPaymentOrderForUpdate)).WithArgs(uint64(7), "order-1").WillReturnRows(
+				sqlmock.NewRows(paymentOrderColumns()).AddRow(uint64(11), "order-1", uint64(7), orderStatus, "12.00", "0.00", nil, nil),
+			)
+			mock.ExpectRollback()
+
+			_, err = NewMySQLRepository(db).ClaimPayment(context.Background(), 7, "order-1", PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"})
+			if !IsCode(err, IdempotencyConflict) {
+				t.Fatalf("ClaimPayment error = %v, want %s", err, IdempotencyConflict)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestMySQLPaymentRepositoryResetPaymentClaimReportsWhetherExactClaimChanged(t *testing.T) {
 	cases := []struct {
 		name    string

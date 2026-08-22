@@ -46,7 +46,7 @@ func (r *MySQLRepository) ClaimPayment(ctx context.Context, userID uint64, order
 		return Order{}, ErrPaymentInProgress
 	case PendingPayment:
 	default:
-		return Order{}, ErrPaymentInProgress
+		return Order{}, &Error{Code: IdempotencyConflict, Message: "order cannot be paid"}
 	}
 	result, err := tx.ExecContext(ctx, claimPaymentOrder, PaymentProcessing, attempt.ID, attempt.ReservationID, order.ID, userID, PendingPayment)
 	if err != nil {

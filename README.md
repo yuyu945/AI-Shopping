@@ -26,7 +26,7 @@ $env:AI_SHOPPING_ORDER_SNAPSHOT_INTEGRATION = '1'
 pwsh -File scripts/test_order_snapshot_integration.ps1 -MySQLPort 3310
 ```
 
-未设置 `AI_SHOPPING_ORDER_SNAPSHOT_INTEGRATION=1` 时，harness 输出 `SKIP` 且不连接 Docker 或 MySQL。实际运行使用固定项目 `m21orderverify`、随机 UUID `run_id` 和 `trade_db.order_snapshot_integration_guards`；测试只接受 `trade_db` DSN、校验 guard 后才写入。脚本不会通过命令行传递凭证，运行结束会精确删除 Compose 容器、volume、network 及测试 fixture，并恢复其修改的 process environment。
+未设置 `AI_SHOPPING_ORDER_SNAPSHOT_INTEGRATION=1` 时，harness 输出 `SKIP` 且不连接 Docker 或 MySQL。实际运行使用固定项目和精确隔离 label `m21ordersnapshot`、随机 UUID `run_id` 和 `trade_db.order_snapshot_integration_guards`；测试只接受 host 为 `localhost`、`127.0.0.1` 或 `[::1]`、且端口不是 `3306` 的 `trade_db` DSN。所有条件和数据库 guard row 校验完成前不会写入；脚本不会通过命令行传递凭证，运行结束会精确删除 Compose 容器、volume、network 及测试 fixture，并恢复其修改的 process environment。
 
 Compose 宿主端口默认只绑定 `127.0.0.1`。如果本机 `6379` 已被占用，可用 `REDIS_PORT=6380` 启动，并将应用连接地址同步为 `localhost:6380`；容器网络内仍使用 `redis:6379`。
 

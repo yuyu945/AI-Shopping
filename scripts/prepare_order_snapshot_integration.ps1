@@ -2,16 +2,16 @@
 param(
     [Parameter(Mandatory)]
     [string]$RunID,
-    [string]$Container = 'm21orderverify-mysql-1'
+    [string]$Container = 'm21ordersnapshot-mysql-1'
 )
 
 $ErrorActionPreference = 'Stop'
 
-if ($env:COMPOSE_PROJECT_NAME -ne 'm21orderverify') {
-    throw 'Order snapshot integration preparation only supports COMPOSE_PROJECT_NAME=m21orderverify.'
+if ($env:COMPOSE_PROJECT_NAME -ne 'm21ordersnapshot') {
+    throw 'Order snapshot integration preparation only supports COMPOSE_PROJECT_NAME=m21ordersnapshot.'
 }
-if ($Container -ne 'm21orderverify-mysql-1') {
-    throw 'Order snapshot integration preparation only supports the m21orderverify MySQL container.'
+if ($Container -ne 'm21ordersnapshot-mysql-1') {
+    throw 'Order snapshot integration preparation only supports the m21ordersnapshot MySQL container.'
 }
 if ([string]::IsNullOrWhiteSpace($env:MYSQL_ROOT_PASSWORD)) {
     throw 'MYSQL_ROOT_PASSWORD must be set in the process environment.'

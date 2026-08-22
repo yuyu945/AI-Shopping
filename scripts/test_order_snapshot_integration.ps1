@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [ValidateRange(1025, 65535)]
+    [ValidateScript({ $_ -ne 3306 })]
     [int]$MySQLPort = 3310,
     [switch]$KeepEnvironment
 )
@@ -14,7 +15,7 @@ if ([string]::IsNullOrWhiteSpace($env:MYSQL_PASSWORD) -or [string]::IsNullOrWhit
     throw 'MYSQL_PASSWORD and MYSQL_ROOT_PASSWORD must be set in the process environment.'
 }
 
-$project = 'm21orderverify'
+$project = 'm21ordersnapshot'
 $container = "$project-mysql-1"
 $runID = [guid]::NewGuid().ToString()
 $composeFile = 'deploy/docker-compose.yml'

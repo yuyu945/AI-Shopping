@@ -14,7 +14,7 @@ func TestOrderSnapshotMySQLIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !run {
-		t.Skip("set AI_SHOPPING_INTEGRATION=1 and AI_SHOPPING_INTEGRATION_ISOLATED=m21orderverify to run the isolated order snapshot integration test")
+		t.Skip("set AI_SHOPPING_INTEGRATION=1 and AI_SHOPPING_INTEGRATION_ISOLATED=m21ordersnapshot to run the isolated order snapshot integration test")
 	}
 
 	fixture := newOrderSnapshotIntegrationFixture(t, context.Background(), config)

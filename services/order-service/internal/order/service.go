@@ -138,7 +138,11 @@ func (s *Service) CreateOrder(ctx context.Context, userID uint64, input CreateOr
 		items = append(items, item)
 		total.Add(total, itemAmount)
 	}
-	order := Order{OrderNo: s.nextOrderNo(), RequestID: input.RequestID, UserID: userID, Status: PendingPayment, TotalAmount: moneyString(total), PaidAmount: "0.00", Shipping: address, Items: items}
+	totalAmount, err := moneyString(total)
+	if err != nil {
+		return Order{}, invalid("order amount exceeds supported range")
+	}
+	order := Order{OrderNo: s.nextOrderNo(), RequestID: input.RequestID, UserID: userID, Status: PendingPayment, TotalAmount: totalAmount, PaidAmount: "0.00", Shipping: address, Items: items}
 	created, err := s.orders.CreateOrder(ctx, order)
 	return created, repositoryError(err)
 }
@@ -179,14 +183,32 @@ func orderItem(product ProductSnapshot, quantity uint32) (OrderItem, *big.Rat, e
 	if amount.Sign() < 0 {
 		return OrderItem{}, nil, errors.New("negative amount")
 	}
-	return OrderItem{ProductID: product.ProductID, SKUID: product.SKUID, ProductTitleSnapshot: product.ProductTitle, SKUCodeSnapshot: product.SKUCode, SpecSnapshot: append([]byte(nil), product.SpecJSON...), CandidatePromotions: candidates, AppliedPromotion: applied, UnitPrice: moneyString(unit), DiscountAmount: moneyString(new(big.Rat).Mul(discount, new(big.Rat).SetUint64(uint64(quantity)))), Quantity: quantity, ItemAmount: moneyString(amount)}, amount, nil
+	unitPrice, err := moneyString(unit)
+	if err != nil {
+		return OrderItem{}, nil, err
+	}
+	discountAmount, err := moneyString(new(big.Rat).Mul(discount, new(big.Rat).SetUint64(uint64(quantity))))
+	if err != nil {
+		return OrderItem{}, nil, err
+	}
+	itemAmount, err := moneyString(amount)
+	if err != nil {
+		return OrderItem{}, nil, err
+	}
+	return OrderItem{ProductID: product.ProductID, SKUID: product.SKUID, ProductTitleSnapshot: product.ProductTitle, SKUCodeSnapshot: product.SKUCode, SpecSnapshot: append([]byte(nil), product.SpecJSON...), CandidatePromotions: candidates, AppliedPromotion: applied, UnitPrice: unitPrice, DiscountAmount: discountAmount, Quantity: quantity, ItemAmount: itemAmount}, amount, nil
 }
 func parseMoney(value string) (*big.Rat, bool) {
 	if strings.TrimSpace(value) != value || !moneyPattern(value) {
 		return nil, false
 	}
 	r, ok := new(big.Rat).SetString(value)
-	return r, ok
+	if !ok {
+		return nil, false
+	}
+	if _, err := moneyString(r); err != nil {
+		return nil, false
+	}
+	return r, true
 }
 func moneyPattern(value string) bool {
 	parts := strings.Split(value, ".")
@@ -200,12 +222,24 @@ func moneyPattern(value string) bool {
 	}
 	return true
 }
-func moneyString(value *big.Rat) string {
+
+var decimal12_2MaxCents = big.NewInt(999999999999)
+
+func moneyString(value *big.Rat) (string, error) {
+	if value == nil || value.Sign() < 0 {
+		return "", errors.New("money is outside decimal range")
+	}
 	scaled := new(big.Rat).Mul(value, big.NewRat(100, 1))
 	if !scaled.IsInt() {
-		panic("money precision exceeds two decimals")
+		return "", errors.New("money precision exceeds two decimals")
 	}
-	return fmt.Sprintf("%d.%02d", new(big.Int).Quo(scaled.Num(), scaled.Denom()).Uint64()/100, new(big.Int).Quo(scaled.Num(), scaled.Denom()).Uint64()%100)
+	cents := new(big.Int).Quo(scaled.Num(), scaled.Denom())
+	if cents.Cmp(decimal12_2MaxCents) > 0 {
+		return "", errors.New("money is outside decimal range")
+	}
+	dollars, remainder := new(big.Int), new(big.Int)
+	dollars.QuoRem(cents, big.NewInt(100), remainder)
+	return fmt.Sprintf("%s.%02d", dollars.String(), remainder.Int64()), nil
 }
 func invalid(message string) error { return &Error{Code: InvalidArgument, Message: message} }
 func resourceError(err error) error {

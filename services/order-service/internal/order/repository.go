@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/go-sql-driver/mysql"
 )
@@ -166,6 +167,9 @@ func (r *MySQLRepository) CreateOrder(ctx context.Context, order Order) (created
 	} else if !errors.Is(findErr, ErrNotFound) {
 		return Order{}, findErr
 	}
+	if !validOrderMoney(order) {
+		return Order{}, errors.New("order amounts are invalid")
+	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Order{}, fmt.Errorf("begin order transaction: %w", err)
@@ -277,11 +281,11 @@ func scanOrder(row scanner) (Order, error) {
 	if _, ok := parseMoney(order.PaidAmount); !ok {
 		return Order{}, errors.New("stored paid amount is invalid")
 	}
-	if err := json.Unmarshal(addressJSON, &storedAddress{}); err != nil {
-		return Order{}, errors.New("stored shipping address is invalid")
-	}
 	var stored storedAddress
 	if err := json.Unmarshal(addressJSON, &stored); err != nil {
+		return Order{}, errors.New("stored shipping address is invalid")
+	}
+	if !validStoredAddress(order.Shipping, stored) {
 		return Order{}, errors.New("stored shipping address is invalid")
 	}
 	order.Shipping.Province, order.Shipping.City, order.Shipping.District, order.Shipping.Detail = stored.Province, stored.City, stored.District, stored.Detail
@@ -334,6 +338,22 @@ func validItemMoney(item OrderItem) bool {
 	_, amount := parseMoney(item.ItemAmount)
 	return unit && discount && amount
 }
+
+func validOrderMoney(order Order) bool {
+	if _, ok := parseMoney(order.TotalAmount); !ok {
+		return false
+	}
+	if _, ok := parseMoney(order.PaidAmount); !ok {
+		return false
+	}
+	for _, item := range order.Items {
+		if !validItemMoney(item) {
+			return false
+		}
+	}
+	return true
+}
+
 func validPromotion(p PromotionSnapshot) bool {
 	if p.PromotionID == 0 || p.RuleType == "" {
 		return false
@@ -356,6 +376,15 @@ type storedAddress struct {
 	City     string `json:"city"`
 	District string `json:"district"`
 	Detail   string `json:"detail"`
+}
+
+func validStoredAddress(address AddressSnapshot, stored storedAddress) bool {
+	return strings.TrimSpace(address.ReceiverName) != "" &&
+		strings.TrimSpace(address.ReceiverPhone) != "" &&
+		strings.TrimSpace(stored.Province) != "" &&
+		strings.TrimSpace(stored.City) != "" &&
+		strings.TrimSpace(stored.District) != "" &&
+		strings.TrimSpace(stored.Detail) != ""
 }
 
 func marshalAddress(address AddressSnapshot) ([]byte, error) {

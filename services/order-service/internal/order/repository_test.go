@@ -126,6 +126,38 @@ func TestMySQLRepositoryCreateOrderPersistsSnapshots(t *testing.T) {
 	}
 }
 
+func TestMySQLRepositoryCreateOrderRejectsUnpersistableMoney(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*Order)
+	}{
+		{name: "order total exceeds decimal maximum", mutate: func(order *Order) { order.TotalAmount = "10000000000.00" }},
+		{name: "item price has excess precision", mutate: func(order *Order) { order.Items[0].UnitPrice = "99.001" }},
+		{name: "item discount exceeds decimal maximum", mutate: func(order *Order) { order.Items[0].DiscountAmount = "10000000000.00" }},
+		{name: "item amount is negative", mutate: func(order *Order) { order.Items[0].ItemAmount = "-0.01" }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			order := persistedOrder()
+			tc.mutate(&order)
+			mock.ExpectQuery(regexp.QuoteMeta(queryOrderByRequest)).WithArgs(order.UserID, order.RequestID).WillReturnRows(sqlmock.NewRows(orderColumns()))
+
+			_, err = NewMySQLRepository(db).CreateOrder(context.Background(), order)
+			if err == nil || err.Error() != "order amounts are invalid" {
+				t.Fatalf("CreateOrder error = %v, want stable amount validation error", err)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestMySQLRepositoryPersistsCandidateSnapshotsWithoutAppliedPromotion(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -204,6 +236,40 @@ func TestMySQLRepositoryRejectsInvalidCandidatePromotionSnapshots(t *testing.T) 
 			_, err = NewMySQLRepository(db).GetOrder(context.Background(), order.UserID, order.OrderNo)
 			if err == nil {
 				t.Fatal("GetOrder error = nil, want safe snapshot rejection")
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestMySQLRepositoryRejectsIncompleteShippingAddressSnapshots(t *testing.T) {
+	cases := []struct {
+		name          string
+		shippingJSON  string
+		receiverName  string
+		receiverPhone string
+	}{
+		{name: "json null", shippingJSON: `null`, receiverName: "Ada", receiverPhone: "13800138000"},
+		{name: "empty json object", shippingJSON: `{}`, receiverName: "Ada", receiverPhone: "13800138000"},
+		{name: "missing district", shippingJSON: `{"province":"Zhejiang","city":"Hangzhou","detail":"No. 1"}`, receiverName: "Ada", receiverPhone: "13800138000"},
+		{name: "missing receiver name", shippingJSON: `{"province":"Zhejiang","city":"Hangzhou","district":"Xihu","detail":"No. 1"}`, receiverPhone: "13800138000"},
+		{name: "missing receiver phone", shippingJSON: `{"province":"Zhejiang","city":"Hangzhou","district":"Xihu","detail":"No. 1"}`, receiverName: "Ada"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			order := persistedOrder()
+			mock.ExpectQuery(regexp.QuoteMeta(queryOrderByNumber)).WithArgs(order.UserID, order.OrderNo).WillReturnRows(sqlmock.NewRows(orderColumns()).AddRow(order.ID, order.OrderNo, order.RequestID, order.UserID, order.Status, order.TotalAmount, order.PaidAmount, tc.receiverName, tc.receiverPhone, tc.shippingJSON))
+
+			_, err = NewMySQLRepository(db).GetOrder(context.Background(), order.UserID, order.OrderNo)
+			if err == nil || err.Error() != "stored shipping address is invalid" {
+				t.Fatalf("GetOrder error = %v, want stable shipping address error", err)
 			}
 			if err := mock.ExpectationsWereMet(); err != nil {
 				t.Fatal(err)

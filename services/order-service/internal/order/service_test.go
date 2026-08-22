@@ -3,6 +3,7 @@ package order
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 )
 
@@ -172,8 +173,9 @@ func TestOrderItemAppliesOnlyEligiblePromotions(t *testing.T) {
 			if err != nil {
 				t.Fatalf("orderItem: %v", err)
 			}
-			if item.DiscountAmount != tc.wantDiscount || item.ItemAmount != tc.wantItemAmount || moneyString(amount) != tc.wantItemAmount {
-				t.Fatalf("item = %#v, amount = %s", item, moneyString(amount))
+			formattedAmount, formatErr := moneyString(amount)
+			if item.DiscountAmount != tc.wantDiscount || item.ItemAmount != tc.wantItemAmount || formatErr != nil || formattedAmount != tc.wantItemAmount {
+				t.Fatalf("item = %#v, amount = %s, error = %v", item, formattedAmount, formatErr)
 			}
 			if tc.wantPromotionID == 0 {
 				if item.AppliedPromotion != nil {
@@ -209,6 +211,89 @@ func TestCreateOrderRejectsInvalidPromotionMoney(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCreateOrderEnforcesDecimalAmountBounds(t *testing.T) {
+	validAddress := AddressSnapshot{AddressID: 11, ReceiverName: "Ada", ReceiverPhone: "13800138000", Province: "Zhejiang", City: "Hangzhou", District: "Xihu", Detail: "No. 1"}
+	cases := []struct {
+		name       string
+		items      []CartItem
+		products   map[uint64]ProductSnapshot
+		wantCode   Code
+		wantAmount string
+	}{
+		{
+			name:       "exact decimal maximum succeeds",
+			items:      []CartItem{{ID: 1, CartID: 1, SKUID: 101, Quantity: 1, Selected: true}},
+			products:   map[uint64]ProductSnapshot{101: {ProductID: 21, SKUID: 101, ProductTitle: "Keyboard", SKUCode: "KB-1", SpecJSON: []byte(`{}`), UnitPrice: "9999999999.99", Saleable: true}},
+			wantAmount: "9999999999.99",
+		},
+		{
+			name:       "current uint32 maximum quantity succeeds when total fits",
+			items:      []CartItem{{ID: 1, CartID: 1, SKUID: 101, Quantity: math.MaxUint32, Selected: true}},
+			products:   map[uint64]ProductSnapshot{101: {ProductID: 21, SKUID: 101, ProductTitle: "Keyboard", SKUCode: "KB-1", SpecJSON: []byte(`{}`), UnitPrice: "1.00", Saleable: true}},
+			wantAmount: "4294967295.00",
+		},
+		{
+			name:     "unit price multiplied by quantity exceeds decimal maximum",
+			items:    []CartItem{{ID: 1, CartID: 1, SKUID: 101, Quantity: 2, Selected: true}},
+			products: map[uint64]ProductSnapshot{101: {ProductID: 21, SKUID: 101, ProductTitle: "Keyboard", SKUCode: "KB-1", SpecJSON: []byte(`{}`), UnitPrice: "9999999999.99", Saleable: true}},
+			wantCode: InvalidArgument,
+		},
+		{
+			name:  "aggregate exceeds decimal maximum",
+			items: []CartItem{{ID: 1, CartID: 1, SKUID: 101, Quantity: 1, Selected: true}, {ID: 2, CartID: 1, SKUID: 102, Quantity: 1, Selected: true}},
+			products: map[uint64]ProductSnapshot{
+				101: {ProductID: 21, SKUID: 101, ProductTitle: "Keyboard", SKUCode: "KB-1", SpecJSON: []byte(`{}`), UnitPrice: "6000000000.00", Saleable: true},
+				102: {ProductID: 22, SKUID: 102, ProductTitle: "Mouse", SKUCode: "MS-1", SpecJSON: []byte(`{}`), UnitPrice: "6000000000.00", Saleable: true},
+			},
+			wantCode: InvalidArgument,
+		},
+		{
+			name:     "promotion discount total exceeds decimal maximum",
+			items:    []CartItem{{ID: 1, CartID: 1, SKUID: 101, Quantity: 2, Selected: true}},
+			products: map[uint64]ProductSnapshot{101: {ProductID: 21, SKUID: 101, ProductTitle: "Keyboard", SKUCode: "KB-1", SpecJSON: []byte(`{}`), UnitPrice: "9999999999.99", Saleable: true, Promotions: []PromotionSnapshot{{PromotionID: 1, RuleType: "DIRECT", DiscountAmount: "9999999999.99"}}}},
+			wantCode: InvalidArgument,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := newMemoryRepository()
+			repo.address = validAddress
+			repo.items = map[uint64]CartItem{}
+			for _, item := range tc.items {
+				item.CartID = repo.cart(7)
+				repo.items[item.ID] = item
+			}
+			products := productSnapshots{products: tc.products}
+
+			order, err := NewService(repo, repo, products).CreateOrder(context.Background(), 7, CreateOrderInput{RequestID: "request-1", AddressID: 11})
+			if tc.wantCode != "" {
+				if !IsCode(err, tc.wantCode) {
+					t.Fatalf("CreateOrder error = %v, want %s", err, tc.wantCode)
+				}
+				return
+			}
+			if err != nil || order.TotalAmount != tc.wantAmount {
+				t.Fatalf("CreateOrder = %#v, %v; want amount %s", order, err, tc.wantAmount)
+			}
+		})
+	}
+}
+
+type productSnapshots struct{ products map[uint64]ProductSnapshot }
+
+func (p productSnapshots) GetProducts(_ context.Context, skuIDs []uint64) ([]ProductSnapshot, error) {
+	products := make([]ProductSnapshot, 0, len(skuIDs))
+	for _, skuID := range skuIDs {
+		product, ok := p.products[skuID]
+		if !ok {
+			continue
+		}
+		products = append(products, product)
+	}
+	return products, nil
 }
 
 type memoryRepository struct {

@@ -18,6 +18,8 @@ $runID = [guid]::NewGuid().ToString('N')
 $project = "m21trade$runID"
 $previousProject = $env:COMPOSE_PROJECT_NAME
 $previousPort = $env:MYSQL_PORT
+$hadMigrationDsn = Test-Path Env:AI_SHOPPING_MYSQL_DSN
+$previousMigrationDsn = $env:AI_SHOPPING_MYSQL_DSN
 $env:COMPOSE_PROJECT_NAME = $project
 $env:MYSQL_PORT = $MySQLPort.ToString()
 $composeFile = 'deploy/docker-compose.yml'
@@ -43,13 +45,14 @@ try {
     } while ($true)
 
     function Apply-AndAssert([string]$caseName) {
-        & "$PSScriptRoot\apply_migrations.ps1" -MySQLDsn $dsn -ComposeFile $composeFile
-        & "$PSScriptRoot\apply_migrations.ps1" -MySQLDsn $dsn -ComposeFile $composeFile
+        & "$PSScriptRoot\apply_migrations.ps1" -ComposeFile $composeFile
+        & "$PSScriptRoot\apply_migrations.ps1" -ComposeFile $composeFile
         $result = @(Invoke-RootSQL -Sql "SELECT COUNT(*) FROM schema_migrations WHERE version = '20260822_m2_1_trade_schema'; SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'trade_db' AND table_name IN ('carts','cart_items','orders','order_items'); SELECT COUNT(*) FROM information_schema.table_constraints WHERE table_schema = 'trade_db' AND constraint_type = 'FOREIGN KEY'; SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'trade_db' AND numeric_precision = 12 AND numeric_scale = 2; SELECT COUNT(*) FROM information_schema.table_constraints WHERE table_schema = 'trade_db' AND constraint_type = 'CHECK';" | ? { $_ -match '^\d+$' })
         if (($result -join ',') -ne '1,4,2,5,2') { throw "$caseName migration assertions failed: $($result -join ',')." }
     }
     Invoke-RootSQL -Sql 'DROP TABLE IF EXISTS order_items; DROP TABLE IF EXISTS cart_items; DROP TABLE IF EXISTS orders; DROP TABLE IF EXISTS carts; DROP TABLE IF EXISTS schema_migrations;' | Out-Null
     $dsn = "app:$($env:MYSQL_PASSWORD)@tcp(127.0.0.1:$MySQLPort)/trade_db"
+    $env:AI_SHOPPING_MYSQL_DSN = $dsn
     Apply-AndAssert 'empty trade_db'
     Invoke-RootSQL -Sql 'DROP TABLE IF EXISTS order_items; DROP TABLE IF EXISTS cart_items; DROP TABLE IF EXISTS orders; DROP TABLE IF EXISTS carts; DROP TABLE IF EXISTS schema_migrations;' | Out-Null
     Invoke-RootSQL -Sql (Get-Content -LiteralPath $legacyFixture -Raw) | Out-Null
@@ -65,4 +68,10 @@ finally {
     if (-not $KeepEnvironment) { docker compose -f $composeFile down -v --remove-orphans | Out-Null }
     $env:COMPOSE_PROJECT_NAME = $previousProject
     $env:MYSQL_PORT = $previousPort
+    if ($hadMigrationDsn) {
+        $env:AI_SHOPPING_MYSQL_DSN = $previousMigrationDsn
+    }
+    else {
+        Remove-Item Env:AI_SHOPPING_MYSQL_DSN
+    }
 }

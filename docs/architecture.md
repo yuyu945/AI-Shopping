@@ -158,6 +158,8 @@ knowledge.document.ingest
 | `knowledge.chunk.embed` | knowledge ingest consumer | `document_id:version` | `event_id`、`document_id`、`chunk_id`、`content_hash`、`embedding_model` | 向量写入；同一 chunk 不重复入库 |
 | `behavior.events` | Gateway / domain services | `user_id` | `event_id`、`user_id`、`event_type`、`occurred_at`、`payload` | 行为统计；按用户维度保序 |
 | `review.events` | `order-service` | `product_id` | `event_id`、`review_id`、`product_id`、`rating` | 评价分析；按商品维度保序 |
+| `inventory.reservation.confirm` | `order-service` Outbox | `reservation_id` | `event_id`、`reservation_id`、`order_no`、`payment_attempt_id`、`version` | product-service 确认预留；按事件 ID 去重 |
+| `inventory.reservation.confirm.deadletter` | product-service confirmation consumer | 原始消息 Key | `reason`、`raw_event_base64` | 畸形或确认重试耗尽的原始事件；仅 producer 确认后提交原消息 offset |
 
 所有需要可靠投递的事件都先在产生方本地 transaction 写入 `outbox_events`，再由 Worker 发布。消费者使用 `event_consumptions(event_id, consumer_group)` 唯一约束记录处理结果。失败消息进入同语义 retry topic，并用 `next_retry_at` 实施退避；超过阈值后进入 dead-letter topic，保留原始事件与失败原因以支持人工重放。
 

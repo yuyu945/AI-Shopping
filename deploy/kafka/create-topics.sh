@@ -8,6 +8,7 @@ topics=(
   behavior.events
   review.events
   inventory.reservation.confirm
+  inventory.reservation.confirm.deadletter
 )
 
 for topic in "${topics[@]}"; do

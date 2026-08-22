@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -11,10 +12,12 @@ import (
 )
 
 const inventoryConfirmationConsumerGroup = "product-inventory-confirmation"
+const inventoryConfirmationDeadLetterTopic = "inventory.reservation.confirm.deadletter"
 
 const (
-	confirmationRetryInitial = 100 * time.Millisecond
-	confirmationRetryMaximum = time.Second
+	confirmationRetryInitial     = 10 * time.Millisecond
+	confirmationRetryMaximum     = 100 * time.Millisecond
+	confirmationRetryMaxAttempts = 5
 )
 
 // ConfirmationEvent is the payload published after a wallet payment commits.
@@ -59,28 +62,62 @@ func (c *ConfirmationConsumer) Handle(ctx context.Context, event ConfirmationEve
 	return nil
 }
 
-// KafkaConfirmationConsumer reads the inventory confirmation topic and commits only handled messages.
+type confirmationMessageReader interface {
+	FetchMessage(context.Context) (kafka.Message, error)
+	CommitMessages(context.Context, ...kafka.Message) error
+	Close() error
+}
+
+type confirmationDeadLetterPublisher interface {
+	Publish(context.Context, kafka.Message) error
+	Close() error
+}
+
+type kafkaConfirmationDeadLetterPublisher struct{ writer *kafka.Writer }
+
+func (p *kafkaConfirmationDeadLetterPublisher) Publish(ctx context.Context, message kafka.Message) error {
+	return p.writer.WriteMessages(ctx, message)
+}
+
+func (p *kafkaConfirmationDeadLetterPublisher) Close() error { return p.writer.Close() }
+
+// KafkaConfirmationConsumer reads the inventory confirmation topic and commits only handled or dead-lettered messages.
 type KafkaConfirmationConsumer struct {
-	reader  *kafka.Reader
-	handler *ConfirmationConsumer
+	reader       confirmationMessageReader
+	handler      *ConfirmationConsumer
+	dlqPublisher confirmationDeadLetterPublisher
 }
 
 // NewKafkaConfirmationConsumer creates the product-service consumer for paid inventory confirmations.
 func NewKafkaConfirmationConsumer(brokers []string, handler *ConfirmationConsumer) *KafkaConfirmationConsumer {
-	return &KafkaConfirmationConsumer{reader: kafka.NewReader(kafka.ReaderConfig{Brokers: brokers, GroupID: inventoryConfirmationConsumerGroup, Topic: "inventory.reservation.confirm", MinBytes: 1, MaxBytes: 1e6}), handler: handler}
+	reader := kafka.NewReader(kafka.ReaderConfig{Brokers: brokers, GroupID: inventoryConfirmationConsumerGroup, Topic: "inventory.reservation.confirm", MinBytes: 1, MaxBytes: 1e6})
+	publisher := &kafkaConfirmationDeadLetterPublisher{writer: &kafka.Writer{Addr: kafka.TCP(brokers...), RequiredAcks: kafka.RequireAll, Async: false}}
+	return newKafkaConfirmationConsumer(reader, handler, publisher)
+}
+
+func newKafkaConfirmationConsumer(reader confirmationMessageReader, handler *ConfirmationConsumer, publisher confirmationDeadLetterPublisher) *KafkaConfirmationConsumer {
+	return &KafkaConfirmationConsumer{reader: reader, handler: handler, dlqPublisher: publisher}
 }
 
 // Close releases the Kafka reader.
 func (c *KafkaConfirmationConsumer) Close() error {
-	if c == nil || c.reader == nil {
+	if c == nil {
 		return nil
 	}
-	return c.reader.Close()
+	if c.reader != nil {
+		if err := c.reader.Close(); err != nil {
+			return err
+		}
+	}
+	if c.dlqPublisher != nil {
+		return c.dlqPublisher.Close()
+	}
+	return nil
 }
 
-// Run consumes until cancellation. Failed messages are not committed and will be retried by Kafka.
+// Run consumes until cancellation. Messages are committed only after local confirmation or a producer-acknowledged DLQ publication.
 func (c *KafkaConfirmationConsumer) Run(ctx context.Context) error {
-	if c == nil || c.reader == nil || c.handler == nil {
+	if c == nil || c.reader == nil || c.handler == nil || c.dlqPublisher == nil {
 		return errors.New("inventory confirmation kafka consumer is unavailable")
 	}
 	for {
@@ -90,10 +127,19 @@ func (c *KafkaConfirmationConsumer) Run(ctx context.Context) error {
 		}
 		var event ConfirmationEvent
 		if err := json.Unmarshal(message.Value, &event); err != nil {
-			return errors.New("decode inventory confirmation event failed")
+			if err := c.deadLetterAndCommit(ctx, message, "malformed_confirmation_event"); err != nil {
+				return err
+			}
+			continue
 		}
 		if err := retryConfirmation(ctx, func() error { return c.handler.Handle(ctx, event) }); err != nil {
-			return err
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if err := c.deadLetterAndCommit(ctx, message, "confirmation_retry_exhausted"); err != nil {
+				return err
+			}
+			continue
 		}
 		if err := c.reader.CommitMessages(ctx, message); err != nil {
 			return err
@@ -103,9 +149,15 @@ func (c *KafkaConfirmationConsumer) Run(ctx context.Context) error {
 
 func retryConfirmation(ctx context.Context, handle func() error) error {
 	delay := confirmationRetryInitial
-	for {
+	var lastErr error
+	for attempt := 0; attempt < confirmationRetryMaxAttempts; attempt++ {
 		if err := handle(); err == nil {
 			return nil
+		} else {
+			lastErr = err
+		}
+		if attempt == confirmationRetryMaxAttempts-1 {
+			break
 		}
 		timer := time.NewTimer(delay)
 		select {
@@ -123,4 +175,24 @@ func retryConfirmation(ctx context.Context, handle func() error) error {
 			}
 		}
 	}
+	return lastErr
+}
+
+func (c *KafkaConfirmationConsumer) deadLetterAndCommit(ctx context.Context, message kafka.Message, reason string) error {
+	payload, err := json.Marshal(struct {
+		Reason         string `json:"reason"`
+		RawEventBase64 string `json:"raw_event_base64"`
+	}{Reason: reason, RawEventBase64: base64.StdEncoding.EncodeToString(message.Value)})
+	if err != nil {
+		return errors.New("marshal inventory confirmation dead-letter event failed")
+	}
+	if err := retryConfirmation(ctx, func() error {
+		return c.dlqPublisher.Publish(ctx, kafka.Message{Topic: inventoryConfirmationDeadLetterTopic, Key: message.Key, Value: payload})
+	}); err != nil {
+		return errors.New("publish inventory confirmation dead-letter event failed")
+	}
+	if err := c.reader.CommitMessages(ctx, message); err != nil {
+		return errors.New("commit dead-lettered inventory confirmation message failed")
+	}
+	return nil
 }

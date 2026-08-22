@@ -4,7 +4,7 @@ M1 已完成：Go-zero Gateway 与五个服务启动骨架、共享运行时基�
 
 ## Local bootstrap
 
-1. 复制 `.env.example` 为本地 `.env`，填写 `MYSQL_ROOT_PASSWORD`、`MYSQL_PASSWORD`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY` 和 `AI_SHOPPING_INTERNAL_SERVICE_TOKEN`。真实值只保存在本地环境，不提交到 Git。`AI_SHOPPING_INTERNAL_SERVICE_TOKEN` 必须是由 secret manager 或安全随机源生成的至少 32-byte、无空白的可见 ASCII opaque secret；安全随机的 hexadecimal encoding 同样可接受；示例文件中的描述性占位符不能用于启动。product-service 的库存预留 RPC 要求调用方在 gRPC metadata 中提供 `x-ai-shopping-service-token`，其值必须与 `AI_SHOPPING_INTERNAL_SERVICE_TOKEN` 匹配。
+1. 复制 `.env.example` 为本地 `.env`，填写 `MYSQL_ROOT_PASSWORD`、`MYSQL_PASSWORD`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY` 和 `AI_SHOPPING_INTERNAL_SERVICE_TOKEN`。真实值只保存在本地环境，不提交到 Git。`AI_SHOPPING_INTERNAL_SERVICE_TOKEN` 必须是由 secret manager 或安全随机源生成的至少 32-byte、无空白的可见 ASCII opaque secret；安全随机的 hexadecimal encoding 同样可接受。启动校验仅拒绝已知占位符和明显可预测的重复字节，不尝试评估 token 的熵或代替 secret manager。product-service 的库存预留 RPC 要求调用方在 gRPC metadata 中提供 `x-ai-shopping-service-token`，其值必须与 `AI_SHOPPING_INTERNAL_SERVICE_TOKEN` 匹配。
 2. 启动依赖：`docker compose -f deploy/docker-compose.yml up -d`。
 3. 验证 schema：设置 `AI_SHOPPING_MYSQL_DSN` 后运行 `pwsh -File scripts/verify_schema.ps1`。product-service 启动时将该 DSN 的 database 固定为 `catalog_db`，避免误连其他逻辑 schema。
 4. 验证代码：`go test ./...`、`go vet ./...`。

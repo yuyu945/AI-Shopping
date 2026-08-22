@@ -85,5 +85,11 @@ func ValidateInternalServiceToken(token string) error {
 			return errInvalidInternalServiceToken
 		}
 	}
-	return nil
+	for i := 1; i < len(token); i++ {
+		if token[i] != token[0] {
+			return nil
+		}
+	}
+
+	return errInvalidInternalServiceToken
 }

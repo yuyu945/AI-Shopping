@@ -99,7 +99,9 @@ func TestValidateInternalServiceToken(t *testing.T) {
 		{name: "example placeholder", token: "REPLACE_WITH_SECRET_MANAGER_VALUE"},
 		{name: "too short", token: "szF1wQ8oXn7uK4mV2rC9yT5pL6dE3"},
 		{name: "contains whitespace", token: "szF1wQ8oXn7uK4mV2rC9yT5pL6dE3a B"},
-		{name: "valid lowercase hexadecimal token", token: "0123456789abcde00123456789abcde00123456789abcde00123456789abcde0", valid: true},
+		{name: "repeated development letter", token: strings.Repeat("a", 32)},
+		{name: "repeated development digit", token: strings.Repeat("0", 32)},
+		{name: "valid low-diversity lowercase hexadecimal token", token: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", valid: true},
 		{name: "valid random opaque token", token: validToken, valid: true},
 	}
 	for _, tt := range tests {

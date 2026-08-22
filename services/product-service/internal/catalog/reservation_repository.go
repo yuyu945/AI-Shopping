@@ -10,14 +10,15 @@ import (
 )
 
 const (
-	reservationRowsQuery          = "SELECT reservation_id, order_no, payment_attempt_id, sku_id, quantity, status, expires_at, confirmed_at, released_at FROM inventory_reservations WHERE reservation_id = ? ORDER BY sku_id ASC"
-	reservationRowsForUpdateQuery = reservationRowsQuery + " FOR UPDATE"
-	reserveInventoryQuery         = "UPDATE inventory SET available_qty = available_qty - ?, version = version + 1 WHERE sku_id = ? AND available_qty >= ?"
-	releaseInventoryQuery         = "UPDATE inventory SET available_qty = available_qty + ?, version = version + 1 WHERE sku_id = ?"
-	insertReservationQuery        = "INSERT INTO inventory_reservations (reservation_id, order_no, payment_attempt_id, sku_id, quantity, status, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
-	confirmReservationRowsQuery   = "UPDATE inventory_reservations SET status = ?, confirmed_at = ? WHERE reservation_id = ? AND status = ?"
-	releaseReservationRowsQuery   = "UPDATE inventory_reservations SET status = ?, released_at = ? WHERE reservation_id = ? AND status = ?"
-	reservationProductIDQuery     = "SELECT product_id FROM product_skus WHERE id = ?"
+	reservationRowsQuery              = "SELECT reservation_id, order_no, payment_attempt_id, sku_id, quantity, status, expires_at, confirmed_at, released_at FROM inventory_reservations WHERE reservation_id = ? ORDER BY sku_id ASC"
+	reservationRowsForUpdateQuery     = reservationRowsQuery + " FOR UPDATE"
+	reserveInventoryQuery             = "UPDATE inventory SET available_qty = available_qty - ?, version = version + 1 WHERE sku_id = ? AND available_qty >= ?"
+	releaseInventoryQuery             = "UPDATE inventory SET available_qty = available_qty + ?, version = version + 1 WHERE sku_id = ?"
+	insertReservationQuery            = "INSERT INTO inventory_reservations (reservation_id, order_no, payment_attempt_id, sku_id, quantity, status, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+	confirmReservationRowsQuery       = "UPDATE inventory_reservations SET status = ?, confirmed_at = ? WHERE reservation_id = ? AND status = ?"
+	insertReservationConsumptionQuery = "INSERT IGNORE INTO reservation_event_consumptions (event_id, consumer_group) VALUES (?, ?)"
+	releaseReservationRowsQuery       = "UPDATE inventory_reservations SET status = ?, released_at = ? WHERE reservation_id = ? AND status = ?"
+	reservationProductIDQuery         = "SELECT product_id FROM product_skus WHERE id = ?"
 )
 
 // ReservationRepository is the MySQL persistence implementation for catalog-owned reservations.
@@ -83,15 +84,53 @@ func (r *ReservationRepository) ConfirmReservation(ctx context.Context, reservat
 		return Reservation{}, errors.New("begin reservation confirmation failed")
 	}
 	defer func() { _ = tx.Rollback() }()
+	reservation, err := confirmReservationTx(ctx, tx, reservationID, now)
+	if err != nil {
+		return Reservation{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Reservation{}, errors.New("commit reservation confirmation failed")
+	}
+	return reservation, nil
+}
+
+// ConfirmConsumed confirms a reservation and records its Kafka event in the same catalog transaction.
+func (r *ReservationRepository) ConfirmConsumed(ctx context.Context, eventID, group, reservationID string, now time.Time) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return errors.New("begin consumed reservation confirmation failed")
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx, insertReservationConsumptionQuery, eventID, group)
+	if err != nil {
+		return errors.New("record inventory confirmation event failed")
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return errors.New("read inventory confirmation event result failed")
+	}
+	if rows == 0 {
+		if err := tx.Commit(); err != nil {
+			return errors.New("commit inventory confirmation replay failed")
+		}
+		return nil
+	}
+	if _, err := confirmReservationTx(ctx, tx, reservationID, now); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return errors.New("commit consumed reservation confirmation failed")
+	}
+	return nil
+}
+
+func confirmReservationTx(ctx context.Context, tx *sql.Tx, reservationID string, now time.Time) (Reservation, error) {
 	reservation, err := loadReservation(ctx, tx, reservationRowsForUpdateQuery, reservationID)
 	if err != nil {
 		return Reservation{}, err
 	}
 	switch reservation.Status {
 	case ReservationConfirmed:
-		if err := tx.Commit(); err != nil {
-			return Reservation{}, errors.New("commit reservation confirmation replay failed")
-		}
 		return reservation, nil
 	case ReservationReserved:
 		result, err := tx.ExecContext(ctx, confirmReservationRowsQuery, ReservationConfirmed, now, reservationID, ReservationReserved)
@@ -102,9 +141,6 @@ func (r *ReservationRepository) ConfirmReservation(ctx context.Context, reservat
 			return Reservation{}, err
 		}
 		reservation.Status, reservation.ConfirmedAt = ReservationConfirmed, timePointer(now)
-		if err := tx.Commit(); err != nil {
-			return Reservation{}, errors.New("commit reservation confirmation failed")
-		}
 		return reservation, nil
 	default:
 		return Reservation{}, ErrReservationState

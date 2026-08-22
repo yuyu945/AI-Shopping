@@ -106,7 +106,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("%s startup: invalid inventory reservation configuration", SERVICE_NAME)
 	}
-	confirmationConsumer := catalog.NewKafkaConfirmationConsumer(strings.Split(runtimeConfig.KafkaBrokers, ","), catalog.NewConfirmationConsumer(catalog.NewMySQLConsumptionStore(db), reservationService, ""))
+	confirmationConsumer := catalog.NewKafkaConfirmationConsumer(strings.Split(runtimeConfig.KafkaBrokers, ","), catalog.NewConfirmationConsumer(catalog.NewReservationRepository(db), ""))
 	defer confirmationConsumer.Close()
 	_, worker, err := buildCatalogMutationComponents(db, detailCache, config)
 	if err != nil {

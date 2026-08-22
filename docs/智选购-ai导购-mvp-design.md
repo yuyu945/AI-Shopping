@@ -205,6 +205,7 @@ sequenceDiagram
 | `knowledge.chunk.embed` | `document_id:version` | embedding consumer | retry topic / dead-letter topic |
 | `behavior.events` | `user_id` | analytics consumer | 幂等表 + 重试 |
 | `review.events` | `product_id` | review-analysis consumer | 幂等表 + 重试 |
+| `inventory.reservation.confirm` | `reservation_id` | product inventory confirmation consumer | catalog transaction 幂等确认 + 有界退避重试 |
 
 Kafka 消费按业务事件 ID 幂等；需要重建向量或统计时可以重放原始事件。
 
@@ -336,7 +337,7 @@ reviews(
 2. 支付认领 transaction 将订单更新为 `PAYMENT_PROCESSING` 并保存不可复用的 `payment_attempt_id` 与 `reservation_id`。请求重复到达时，`PAID` 返回原结果，处理中返回 `PAYMENT_IN_PROGRESS`。
 3. `product-service.ReserveStock` 在自己的 transaction 内对所有 SKU 执行库存条件更新并写 `RESERVED` 预留；任一 SKU 失败则整体 rollback。
 4. `order-service` 仅在 `trade_db` transaction 内锁定支付尝试；`total_amount > 0` 时才锁定、校验并更新钱包，且写入 debit 钱包流水。`total_amount == 0` 的全额优惠订单不查询或更新钱包、不写零金额流水，但仍在同一 transaction 写订单 `PAID` 与 `inventory.reservation.confirm` Outbox；Outbox 写入失败必须使订单、钱包（若适用）和流水（若适用）全部 rollback。此 transaction 不访问库存表。
-5. `product-service` 幂等消费确认事件，把预留置为 `CONFIRMED`。预留过期时先查询 order 的结算状态，`PAID` 则确认，未支付或已取消才置为 `RELEASED` 并返还库存；查询失败保留预留并退避。
+5. `product-service` 在一个 `catalog_db` transaction 内幂等消费确认事件，同时把预留置为 `CONFIRMED` 和写入消费记录；任一步失败均 rollback，Kafka offset 不提交并有界退避重试。预留过期时先查询 order 的结算状态，`PAID` 则确认，未支付或已取消才置为 `RELEASED` 并返还库存；查询失败保留预留并退避。
 
 库存扣减 SQL：
 

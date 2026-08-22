@@ -2,15 +2,20 @@ package catalog
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/segmentio/kafka-go"
 )
 
 const inventoryConfirmationConsumerGroup = "product-inventory-confirmation"
+
+const (
+	confirmationRetryInitial = 100 * time.Millisecond
+	confirmationRetryMaximum = time.Second
+)
 
 // ConfirmationEvent is the payload published after a wallet payment commits.
 type ConfirmationEvent struct {
@@ -21,68 +26,37 @@ type ConfirmationEvent struct {
 	Version          int    `json:"version"`
 }
 
-// ConsumptionStore owns catalog-side idempotency records for Kafka events.
-type ConsumptionStore interface {
-	Record(context.Context, string, string) (bool, error)
-}
-
-type reservationConfirmer interface {
-	ConfirmReservation(context.Context, string) (Reservation, error)
+// ConfirmationStore atomically confirms a local reservation and records the Kafka event.
+type ConfirmationStore interface {
+	ConfirmConsumed(context.Context, string, string, string, time.Time) error
 }
 
 // ConfirmationConsumer applies paid reservation events exactly once per consumer group.
 type ConfirmationConsumer struct {
-	consumptions ConsumptionStore
-	reservations reservationConfirmer
-	group        string
+	store ConfirmationStore
+	group string
 }
 
 // NewConfirmationConsumer builds the minimal Kafka message handler.
-func NewConfirmationConsumer(consumptions ConsumptionStore, reservations reservationConfirmer, group string) *ConfirmationConsumer {
+func NewConfirmationConsumer(store ConfirmationStore, group string) *ConfirmationConsumer {
 	if group == "" {
 		group = inventoryConfirmationConsumerGroup
 	}
-	return &ConfirmationConsumer{consumptions: consumptions, reservations: reservations, group: group}
+	return &ConfirmationConsumer{store: store, group: group}
 }
 
-// Handle records a message before confirming the local reservation; duplicate records are successful no-ops.
+// Handle commits local confirmation and consumption identity together; duplicates are successful no-ops.
 func (c *ConfirmationConsumer) Handle(ctx context.Context, event ConfirmationEvent) error {
-	if c == nil || c.consumptions == nil || c.reservations == nil {
+	if c == nil || c.store == nil {
 		return errors.New("inventory confirmation consumer is unavailable")
 	}
 	if strings.TrimSpace(event.EventID) == "" || strings.TrimSpace(event.ReservationID) == "" || strings.TrimSpace(event.OrderNo) == "" || strings.TrimSpace(event.PaymentAttemptID) == "" || event.Version != 1 {
 		return errors.New("invalid inventory confirmation event")
 	}
-	recorded, err := c.consumptions.Record(ctx, event.EventID, c.group)
-	if err != nil {
-		return errors.New("record inventory confirmation event failed")
+	if err := c.store.ConfirmConsumed(ctx, event.EventID, c.group, event.ReservationID, time.Now().UTC().Truncate(time.Millisecond)); err != nil {
+		return errors.New("confirm consumed inventory reservation failed")
 	}
-	if !recorded {
-		return nil
-	}
-	_, err = c.reservations.ConfirmReservation(ctx, event.ReservationID)
-	return err
-}
-
-// MySQLConsumptionStore stores catalog-owned Kafka consumption identities.
-type MySQLConsumptionStore struct{ db *sql.DB }
-
-// NewMySQLConsumptionStore constructs catalog consumption persistence.
-func NewMySQLConsumptionStore(db *sql.DB) *MySQLConsumptionStore {
-	return &MySQLConsumptionStore{db: db}
-}
-
-// Record inserts the event identity once. Duplicate deliveries are successful no-ops.
-func (s *MySQLConsumptionStore) Record(ctx context.Context, eventID, group string) (bool, error) {
-	if s == nil || s.db == nil {
-		return false, errors.New("catalog consumption database is required")
-	}
-	result, err := s.db.ExecContext(ctx, `INSERT IGNORE INTO reservation_event_consumptions (event_id, consumer_group) VALUES (?, ?)`, eventID, group)
-	if err != nil {
-		return false, err
-	}
-	rows, err := result.RowsAffected()
-	return rows == 1, err
+	return nil
 }
 
 // KafkaConfirmationConsumer reads the inventory confirmation topic and commits only handled messages.
@@ -118,11 +92,35 @@ func (c *KafkaConfirmationConsumer) Run(ctx context.Context) error {
 		if err := json.Unmarshal(message.Value, &event); err != nil {
 			return errors.New("decode inventory confirmation event failed")
 		}
-		if err := c.handler.Handle(ctx, event); err != nil {
+		if err := retryConfirmation(ctx, func() error { return c.handler.Handle(ctx, event) }); err != nil {
 			return err
 		}
 		if err := c.reader.CommitMessages(ctx, message); err != nil {
 			return err
+		}
+	}
+}
+
+func retryConfirmation(ctx context.Context, handle func() error) error {
+	delay := confirmationRetryInitial
+	for {
+		if err := handle(); err == nil {
+			return nil
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
+		if delay < confirmationRetryMaximum {
+			delay *= 2
+			if delay > confirmationRetryMaximum {
+				delay = confirmationRetryMaximum
+			}
 		}
 	}
 }

@@ -6,6 +6,12 @@ if (-not (Test-Path -LiteralPath $scriptPath)) {
 }
 
 $source = Get-Content -Raw $scriptPath
+if ($source -match '(?i)\$MySQLDsn\b') {
+    throw 'Migration application script must not define a MySQLDsn parameter; it must read the DSN from AI_SHOPPING_MYSQL_DSN.'
+}
+if ($source.Contains('pass -MySQLDsn')) {
+    throw 'Migration application script must not document passing a DSN through child process arguments.'
+}
 foreach ($required in @('schema_migrations', 'Get-ChildItem', 'Sort-Object', 'already applied')) {
     if ($source -notmatch [regex]::Escape($required)) {
         throw "Migration application script must contain '$required'."
@@ -28,12 +34,29 @@ if ($source -match 'Write-(Output|Host|Verbose).*MySQLDsn') {
     throw 'Migration application script must not echo the MySQL DSN.'
 }
 
-$output = @(& pwsh -NoProfile -File $scriptPath -MySQLDsn 'not-a-mysql-dsn' 2>&1)
-if ($LASTEXITCODE -eq 0) {
+$malformedDsn = 'not-a-mysql-dsn'
+$processStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
+$processStartInfo.FileName = 'pwsh'
+$processStartInfo.UseShellExecute = $false
+$processStartInfo.RedirectStandardOutput = $true
+$processStartInfo.RedirectStandardError = $true
+$processStartInfo.ArgumentList.Add('-NoProfile')
+$processStartInfo.ArgumentList.Add('-File')
+$processStartInfo.ArgumentList.Add($scriptPath)
+$processStartInfo.Environment['AI_SHOPPING_MYSQL_DSN'] = $malformedDsn
+$process = [System.Diagnostics.Process]::Start($processStartInfo)
+$stdout = $process.StandardOutput.ReadToEnd()
+$stderr = $process.StandardError.ReadToEnd()
+$process.WaitForExit()
+$output = $stdout + $stderr
+if ($process.ExitCode -eq 0) {
     throw 'Malformed MySQL DSN unexpectedly passed migration validation.'
 }
-if (($output | Out-String) -notmatch 'MySQL DSN must use') {
+if ($output -notmatch 'MySQL DSN must use') {
     throw 'Malformed MySQL DSN was not rejected before Docker access.'
+}
+if ($output.Contains($malformedDsn)) {
+    throw 'Malformed MySQL DSN must not be echoed by migration validation.'
 }
 
 Write-Output 'Migration script rejects malformed DSNs without echoing them.'

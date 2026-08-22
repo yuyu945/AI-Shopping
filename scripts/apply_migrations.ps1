@@ -1,11 +1,11 @@
 [CmdletBinding()]
 param(
-    [string]$MySQLDsn = $env:AI_SHOPPING_MYSQL_DSN,
     [string]$MigrationDirectory = 'deploy/mysql/migrations',
     [string]$ComposeFile = 'deploy/docker-compose.yml'
 )
 
 $ErrorActionPreference = 'Stop'
+$dsn = $env:AI_SHOPPING_MYSQL_DSN
 
 function ConvertFrom-MySQLDsn {
     param([Parameter(Mandatory)][string]$Dsn)
@@ -25,8 +25,8 @@ function ConvertFrom-MySQLDsn {
     }
 }
 
-if ([string]::IsNullOrWhiteSpace($MySQLDsn)) {
-    throw 'Set AI_SHOPPING_MYSQL_DSN or pass -MySQLDsn. The value is intentionally not echoed.'
+if ([string]::IsNullOrWhiteSpace($dsn)) {
+    throw 'Set AI_SHOPPING_MYSQL_DSN. The value is intentionally not echoed.'
 }
 if (-not (Test-Path -LiteralPath $MigrationDirectory -PathType Container)) {
     throw "Migration directory '$MigrationDirectory' was not found."
@@ -35,7 +35,7 @@ if (-not (Test-Path -LiteralPath $ComposeFile -PathType Leaf)) {
     throw "Compose file '$ComposeFile' was not found."
 }
 
-$connection = ConvertFrom-MySQLDsn -Dsn $MySQLDsn
+$connection = ConvertFrom-MySQLDsn -Dsn $dsn
 $queryHost = if ($connection.Host -in @('127.0.0.1', 'localhost', '::1')) { 'mysql' } else { $connection.Host }
 $queryPort = if ($queryHost -eq 'mysql') { '3306' } else { $connection.Port }
 

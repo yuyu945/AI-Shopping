@@ -41,7 +41,7 @@ func (r *MySQLRepository) ClaimPayment(ctx context.Context, userID uint64, order
 		if err = tx.Commit(); err != nil {
 			return Order{}, fmt.Errorf("commit paid payment replay: %w", err)
 		}
-		return order, nil
+		return r.loadPaidPaymentOrder(ctx, order)
 	case PaymentProcessing:
 		return Order{}, ErrPaymentInProgress
 	case PendingPayment:
@@ -92,6 +92,9 @@ func (r *MySQLRepository) GetPaymentOrder(ctx context.Context, userID uint64, or
 	if err != nil {
 		return Order{}, fmt.Errorf("read payment order: %w", err)
 	}
+	if order.Status == Paid {
+		return r.loadPaidPaymentOrder(ctx, order)
+	}
 	return order, nil
 }
 
@@ -117,7 +120,7 @@ func (r *MySQLRepository) SettleWalletPayment(ctx context.Context, userID uint64
 		if err = tx.Commit(); err != nil {
 			return Order{}, fmt.Errorf("commit paid settlement replay: %w", err)
 		}
-		return order, nil
+		return r.loadPaidPaymentOrder(ctx, order)
 	}
 	if order.Status != PaymentProcessing || order.Payment != attempt {
 		return Order{}, ErrPaymentInProgress
@@ -191,6 +194,15 @@ func (r *MySQLRepository) SettleWalletPayment(ctx context.Context, userID uint64
 	if err != nil {
 		return Order{}, err
 	}
+	return order, nil
+}
+
+func (r *MySQLRepository) loadPaidPaymentOrder(ctx context.Context, paymentOrder Order) (Order, error) {
+	order, err := r.GetOrder(ctx, paymentOrder.UserID, paymentOrder.OrderNo)
+	if err != nil {
+		return Order{}, err
+	}
+	order.Payment = paymentOrder.Payment
 	return order, nil
 }
 

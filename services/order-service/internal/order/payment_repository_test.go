@@ -156,15 +156,18 @@ func TestMySQLPaymentRepositoryClaimReturnsPaidOrderForReplay(t *testing.T) {
 	}
 	defer db.Close()
 	paid := PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}
+	order := persistedOrder()
+	order.ID, order.OrderNo, order.Status, order.TotalAmount, order.PaidAmount = 11, "order-1", Paid, "12.00", "12.00"
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(queryPaymentOrderForUpdate)).WithArgs(uint64(7), "order-1").WillReturnRows(
 		sqlmock.NewRows(paymentOrderColumns()).AddRow(uint64(11), "order-1", uint64(7), Paid, "12.00", "12.00", paid.ID, paid.ReservationID),
 	)
 	mock.ExpectCommit()
+	expectOrderByNumber(mock, order)
 
 	got, err := NewMySQLRepository(db).ClaimPayment(context.Background(), 7, "order-1", PaymentAttempt{ID: "attempt-2", ReservationID: "reservation-2"})
-	if err != nil || got.Status != Paid || got.Payment != paid {
+	if err != nil || got.Status != Paid || got.Payment != paid || len(got.Items) != 1 || got.Items[0].AppliedPromotion == nil || len(got.Items[0].CandidatePromotions) != 2 || got.Shipping.Detail != order.Shipping.Detail {
 		t.Fatalf("ClaimPayment() = %#v, %v", got, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -242,13 +245,42 @@ func TestMySQLPaymentRepositoryGetPaymentOrderReadsCurrentDurableState(t *testin
 		t.Fatal(err)
 	}
 	defer db.Close()
+	order := persistedOrder()
+	order.ID, order.OrderNo, order.Status, order.TotalAmount, order.PaidAmount = 11, "order-1", Paid, "12.00", "12.00"
 	mock.ExpectQuery(regexp.QuoteMeta(queryPaymentOrder)).WithArgs(uint64(7), "order-1").WillReturnRows(
 		sqlmock.NewRows(paymentOrderColumns()).AddRow(uint64(11), "order-1", uint64(7), Paid, "12.00", "12.00", "attempt-1", "reservation-1"),
 	)
+	expectOrderByNumber(mock, order)
 
 	got, err := NewMySQLRepository(db).GetPaymentOrder(context.Background(), 7, "order-1")
-	if err != nil || got.Status != Paid || got.OrderNo != "order-1" || got.Payment != (PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}) {
+	if err != nil || got.Status != Paid || got.OrderNo != "order-1" || got.Payment != (PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}) || len(got.Items) != 1 || got.Items[0].AppliedPromotion == nil || len(got.Items[0].CandidatePromotions) != 2 || got.Shipping.Detail != order.Shipping.Detail {
 		t.Fatalf("GetPaymentOrder() = %#v, %v", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMySQLPaymentRepositorySettleReturnsPaidOrderSnapshotsForReplay(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	paid := PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}
+	order := persistedOrder()
+	order.ID, order.OrderNo, order.Status, order.TotalAmount, order.PaidAmount = 11, "order-1", Paid, "12.00", "12.00"
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(queryPaymentOrderForUpdate)).WithArgs(uint64(7), "order-1").WillReturnRows(
+		sqlmock.NewRows(paymentOrderColumns()).AddRow(uint64(11), "order-1", uint64(7), Paid, "12.00", "12.00", paid.ID, paid.ReservationID),
+	)
+	mock.ExpectCommit()
+	expectOrderByNumber(mock, order)
+
+	got, err := NewMySQLRepository(db).SettleWalletPayment(context.Background(), 7, "order-1", PaymentAttempt{ID: "attempt-2", ReservationID: "reservation-2"})
+	if err != nil || got.Status != Paid || got.Payment != paid || len(got.Items) != 1 || got.Items[0].AppliedPromotion == nil || len(got.Items[0].CandidatePromotions) != 2 || got.Shipping.Detail != order.Shipping.Detail {
+		t.Fatalf("SettleWalletPayment() = %#v, %v", got, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

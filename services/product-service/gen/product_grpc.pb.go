@@ -19,9 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ProductService_ListProducts_FullMethodName = "/product.v1.ProductService/ListProducts"
-	ProductService_GetProduct_FullMethodName   = "/product.v1.ProductService/GetProduct"
-	ProductService_CheckoutSKUs_FullMethodName = "/product.v1.ProductService/CheckoutSKUs"
+	ProductService_ListProducts_FullMethodName    = "/product.v1.ProductService/ListProducts"
+	ProductService_GetProduct_FullMethodName      = "/product.v1.ProductService/GetProduct"
+	ProductService_GetCheckoutSKUs_FullMethodName = "/product.v1.ProductService/GetCheckoutSKUs"
 )
 
 // ProductServiceClient is the client API for ProductService service.
@@ -30,7 +30,7 @@ const (
 type ProductServiceClient interface {
 	ListProducts(ctx context.Context, in *ListProductsRequest, opts ...grpc.CallOption) (*ListProductsResponse, error)
 	GetProduct(ctx context.Context, in *GetProductRequest, opts ...grpc.CallOption) (*GetProductResponse, error)
-	CheckoutSKUs(ctx context.Context, in *CheckoutSKUsRequest, opts ...grpc.CallOption) (*CheckoutSKUsResponse, error)
+	GetCheckoutSKUs(ctx context.Context, in *CheckoutSKUsRequest, opts ...grpc.CallOption) (*CheckoutSKUsResponse, error)
 }
 
 type productServiceClient struct {
@@ -61,10 +61,10 @@ func (c *productServiceClient) GetProduct(ctx context.Context, in *GetProductReq
 	return out, nil
 }
 
-func (c *productServiceClient) CheckoutSKUs(ctx context.Context, in *CheckoutSKUsRequest, opts ...grpc.CallOption) (*CheckoutSKUsResponse, error) {
+func (c *productServiceClient) GetCheckoutSKUs(ctx context.Context, in *CheckoutSKUsRequest, opts ...grpc.CallOption) (*CheckoutSKUsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CheckoutSKUsResponse)
-	err := c.cc.Invoke(ctx, ProductService_CheckoutSKUs_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, ProductService_GetCheckoutSKUs_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func (c *productServiceClient) CheckoutSKUs(ctx context.Context, in *CheckoutSKU
 type ProductServiceServer interface {
 	ListProducts(context.Context, *ListProductsRequest) (*ListProductsResponse, error)
 	GetProduct(context.Context, *GetProductRequest) (*GetProductResponse, error)
-	CheckoutSKUs(context.Context, *CheckoutSKUsRequest) (*CheckoutSKUsResponse, error)
+	GetCheckoutSKUs(context.Context, *CheckoutSKUsRequest) (*CheckoutSKUsResponse, error)
 	mustEmbedUnimplementedProductServiceServer()
 }
 
@@ -94,8 +94,8 @@ func (UnimplementedProductServiceServer) ListProducts(context.Context, *ListProd
 func (UnimplementedProductServiceServer) GetProduct(context.Context, *GetProductRequest) (*GetProductResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetProduct not implemented")
 }
-func (UnimplementedProductServiceServer) CheckoutSKUs(context.Context, *CheckoutSKUsRequest) (*CheckoutSKUsResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method CheckoutSKUs not implemented")
+func (UnimplementedProductServiceServer) GetCheckoutSKUs(context.Context, *CheckoutSKUsRequest) (*CheckoutSKUsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetCheckoutSKUs not implemented")
 }
 func (UnimplementedProductServiceServer) mustEmbedUnimplementedProductServiceServer() {}
 func (UnimplementedProductServiceServer) testEmbeddedByValue()                        {}
@@ -154,20 +154,20 @@ func _ProductService_GetProduct_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ProductService_CheckoutSKUs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ProductService_GetCheckoutSKUs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CheckoutSKUsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ProductServiceServer).CheckoutSKUs(ctx, in)
+		return srv.(ProductServiceServer).GetCheckoutSKUs(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ProductService_CheckoutSKUs_FullMethodName,
+		FullMethod: ProductService_GetCheckoutSKUs_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ProductServiceServer).CheckoutSKUs(ctx, req.(*CheckoutSKUsRequest))
+		return srv.(ProductServiceServer).GetCheckoutSKUs(ctx, req.(*CheckoutSKUsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -188,8 +188,8 @@ var ProductService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ProductService_GetProduct_Handler,
 		},
 		{
-			MethodName: "CheckoutSKUs",
-			Handler:    _ProductService_CheckoutSKUs_Handler,
+			MethodName: "GetCheckoutSKUs",
+			Handler:    _ProductService_GetCheckoutSKUs_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -8,6 +8,8 @@ import (
 
 	productpb "github.com/yuyu945/AI-Shopping/services/product-service/gen"
 	"github.com/yuyu945/AI-Shopping/services/product-service/internal/catalog"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type blockingRepository struct{}
@@ -33,7 +35,7 @@ func TestGRPCServerListTimeoutMapsToDeadline(t *testing.T) {
 }
 
 func TestGRPCServerCheckoutSKUsTimeoutMapsToDeadline(t *testing.T) {
-	_, err := NewGRPCServer(catalog.NewProductService(blockingRepository{}, nil), time.Millisecond).CheckoutSKUs(context.Background(), &productpb.CheckoutSKUsRequest{SkuIds: []uint64{7}})
+	_, err := NewGRPCServer(catalog.NewProductService(blockingRepository{}, nil), time.Millisecond).GetCheckoutSKUs(context.Background(), &productpb.CheckoutSKUsRequest{SkuIds: []uint64{7}})
 	if err == nil || !containsCode(err, "DeadlineExceeded") {
 		t.Fatalf("expected deadline error, got %v", err)
 	}
@@ -42,7 +44,7 @@ func TestGRPCServerCheckoutSKUsTimeoutMapsToDeadline(t *testing.T) {
 func TestGRPCServerCheckoutSKUsMapsIndependentSnapshots(t *testing.T) {
 	threshold := "100.00"
 	repo := checkoutRepository{items: []catalog.CheckoutSKU{{ProductID: 10, SKUID: 7, ProductTitle: "Keyboard", SKUCode: "KB-1", SpecJSON: []byte(`{}`), SalePrice: "99.90", Saleable: true, Promotions: []catalog.PromotionSummary{{ID: 20, RuleType: "THRESHOLD", ThresholdAmount: &threshold}}}}}
-	got, err := NewGRPCServer(catalog.NewProductService(repo, nil), time.Second).CheckoutSKUs(context.Background(), &productpb.CheckoutSKUsRequest{SkuIds: []uint64{7}})
+	got, err := NewGRPCServer(catalog.NewProductService(repo, nil), time.Second).GetCheckoutSKUs(context.Background(), &productpb.CheckoutSKUsRequest{SkuIds: []uint64{7}})
 	if err != nil || len(got.GetSkus()) != 1 || got.GetSkus()[0].GetSalePrice() != "99.90" || got.GetSkus()[0].GetPromotions()[0].GetThresholdAmount() != "100.00" {
 		t.Fatalf("CheckoutSKUs() = %#v, %v", got, err)
 	}
@@ -50,6 +52,21 @@ func TestGRPCServerCheckoutSKUsMapsIndependentSnapshots(t *testing.T) {
 	*got.Skus[0].Promotions[0].ThresholdAmount = "0.00"
 	if string(repo.items[0].SpecJSON) != "{}" || threshold != "100.00" {
 		t.Fatalf("CheckoutSKUs() leaked mutable data: %#v", got)
+	}
+}
+
+func TestGRPCServerCheckoutSKUsRejectsInactiveSKU(t *testing.T) {
+	repo := checkoutRepository{items: []catalog.CheckoutSKU{{ProductID: 10, SKUID: 7, Saleable: false}}}
+	got, err := NewGRPCServer(catalog.NewProductService(repo, nil), time.Second).GetCheckoutSKUs(context.Background(), &productpb.CheckoutSKUsRequest{SkuIds: []uint64{7}})
+	if status.Code(err) != codes.NotFound || got != nil || status.Convert(err).Message() != "checkout sku not found" {
+		t.Fatalf("CheckoutSKUs() = %#v, %v", got, err)
+	}
+}
+
+func TestProductGRPCContractNamesCheckoutSnapshotReader(t *testing.T) {
+	method := productpb.File_api_product_product_proto.Services().ByName("ProductService").Methods().ByName("GetCheckoutSKUs")
+	if method == nil {
+		t.Fatal("ProductService must expose GetCheckoutSKUs")
 	}
 }
 

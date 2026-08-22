@@ -87,7 +87,7 @@ func (s *GRPCServer) ListMyAddresses(ctx context.Context, _ *userpb.ListMyAddres
 	}
 	return out, nil
 }
-func (s *GRPCServer) GetMyAddress(ctx context.Context, req *userpb.GetMyAddressRequest) (*userpb.AddressResponse, error) {
+func (s *GRPCServer) GetMyAddressSnapshot(ctx context.Context, req *userpb.GetMyAddressRequest) (*userpb.AddressResponse, error) {
 	id, e := s.userID(ctx)
 	if e != nil {
 		return nil, e

@@ -41,7 +41,7 @@ func (s *ProductService) CheckoutSKUs(ctx context.Context, skuIDs []uint64) ([]C
 	result := make([]CheckoutSKU, 0, len(skuIDs))
 	for _, skuID := range skuIDs {
 		row, ok := bySKU[skuID]
-		if !ok {
+		if !ok || !row.Saleable {
 			return nil, apperror.New(apperror.NotFound, "checkout sku not found")
 		}
 		result = append(result, row)

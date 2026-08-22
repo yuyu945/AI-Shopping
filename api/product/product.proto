@@ -7,7 +7,7 @@ option go_package = "github.com/yuyu945/AI-Shopping/services/product-service/gen
 service ProductService {
   rpc ListProducts(ListProductsRequest) returns (ListProductsResponse);
   rpc GetProduct(GetProductRequest) returns (GetProductResponse);
-  rpc CheckoutSKUs(CheckoutSKUsRequest) returns (CheckoutSKUsResponse);
+  rpc GetCheckoutSKUs(CheckoutSKUsRequest) returns (CheckoutSKUsResponse);
 }
 
 message ListProductsRequest {

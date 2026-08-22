@@ -67,7 +67,7 @@ func (s *GRPCServer) GetProduct(ctx context.Context, req *productpb.GetProductRe
 	return &productpb.GetProductResponse{Product: mapProductDetail(detail)}, nil
 }
 
-func (s *GRPCServer) CheckoutSKUs(ctx context.Context, req *productpb.CheckoutSKUsRequest) (*productpb.CheckoutSKUsResponse, error) {
+func (s *GRPCServer) GetCheckoutSKUs(ctx context.Context, req *productpb.CheckoutSKUsRequest) (*productpb.CheckoutSKUsResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}

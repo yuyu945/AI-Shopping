@@ -1077,14 +1077,14 @@ const file_api_user_user_proto_rawDesc = "" +
 	"\x06detail\x18\a \x01(\tR\x06detail\x12\x1d\n" +
 	"\n" +
 	"is_default\x18\b \x01(\bR\tisDefault\"\a\n" +
-	"\x05Empty2\x9f\x05\n" +
+	"\x05Empty2\xa7\x05\n" +
 	"\vUserService\x12;\n" +
 	"\bRegister\x12\x18.user.v1.RegisterRequest\x1a\x15.user.v1.AuthResponse\x125\n" +
 	"\x05Login\x12\x15.user.v1.LoginRequest\x1a\x15.user.v1.AuthResponse\x12K\n" +
 	"\fGetMyProfile\x12\x1c.user.v1.GetMyProfileRequest\x1a\x1d.user.v1.GetMyProfileResponse\x12Q\n" +
 	"\x0fUpdateMyProfile\x12\x1f.user.v1.UpdateMyProfileRequest\x1a\x1d.user.v1.GetMyProfileResponse\x12T\n" +
-	"\x0fListMyAddresses\x12\x1f.user.v1.ListMyAddressesRequest\x1a .user.v1.ListMyAddressesResponse\x12F\n" +
-	"\fGetMyAddress\x12\x1c.user.v1.GetMyAddressRequest\x1a\x18.user.v1.AddressResponse\x12L\n" +
+	"\x0fListMyAddresses\x12\x1f.user.v1.ListMyAddressesRequest\x1a .user.v1.ListMyAddressesResponse\x12N\n" +
+	"\x14GetMyAddressSnapshot\x12\x1c.user.v1.GetMyAddressRequest\x1a\x18.user.v1.AddressResponse\x12L\n" +
 	"\x0fCreateMyAddress\x12\x1f.user.v1.CreateMyAddressRequest\x1a\x18.user.v1.AddressResponse\x12L\n" +
 	"\x0fUpdateMyAddress\x12\x1f.user.v1.UpdateMyAddressRequest\x1a\x18.user.v1.AddressResponse\x12B\n" +
 	"\x0fDeleteMyAddress\x12\x1f.user.v1.DeleteMyAddressRequest\x1a\x0e.user.v1.EmptyBAZ?github.com/yuyu945/AI-Shopping/services/user-service/gen;userpbb\x06proto3"
@@ -1132,7 +1132,7 @@ var file_api_user_user_proto_depIdxs = []int32{
 	4,  // 7: user.v1.UserService.GetMyProfile:input_type -> user.v1.GetMyProfileRequest
 	6,  // 8: user.v1.UserService.UpdateMyProfile:input_type -> user.v1.UpdateMyProfileRequest
 	8,  // 9: user.v1.UserService.ListMyAddresses:input_type -> user.v1.ListMyAddressesRequest
-	9,  // 10: user.v1.UserService.GetMyAddress:input_type -> user.v1.GetMyAddressRequest
+	9,  // 10: user.v1.UserService.GetMyAddressSnapshot:input_type -> user.v1.GetMyAddressRequest
 	11, // 11: user.v1.UserService.CreateMyAddress:input_type -> user.v1.CreateMyAddressRequest
 	12, // 12: user.v1.UserService.UpdateMyAddress:input_type -> user.v1.UpdateMyAddressRequest
 	13, // 13: user.v1.UserService.DeleteMyAddress:input_type -> user.v1.DeleteMyAddressRequest
@@ -1141,7 +1141,7 @@ var file_api_user_user_proto_depIdxs = []int32{
 	5,  // 16: user.v1.UserService.GetMyProfile:output_type -> user.v1.GetMyProfileResponse
 	5,  // 17: user.v1.UserService.UpdateMyProfile:output_type -> user.v1.GetMyProfileResponse
 	10, // 18: user.v1.UserService.ListMyAddresses:output_type -> user.v1.ListMyAddressesResponse
-	14, // 19: user.v1.UserService.GetMyAddress:output_type -> user.v1.AddressResponse
+	14, // 19: user.v1.UserService.GetMyAddressSnapshot:output_type -> user.v1.AddressResponse
 	14, // 20: user.v1.UserService.CreateMyAddress:output_type -> user.v1.AddressResponse
 	14, // 21: user.v1.UserService.UpdateMyAddress:output_type -> user.v1.AddressResponse
 	16, // 22: user.v1.UserService.DeleteMyAddress:output_type -> user.v1.Empty

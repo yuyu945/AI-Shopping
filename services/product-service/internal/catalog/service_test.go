@@ -243,7 +243,7 @@ func TestProductServiceCheckoutSKUsPreservesCallerOrderAndClonesSnapshots(t *tes
 		if got, want := ids, []uint64{8, 7}; !slices.Equal(got, want) {
 			t.Fatalf("repository ids = %v, want %v", got, want)
 		}
-		return []CheckoutSKU{{SKUID: 8, SalePrice: "19.00"}, {SKUID: 7, SalePrice: "99.90", SpecJSON: []byte(`{}`), Promotions: []PromotionSummary{{ID: 20, ThresholdAmount: &threshold}}}}, nil
+		return []CheckoutSKU{{SKUID: 8, SalePrice: "19.00", Saleable: true}, {SKUID: 7, SalePrice: "99.90", SpecJSON: []byte(`{}`), Saleable: true, Promotions: []PromotionSummary{{ID: 20, ThresholdAmount: &threshold}}}}, nil
 	}}
 	got, err := NewProductService(repo, newFakeDetailCache()).CheckoutSKUs(context.Background(), []uint64{8, 7, 8})
 	if err != nil || len(got) != 3 || got[0].SKUID != 8 || got[1].SKUID != 7 || got[2].SKUID != 8 {
@@ -261,6 +261,17 @@ func TestProductServiceCheckoutSKUsMapsMissingSKUToStableNotFound(t *testing.T) 
 		return nil, &NotFoundError{Resource: "sku", ID: 404}
 	}}
 	_, err := NewProductService(repo, nil).CheckoutSKUs(context.Background(), []uint64{404})
+	var appErr *apperror.Error
+	if !errors.As(err, &appErr) || appErr.Code != apperror.NotFound || appErr.Message != "checkout sku not found" {
+		t.Fatalf("CheckoutSKUs() error = %v", err)
+	}
+}
+
+func TestProductServiceCheckoutSKUsRejectsInactiveSKUWithStableNotFound(t *testing.T) {
+	repo := &fakeProductRepository{checkoutFn: func(context.Context, []uint64) ([]CheckoutSKU, error) {
+		return []CheckoutSKU{{ProductID: 10, SKUID: 7, Saleable: false}}, nil
+	}}
+	_, err := NewProductService(repo, nil).CheckoutSKUs(context.Background(), []uint64{7})
 	var appErr *apperror.Error
 	if !errors.As(err, &appErr) || appErr.Code != apperror.NotFound || appErr.Message != "checkout sku not found" {
 		t.Fatalf("CheckoutSKUs() error = %v", err)

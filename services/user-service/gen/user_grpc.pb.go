@@ -19,15 +19,15 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	UserService_Register_FullMethodName        = "/user.v1.UserService/Register"
-	UserService_Login_FullMethodName           = "/user.v1.UserService/Login"
-	UserService_GetMyProfile_FullMethodName    = "/user.v1.UserService/GetMyProfile"
-	UserService_UpdateMyProfile_FullMethodName = "/user.v1.UserService/UpdateMyProfile"
-	UserService_ListMyAddresses_FullMethodName = "/user.v1.UserService/ListMyAddresses"
-	UserService_GetMyAddress_FullMethodName    = "/user.v1.UserService/GetMyAddress"
-	UserService_CreateMyAddress_FullMethodName = "/user.v1.UserService/CreateMyAddress"
-	UserService_UpdateMyAddress_FullMethodName = "/user.v1.UserService/UpdateMyAddress"
-	UserService_DeleteMyAddress_FullMethodName = "/user.v1.UserService/DeleteMyAddress"
+	UserService_Register_FullMethodName             = "/user.v1.UserService/Register"
+	UserService_Login_FullMethodName                = "/user.v1.UserService/Login"
+	UserService_GetMyProfile_FullMethodName         = "/user.v1.UserService/GetMyProfile"
+	UserService_UpdateMyProfile_FullMethodName      = "/user.v1.UserService/UpdateMyProfile"
+	UserService_ListMyAddresses_FullMethodName      = "/user.v1.UserService/ListMyAddresses"
+	UserService_GetMyAddressSnapshot_FullMethodName = "/user.v1.UserService/GetMyAddressSnapshot"
+	UserService_CreateMyAddress_FullMethodName      = "/user.v1.UserService/CreateMyAddress"
+	UserService_UpdateMyAddress_FullMethodName      = "/user.v1.UserService/UpdateMyAddress"
+	UserService_DeleteMyAddress_FullMethodName      = "/user.v1.UserService/DeleteMyAddress"
 )
 
 // UserServiceClient is the client API for UserService service.
@@ -39,7 +39,7 @@ type UserServiceClient interface {
 	GetMyProfile(ctx context.Context, in *GetMyProfileRequest, opts ...grpc.CallOption) (*GetMyProfileResponse, error)
 	UpdateMyProfile(ctx context.Context, in *UpdateMyProfileRequest, opts ...grpc.CallOption) (*GetMyProfileResponse, error)
 	ListMyAddresses(ctx context.Context, in *ListMyAddressesRequest, opts ...grpc.CallOption) (*ListMyAddressesResponse, error)
-	GetMyAddress(ctx context.Context, in *GetMyAddressRequest, opts ...grpc.CallOption) (*AddressResponse, error)
+	GetMyAddressSnapshot(ctx context.Context, in *GetMyAddressRequest, opts ...grpc.CallOption) (*AddressResponse, error)
 	CreateMyAddress(ctx context.Context, in *CreateMyAddressRequest, opts ...grpc.CallOption) (*AddressResponse, error)
 	UpdateMyAddress(ctx context.Context, in *UpdateMyAddressRequest, opts ...grpc.CallOption) (*AddressResponse, error)
 	DeleteMyAddress(ctx context.Context, in *DeleteMyAddressRequest, opts ...grpc.CallOption) (*Empty, error)
@@ -103,10 +103,10 @@ func (c *userServiceClient) ListMyAddresses(ctx context.Context, in *ListMyAddre
 	return out, nil
 }
 
-func (c *userServiceClient) GetMyAddress(ctx context.Context, in *GetMyAddressRequest, opts ...grpc.CallOption) (*AddressResponse, error) {
+func (c *userServiceClient) GetMyAddressSnapshot(ctx context.Context, in *GetMyAddressRequest, opts ...grpc.CallOption) (*AddressResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AddressResponse)
-	err := c.cc.Invoke(ctx, UserService_GetMyAddress_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, UserService_GetMyAddressSnapshot_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +152,7 @@ type UserServiceServer interface {
 	GetMyProfile(context.Context, *GetMyProfileRequest) (*GetMyProfileResponse, error)
 	UpdateMyProfile(context.Context, *UpdateMyProfileRequest) (*GetMyProfileResponse, error)
 	ListMyAddresses(context.Context, *ListMyAddressesRequest) (*ListMyAddressesResponse, error)
-	GetMyAddress(context.Context, *GetMyAddressRequest) (*AddressResponse, error)
+	GetMyAddressSnapshot(context.Context, *GetMyAddressRequest) (*AddressResponse, error)
 	CreateMyAddress(context.Context, *CreateMyAddressRequest) (*AddressResponse, error)
 	UpdateMyAddress(context.Context, *UpdateMyAddressRequest) (*AddressResponse, error)
 	DeleteMyAddress(context.Context, *DeleteMyAddressRequest) (*Empty, error)
@@ -181,8 +181,8 @@ func (UnimplementedUserServiceServer) UpdateMyProfile(context.Context, *UpdateMy
 func (UnimplementedUserServiceServer) ListMyAddresses(context.Context, *ListMyAddressesRequest) (*ListMyAddressesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListMyAddresses not implemented")
 }
-func (UnimplementedUserServiceServer) GetMyAddress(context.Context, *GetMyAddressRequest) (*AddressResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetMyAddress not implemented")
+func (UnimplementedUserServiceServer) GetMyAddressSnapshot(context.Context, *GetMyAddressRequest) (*AddressResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetMyAddressSnapshot not implemented")
 }
 func (UnimplementedUserServiceServer) CreateMyAddress(context.Context, *CreateMyAddressRequest) (*AddressResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateMyAddress not implemented")
@@ -304,20 +304,20 @@ func _UserService_ListMyAddresses_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
-func _UserService_GetMyAddress_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _UserService_GetMyAddressSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetMyAddressRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(UserServiceServer).GetMyAddress(ctx, in)
+		return srv.(UserServiceServer).GetMyAddressSnapshot(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: UserService_GetMyAddress_FullMethodName,
+		FullMethod: UserService_GetMyAddressSnapshot_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(UserServiceServer).GetMyAddress(ctx, req.(*GetMyAddressRequest))
+		return srv.(UserServiceServer).GetMyAddressSnapshot(ctx, req.(*GetMyAddressRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -404,8 +404,8 @@ var UserService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _UserService_ListMyAddresses_Handler,
 		},
 		{
-			MethodName: "GetMyAddress",
-			Handler:    _UserService_GetMyAddress_Handler,
+			MethodName: "GetMyAddressSnapshot",
+			Handler:    _UserService_GetMyAddressSnapshot_Handler,
 		},
 		{
 			MethodName: "CreateMyAddress",

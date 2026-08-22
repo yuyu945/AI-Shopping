@@ -909,12 +909,12 @@ const file_api_product_product_proto_rawDesc = "" +
 	"\x10threshold_amount\x18\x03 \x01(\tH\x00R\x0fthresholdAmount\x88\x01\x01\x12,\n" +
 	"\x0fdiscount_amount\x18\x04 \x01(\tH\x01R\x0ediscountAmount\x88\x01\x01B\x13\n" +
 	"\x11_threshold_amountB\x12\n" +
-	"\x10_discount_amount2\x83\x02\n" +
+	"\x10_discount_amount2\x86\x02\n" +
 	"\x0eProductService\x12Q\n" +
 	"\fListProducts\x12\x1f.product.v1.ListProductsRequest\x1a .product.v1.ListProductsResponse\x12K\n" +
 	"\n" +
-	"GetProduct\x12\x1d.product.v1.GetProductRequest\x1a\x1e.product.v1.GetProductResponse\x12Q\n" +
-	"\fCheckoutSKUs\x12\x1f.product.v1.CheckoutSKUsRequest\x1a .product.v1.CheckoutSKUsResponseBGZEgithub.com/yuyu945/AI-Shopping/services/product-service/gen;productpbb\x06proto3"
+	"GetProduct\x12\x1d.product.v1.GetProductRequest\x1a\x1e.product.v1.GetProductResponse\x12T\n" +
+	"\x0fGetCheckoutSKUs\x12\x1f.product.v1.CheckoutSKUsRequest\x1a .product.v1.CheckoutSKUsResponseBGZEgithub.com/yuyu945/AI-Shopping/services/product-service/gen;productpbb\x06proto3"
 
 var (
 	file_api_product_product_proto_rawDescOnce sync.Once
@@ -955,10 +955,10 @@ var file_api_product_product_proto_depIdxs = []int32{
 	12, // 7: product.v1.Sku.specs:type_name -> product.v1.Sku.SpecsEntry
 	0,  // 8: product.v1.ProductService.ListProducts:input_type -> product.v1.ListProductsRequest
 	1,  // 9: product.v1.ProductService.GetProduct:input_type -> product.v1.GetProductRequest
-	4,  // 10: product.v1.ProductService.CheckoutSKUs:input_type -> product.v1.CheckoutSKUsRequest
+	4,  // 10: product.v1.ProductService.GetCheckoutSKUs:input_type -> product.v1.CheckoutSKUsRequest
 	2,  // 11: product.v1.ProductService.ListProducts:output_type -> product.v1.ListProductsResponse
 	3,  // 12: product.v1.ProductService.GetProduct:output_type -> product.v1.GetProductResponse
-	5,  // 13: product.v1.ProductService.CheckoutSKUs:output_type -> product.v1.CheckoutSKUsResponse
+	5,  // 13: product.v1.ProductService.GetCheckoutSKUs:output_type -> product.v1.CheckoutSKUsResponse
 	11, // [11:14] is the sub-list for method output_type
 	8,  // [8:11] is the sub-list for method input_type
 	8,  // [8:8] is the sub-list for extension type_name

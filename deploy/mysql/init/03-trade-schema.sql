@@ -26,6 +26,7 @@ CREATE TABLE orders (
 CREATE TABLE order_items (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, order_id BIGINT UNSIGNED NOT NULL, product_id BIGINT UNSIGNED NOT NULL, sku_id BIGINT UNSIGNED NOT NULL,
     product_title_snapshot VARCHAR(256) NOT NULL, sku_code_snapshot VARCHAR(128) NOT NULL, sku_spec_snapshot JSON NOT NULL, promotion_snapshot JSON NOT NULL,
+    candidate_promotions_snapshot JSON NOT NULL,
     unit_price DECIMAL(12,2) NOT NULL, discount_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00, quantity INT UNSIGNED NOT NULL, item_amount DECIMAL(12,2) NOT NULL,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3), PRIMARY KEY (id), KEY idx_order_items_order (order_id),
     CONSTRAINT chk_order_items_quantity_positive CHECK (quantity > 0),

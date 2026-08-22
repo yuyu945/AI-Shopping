@@ -24,9 +24,15 @@ func TestTradeSchemaOwnsCartAndOrderSnapshots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read trade migration: %v", err)
 	}
+	candidateMigrationPath := filepath.Join(filepath.Dir(sourceFile), "..", "..", "..", "..", "deploy", "mysql", "migrations", "20260822_m2_1_trade_z_order_promotion_candidates.sql")
+	candidateMigration, err := os.ReadFile(candidateMigrationPath)
+	if err != nil {
+		t.Fatalf("read candidate promotion migration: %v", err)
+	}
 
 	schemaText := string(schema)
 	migrationText := string(migration)
+	candidateMigrationText := string(candidateMigration)
 	required := []string{
 		"CREATE TABLE carts",
 		"CREATE TABLE cart_items",
@@ -47,6 +53,14 @@ func TestTradeSchemaOwnsCartAndOrderSnapshots(t *testing.T) {
 			t.Fatalf("trade schema %s must define %s as DECIMAL(12,2)", schemaPath, column)
 		}
 	}
+	for name, source := range map[string]string{"init schema": schemaText, "candidate migration": candidateMigrationText} {
+		if !strings.Contains(source, "candidate_promotions_snapshot JSON NOT NULL") {
+			t.Fatalf("%s must persist candidate promotion snapshots", name)
+		}
+	}
+	if !strings.Contains(candidateMigrationText, "JSON_ARRAY()") {
+		t.Fatalf("candidate migration must backfill existing rows with an empty JSON array")
+	}
 	if count := strings.Count(schemaText, "DECIMAL(12,2)"); count != 5 {
 		t.Fatalf("trade schema %s must define exactly five DECIMAL(12,2) amount columns, got %d", schemaPath, count)
 	}
@@ -57,7 +71,7 @@ func TestTradeSchemaOwnsCartAndOrderSnapshots(t *testing.T) {
 	if strings.Contains(schemaText, "REFERENCES user_db.") || strings.Contains(schemaText, "REFERENCES catalog_db.") {
 		t.Fatalf("trade schema %s must not define cross-service foreign keys", schemaPath)
 	}
-	for name, source := range map[string]string{"init schema": schemaText, "M2.1 migration": migrationText} {
+	for name, source := range map[string]string{"init schema": schemaText, "M2.1 migration": migrationText, "candidate migration": candidateMigrationText} {
 		for _, forbidden := range []string{"inventory_reservations", "payment_attempt_id", "reservation_id"} {
 			if strings.Contains(source, forbidden) {
 				t.Fatalf("%s must not contain M2.2 field %q", name, forbidden)

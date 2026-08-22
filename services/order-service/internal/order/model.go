@@ -70,6 +70,7 @@ type OrderItem struct {
 	ID, OrderID, ProductID, SKUID         uint64
 	ProductTitleSnapshot, SKUCodeSnapshot string
 	SpecSnapshot                          []byte
+	CandidatePromotions                   []PromotionSnapshot
 	AppliedPromotion                      *PromotionSnapshot
 	UnitPrice, DiscountAmount, ItemAmount string
 	Quantity                              uint32
@@ -94,12 +95,17 @@ func cloneOrder(order Order) Order {
 	result.Items = append([]OrderItem(nil), order.Items...)
 	for i := range result.Items {
 		result.Items[i].SpecSnapshot = append([]byte(nil), order.Items[i].SpecSnapshot...)
+		result.Items[i].CandidatePromotions = clonePromotions(order.Items[i].CandidatePromotions)
 		if order.Items[i].AppliedPromotion != nil {
 			promotion := *order.Items[i].AppliedPromotion
 			result.Items[i].AppliedPromotion = &promotion
 		}
 	}
 	return result
+}
+
+func clonePromotions(promotions []PromotionSnapshot) []PromotionSnapshot {
+	return append([]PromotionSnapshot(nil), promotions...)
 }
 
 func sortedCartItems(items []CartItem) []CartItem {

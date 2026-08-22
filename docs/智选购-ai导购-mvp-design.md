@@ -289,7 +289,7 @@ inventory_reservations(
 - `user-service.GetMyAddressSnapshot(address_id)`：从 bearer JWT 派生当前用户，只返回该用户拥有的地址；未找到或不属于当前用户都返回稳定的 `NOT_FOUND`。
 - `product-service.GetCheckoutSKUs(sku_ids)`：绕过 Redis Cache Aside，直接从 `catalog_db` 查询当前可售 SKU，返回 `product_id`、标题、SKU 编码、规格 JSON、`DECIMAL(12,2)` 字符串价格和商品级优惠规则快照。下架、缺失或无效 SKU 不得进入订单。
 
-订单金额不使用浮点数。MVP 的商品级优惠采用每个 SKU 可用规则中的最高固定减免，不与用户券叠加；订单项保存原始单价、应用优惠快照、订单项优惠总额和应付金额。所有跨 RPC 金额以固定两位小数字符串传输，落库使用 `DECIMAL(12,2)`。
+订单金额不使用浮点数。MVP 的商品级优惠采用每个 SKU 可用规则中的最高固定减免，不与用户券叠加；订单项同时保存 checkout 时的全部候选优惠快照、应用优惠快照、原始单价、优惠总额和应付金额。所有跨 RPC 金额以固定两位小数字符串传输，落库使用 `DECIMAL(12,2)`。
 
 ### 9.3 购物车、订单与钱包
 

@@ -22,9 +22,9 @@ const deleteCartItem = `DELETE item FROM cart_items AS item INNER JOIN carts AS 
 const queryOrderByRequest = `SELECT id, order_no, request_id, user_id, status, total_amount, paid_amount, shipping_name_snapshot, shipping_phone_snapshot, shipping_address_snapshot FROM orders WHERE user_id = ? AND request_id = ?`
 const queryOrderByNumber = `SELECT id, order_no, request_id, user_id, status, total_amount, paid_amount, shipping_name_snapshot, shipping_phone_snapshot, shipping_address_snapshot FROM orders WHERE user_id = ? AND order_no = ?`
 const queryOrders = `SELECT id, order_no, request_id, user_id, status, total_amount, paid_amount, shipping_name_snapshot, shipping_phone_snapshot, shipping_address_snapshot FROM orders WHERE user_id = ? ORDER BY created_at DESC, id DESC`
-const queryOrderItems = `SELECT id, order_id, product_id, sku_id, product_title_snapshot, sku_code_snapshot, sku_spec_snapshot, promotion_snapshot, unit_price, discount_amount, quantity, item_amount FROM order_items WHERE order_id = ? ORDER BY id`
+const queryOrderItems = `SELECT id, order_id, product_id, sku_id, product_title_snapshot, sku_code_snapshot, sku_spec_snapshot, candidate_promotions_snapshot, promotion_snapshot, unit_price, discount_amount, quantity, item_amount FROM order_items WHERE order_id = ? ORDER BY id`
 const insertOrder = `INSERT INTO orders (order_no, user_id, request_id, status, total_amount, paid_amount, shipping_name_snapshot, shipping_phone_snapshot, shipping_address_snapshot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-const insertOrderItem = `INSERT INTO order_items (order_id, product_id, sku_id, product_title_snapshot, sku_code_snapshot, sku_spec_snapshot, promotion_snapshot, unit_price, discount_amount, quantity, item_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+const insertOrderItem = `INSERT INTO order_items (order_id, product_id, sku_id, product_title_snapshot, sku_code_snapshot, sku_spec_snapshot, candidate_promotions_snapshot, promotion_snapshot, unit_price, discount_amount, quantity, item_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 // MySQLRepository persists only trade_db carts and immutable order snapshots.
 type MySQLRepository struct{ db *sql.DB }
@@ -195,12 +195,21 @@ func (r *MySQLRepository) CreateOrder(ctx context.Context, order Order) (created
 	created.ID = uint64(orderID)
 	for index := range created.Items {
 		item := &created.Items[index]
+		candidateJSON, marshalErr := marshalPromotions(item.CandidatePromotions)
+		if marshalErr != nil {
+			err = marshalErr
+			return Order{}, err
+		}
 		promotionJSON, marshalErr := marshalPromotion(item.AppliedPromotion)
 		if marshalErr != nil {
 			err = marshalErr
 			return Order{}, err
 		}
-		itemResult, execErr := tx.ExecContext(ctx, insertOrderItem, orderID, item.ProductID, item.SKUID, item.ProductTitleSnapshot, item.SKUCodeSnapshot, item.SpecSnapshot, promotionJSON, item.UnitPrice, item.DiscountAmount, item.Quantity, item.ItemAmount)
+		if !appliedPromotionMatches(item.AppliedPromotion, item.CandidatePromotions) {
+			err = errors.New("applied promotion is not a candidate snapshot")
+			return Order{}, err
+		}
+		itemResult, execErr := tx.ExecContext(ctx, insertOrderItem, orderID, item.ProductID, item.SKUID, item.ProductTitleSnapshot, item.SKUCodeSnapshot, item.SpecSnapshot, candidateJSON, promotionJSON, item.UnitPrice, item.DiscountAmount, item.Quantity, item.ItemAmount)
 		if execErr != nil {
 			err = fmt.Errorf("insert order item: %w", execErr)
 			return Order{}, err
@@ -288,19 +297,28 @@ func (r *MySQLRepository) loadOrderItems(ctx context.Context, orderID uint64) ([
 	items := []OrderItem{}
 	for rows.Next() {
 		var item OrderItem
+		var candidateJSON []byte
 		var promotionJSON []byte
-		if err := rows.Scan(&item.ID, &item.OrderID, &item.ProductID, &item.SKUID, &item.ProductTitleSnapshot, &item.SKUCodeSnapshot, &item.SpecSnapshot, &promotionJSON, &item.UnitPrice, &item.DiscountAmount, &item.Quantity, &item.ItemAmount); err != nil {
+		if err := rows.Scan(&item.ID, &item.OrderID, &item.ProductID, &item.SKUID, &item.ProductTitleSnapshot, &item.SKUCodeSnapshot, &item.SpecSnapshot, &candidateJSON, &promotionJSON, &item.UnitPrice, &item.DiscountAmount, &item.Quantity, &item.ItemAmount); err != nil {
 			return nil, fmt.Errorf("scan order item: %w", err)
 		}
 		if !json.Valid(item.SpecSnapshot) || !validItemMoney(item) {
 			return nil, errors.New("stored order item snapshot is invalid")
 		}
+		candidates, decodeErr := unmarshalPromotions(candidateJSON)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		item.CandidatePromotions = candidates
 		if string(promotionJSON) != "null" {
 			var promotion PromotionSnapshot
 			if err := json.Unmarshal(promotionJSON, &promotion); err != nil || !validPromotion(promotion) {
 				return nil, errors.New("stored promotion snapshot is invalid")
 			}
 			item.AppliedPromotion = &promotion
+		}
+		if !appliedPromotionMatches(item.AppliedPromotion, item.CandidatePromotions) {
+			return nil, errors.New("stored applied promotion is not a candidate snapshot")
 		}
 		items = append(items, item)
 	}
@@ -351,6 +369,43 @@ func marshalPromotion(promotion *PromotionSnapshot) ([]byte, error) {
 		return nil, errors.New("invalid applied promotion")
 	}
 	return json.Marshal(promotion)
+}
+
+func marshalPromotions(promotions []PromotionSnapshot) ([]byte, error) {
+	for _, promotion := range promotions {
+		if !validPromotion(promotion) {
+			return nil, errors.New("invalid candidate promotion")
+		}
+	}
+	return json.Marshal(promotions)
+}
+
+func unmarshalPromotions(encoded []byte) ([]PromotionSnapshot, error) {
+	if len(encoded) == 0 || string(encoded) == "null" {
+		return nil, errors.New("stored candidate promotions are invalid")
+	}
+	var promotions []PromotionSnapshot
+	if err := json.Unmarshal(encoded, &promotions); err != nil {
+		return nil, errors.New("stored candidate promotions are invalid")
+	}
+	for _, promotion := range promotions {
+		if !validPromotion(promotion) {
+			return nil, errors.New("stored candidate promotions are invalid")
+		}
+	}
+	return clonePromotions(promotions), nil
+}
+
+func appliedPromotionMatches(applied *PromotionSnapshot, candidates []PromotionSnapshot) bool {
+	if applied == nil {
+		return true
+	}
+	for _, candidate := range candidates {
+		if candidate == *applied {
+			return true
+		}
+	}
+	return false
 }
 func isDuplicate(err error) bool {
 	var mysqlErr *mysql.MySQLError

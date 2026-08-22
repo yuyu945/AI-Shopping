@@ -148,9 +148,10 @@ func orderItem(product ProductSnapshot, quantity uint32) (OrderItem, *big.Rat, e
 		return OrderItem{}, nil, errors.New("invalid price")
 	}
 	lineSubtotal := new(big.Rat).Mul(unit, new(big.Rat).SetUint64(uint64(quantity)))
+	candidates := clonePromotions(product.Promotions)
 	discount := new(big.Rat)
 	var applied *PromotionSnapshot
-	for _, promotion := range product.Promotions {
+	for _, promotion := range candidates {
 		value, ok := parseMoney(promotion.DiscountAmount)
 		if !ok {
 			return OrderItem{}, nil, errors.New("invalid promotion discount")
@@ -178,7 +179,7 @@ func orderItem(product ProductSnapshot, quantity uint32) (OrderItem, *big.Rat, e
 	if amount.Sign() < 0 {
 		return OrderItem{}, nil, errors.New("negative amount")
 	}
-	return OrderItem{ProductID: product.ProductID, SKUID: product.SKUID, ProductTitleSnapshot: product.ProductTitle, SKUCodeSnapshot: product.SKUCode, SpecSnapshot: append([]byte(nil), product.SpecJSON...), AppliedPromotion: applied, UnitPrice: moneyString(unit), DiscountAmount: moneyString(new(big.Rat).Mul(discount, new(big.Rat).SetUint64(uint64(quantity)))), Quantity: quantity, ItemAmount: moneyString(amount)}, amount, nil
+	return OrderItem{ProductID: product.ProductID, SKUID: product.SKUID, ProductTitleSnapshot: product.ProductTitle, SKUCodeSnapshot: product.SKUCode, SpecSnapshot: append([]byte(nil), product.SpecJSON...), CandidatePromotions: candidates, AppliedPromotion: applied, UnitPrice: moneyString(unit), DiscountAmount: moneyString(new(big.Rat).Mul(discount, new(big.Rat).SetUint64(uint64(quantity)))), Quantity: quantity, ItemAmount: moneyString(amount)}, amount, nil
 }
 func parseMoney(value string) (*big.Rat, bool) {
 	if strings.TrimSpace(value) != value || !moneyPattern(value) {

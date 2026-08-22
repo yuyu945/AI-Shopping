@@ -42,11 +42,11 @@ $queryPort = if ($queryHost -eq 'mysql') { '3306' } else { $connection.Port }
 function Invoke-TradeMySQL {
     param([Parameter(Mandatory)][string]$Sql)
 
-    $output = @($Sql | docker compose -f $ComposeFile exec -T mysql sh -c 'exec mysql --protocol=TCP --host="$1" --port="$2" --user="$3" --password="$MYSQL_PASSWORD" --database=trade_db --batch --skip-column-names' sh $queryHost $queryPort $connection.User 2>&1)
+    $output = @($Sql | docker compose -f $ComposeFile exec -T mysql sh -c 'exec mysql --protocol=TCP --host="$1" --port="$2" --user="$3" --password="$MYSQL_PASSWORD" --database=trade_db --batch --skip-column-names' sh $queryHost $queryPort $connection.User 2>&1 | ForEach-Object { $_.ToString() })
     if ($LASTEXITCODE -ne 0) {
         throw 'Trade schema migration query failed.'
     }
-    return $output
+    return @($output | Where-Object { $_ -notmatch '^mysql: \[Warning\] Using a password on the command line interface can be insecure\.$' })
 }
 
 Invoke-TradeMySQL -Sql 'CREATE TABLE IF NOT EXISTS schema_migrations (version VARCHAR(128) NOT NULL, applied_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3), PRIMARY KEY (version)) ENGINE=InnoDB;' | Out-Null

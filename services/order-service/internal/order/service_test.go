@@ -72,13 +72,14 @@ func TestCreateOrder(t *testing.T) {
 			if result.Status != PendingPayment || result.TotalAmount != tc.wantAmount {
 				t.Fatalf("order = %#v", result)
 			}
-			if len(result.Items) != 1 || result.Items[0].ProductTitleSnapshot != "Keyboard" || string(result.Items[0].SpecSnapshot) != `{"color":"black"}` || result.Items[0].DiscountAmount != "20.00" || result.Items[0].AppliedPromotion == nil || result.Items[0].AppliedPromotion.PromotionID != 5 {
+			if len(result.Items) != 1 || result.Items[0].ProductTitleSnapshot != "Keyboard" || string(result.Items[0].SpecSnapshot) != `{"color":"black"}` || result.Items[0].DiscountAmount != "20.00" || result.Items[0].AppliedPromotion == nil || result.Items[0].AppliedPromotion.PromotionID != 5 || len(result.Items[0].CandidatePromotions) != 1 {
 				t.Fatalf("order snapshots = %#v", result.Items)
 			}
 			repo.product.ProductTitle = "Changed"
 			repo.product.UnitPrice = "1.00"
+			repo.product.Promotions[0].DiscountAmount = "1.00"
 			loaded, err := service.GetOrder(context.Background(), 7, result.OrderNo)
-			if err != nil || loaded.Items[0].ProductTitleSnapshot != "Keyboard" || loaded.Items[0].UnitPrice != "99.00" {
+			if err != nil || loaded.Items[0].ProductTitleSnapshot != "Keyboard" || loaded.Items[0].UnitPrice != "99.00" || loaded.Items[0].CandidatePromotions[0].DiscountAmount != "10.00" || loaded.Items[0].AppliedPromotion == nil || loaded.Items[0].AppliedPromotion.DiscountAmount != "10.00" {
 				t.Fatalf("loaded order = %#v, %v", loaded, err)
 			}
 		})

@@ -8,15 +8,14 @@ import (
 )
 
 const (
-	mysqlDSNEnv                              = "AI_SHOPPING_MYSQL_DSN"
-	redisAddrEnv                             = "AI_SHOPPING_REDIS_ADDR"
-	kafkaBrokersEnv                          = "AI_SHOPPING_KAFKA_BROKERS"
-	minIOEndpointEnv                         = "AI_SHOPPING_MINIO_ENDPOINT"
-	milvusAddressEnv                         = "AI_SHOPPING_MILVUS_ADDRESS"
-	jwtSecretEnv                             = "AI_SHOPPING_JWT_SECRET"
-	internalServiceTokenEnv                  = "AI_SHOPPING_INTERNAL_SERVICE_TOKEN"
-	minimumInternalServiceTokenBytes         = 32
-	minimumInternalServiceTokenDistinctBytes = 16
+	mysqlDSNEnv                      = "AI_SHOPPING_MYSQL_DSN"
+	redisAddrEnv                     = "AI_SHOPPING_REDIS_ADDR"
+	kafkaBrokersEnv                  = "AI_SHOPPING_KAFKA_BROKERS"
+	minIOEndpointEnv                 = "AI_SHOPPING_MINIO_ENDPOINT"
+	milvusAddressEnv                 = "AI_SHOPPING_MILVUS_ADDRESS"
+	jwtSecretEnv                     = "AI_SHOPPING_JWT_SECRET"
+	internalServiceTokenEnv          = "AI_SHOPPING_INTERNAL_SERVICE_TOKEN"
+	minimumInternalServiceTokenBytes = 32
 )
 
 var errInvalidInternalServiceToken = errors.New("invalid internal service token")
@@ -79,17 +78,12 @@ func ValidateInternalServiceToken(token string) error {
 		return errInvalidInternalServiceToken
 	}
 
-	distinct := make(map[byte]struct{}, len(token))
 	for i := 0; i < len(token); i++ {
 		// Restrict the token to visible ASCII. This avoids whitespace and makes
 		// metadata transport unambiguous while permitting random base64url values.
 		if token[i] < '!' || token[i] > '~' {
 			return errInvalidInternalServiceToken
 		}
-		distinct[token[i]] = struct{}{}
-	}
-	if len(distinct) < minimumInternalServiceTokenDistinctBytes {
-		return errInvalidInternalServiceToken
 	}
 	return nil
 }

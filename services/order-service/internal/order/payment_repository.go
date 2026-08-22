@@ -190,11 +190,7 @@ func (r *MySQLRepository) SettleWalletPayment(ctx context.Context, userID uint64
 		return Order{}, fmt.Errorf("commit wallet settlement: %w", err)
 	}
 	order.Status, order.PaidAmount = Paid, order.TotalAmount
-	order.Items, err = r.loadOrderItems(ctx, order.ID)
-	if err != nil {
-		return Order{}, err
-	}
-	return order, nil
+	return r.loadPaidPaymentOrder(ctx, order)
 }
 
 func (r *MySQLRepository) loadPaidPaymentOrder(ctx context.Context, paymentOrder Order) (Order, error) {

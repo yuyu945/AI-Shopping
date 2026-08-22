@@ -37,6 +37,22 @@ PREPARE payment_started_at_add_statement FROM @payment_started_at_add_sql;
 EXECUTE payment_started_at_add_statement;
 DEALLOCATE PREPARE payment_started_at_add_statement;
 
+SET @payment_recovery_token_exists = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'trade_db' AND table_name = 'orders' AND column_name = 'payment_recovery_token');
+SET @payment_recovery_token_sql = IF(@payment_recovery_token_exists = 0, 'ALTER TABLE orders ADD COLUMN payment_recovery_token CHAR(36) NULL AFTER payment_started_at', 'SELECT 1');
+PREPARE payment_recovery_token_statement FROM @payment_recovery_token_sql;
+EXECUTE payment_recovery_token_statement;
+DEALLOCATE PREPARE payment_recovery_token_statement;
+SET @payment_recovery_lease_exists = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'trade_db' AND table_name = 'orders' AND column_name = 'payment_recovery_lease_until');
+SET @payment_recovery_lease_sql = IF(@payment_recovery_lease_exists = 0, 'ALTER TABLE orders ADD COLUMN payment_recovery_lease_until DATETIME(3) NULL AFTER payment_recovery_token', 'SELECT 1');
+PREPARE payment_recovery_lease_statement FROM @payment_recovery_lease_sql;
+EXECUTE payment_recovery_lease_statement;
+DEALLOCATE PREPARE payment_recovery_lease_statement;
+SET @payment_recovery_lease_index_exists = (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = 'trade_db' AND table_name = 'orders' AND index_name = 'idx_orders_recovery_lease');
+SET @payment_recovery_lease_index_sql = IF(@payment_recovery_lease_index_exists = 0, 'ALTER TABLE orders ADD KEY idx_orders_recovery_lease (status, payment_recovery_lease_until, id)', 'SELECT 1');
+PREPARE payment_recovery_lease_index_statement FROM @payment_recovery_lease_index_sql;
+EXECUTE payment_recovery_lease_index_statement;
+DEALLOCATE PREPARE payment_recovery_lease_index_statement;
+
 SET @payment_attempt_index_exists = (
     SELECT COUNT(*) FROM information_schema.statistics
     WHERE table_schema = 'trade_db' AND table_name = 'orders' AND index_name = 'uq_orders_payment_attempt'

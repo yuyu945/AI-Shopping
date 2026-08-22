@@ -86,6 +86,15 @@ type PaymentService struct {
 	reservationTTL time.Duration
 }
 
+// SettleRecovered resumes only an already-persisted claim. It never creates IDs or reserves stock.
+func (s *PaymentService) SettleRecovered(ctx context.Context, userID uint64, orderNo string, attempt PaymentAttempt) error {
+	if s == nil || s.repository == nil || userID == 0 || strings.TrimSpace(orderNo) == "" || attempt.ID == "" || attempt.ReservationID == "" {
+		return &Error{Code: Internal, Message: "payment service is unavailable"}
+	}
+	_, err := s.repository.SettleWalletPayment(ctx, userID, strings.TrimSpace(orderNo), attempt)
+	return err
+}
+
 // NewPaymentService creates the order-side payment coordinator.
 func NewPaymentService(repository PaymentRepository, reservations ReservationClient, ids IDGenerator, reservationTTL time.Duration) *PaymentService {
 	if ids == nil {

@@ -6,9 +6,22 @@ if (-not (Test-Path -LiteralPath $scriptPath)) {
 }
 
 $source = Get-Content -Raw $scriptPath
-foreach ($required in @('schema_migrations', 'Get-ChildItem', 'Sort-Object', 'MYSQL_PWD=', 'already applied')) {
+foreach ($required in @('schema_migrations', 'Get-ChildItem', 'Sort-Object', 'already applied')) {
     if ($source -notmatch [regex]::Escape($required)) {
         throw "Migration application script must contain '$required'."
+    }
+}
+foreach ($forbidden in @('MYSQL_PWD=', '-e "MYSQL_PWD', '$connection.Password')) {
+    if ($source.Contains($forbidden)) {
+        throw "Migration application script must not pass credentials through docker compose argv: '$forbidden'."
+    }
+}
+if ($source -notmatch [regex]::Escape('MYSQL_PASSWORD')) {
+    throw 'Migration application script must use the Compose-managed app password inside the MySQL container.'
+}
+foreach ($required in @('exec -T mysql sh -c', '--password="$MYSQL_PASSWORD"', '$queryHost = if', '$queryPort = if', "'3306'")) {
+    if ($source -notmatch [regex]::Escape($required)) {
+        throw "Migration application script must preserve '$required'."
     }
 }
 if ($source -match 'Write-(Output|Host|Verbose).*MySQLDsn') {

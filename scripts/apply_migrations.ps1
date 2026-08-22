@@ -20,7 +20,6 @@ function ConvertFrom-MySQLDsn {
 
     [pscustomobject]@{
         User = $match.Groups['user'].Value
-        Password = $match.Groups['password'].Value
         Host = $match.Groups['host'].Value
         Port = $match.Groups['port'].Value
     }
@@ -43,7 +42,7 @@ $queryPort = if ($queryHost -eq 'mysql') { '3306' } else { $connection.Port }
 function Invoke-TradeMySQL {
     param([Parameter(Mandatory)][string]$Sql)
 
-    $output = @($Sql | docker compose -f $ComposeFile exec -T -e "MYSQL_PWD=$($connection.Password)" mysql mysql --protocol=TCP --host=$queryHost --port=$queryPort --user=$($connection.User) --database=trade_db --batch --skip-column-names 2>&1)
+    $output = @($Sql | docker compose -f $ComposeFile exec -T mysql sh -c 'exec mysql --protocol=TCP --host="$1" --port="$2" --user="$3" --password="$MYSQL_PASSWORD" --database=trade_db --batch --skip-column-names' sh $queryHost $queryPort $connection.User 2>&1)
     if ($LASTEXITCODE -ne 0) {
         throw 'Trade schema migration query failed.'
     }

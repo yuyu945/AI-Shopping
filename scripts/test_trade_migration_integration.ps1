@@ -26,7 +26,7 @@ $legacyFixture = Join-Path $PSScriptRoot '..\deploy\mysql\fixtures\legacy-preche
 
 function Invoke-RootSQL {
     param([Parameter(Mandatory)][string]$Sql)
-    $output = @($Sql | docker compose -f $composeFile exec -T -e "MYSQL_PWD=$($env:MYSQL_ROOT_PASSWORD)" mysql mysql -uroot --database=trade_db --batch --skip-column-names 2>&1)
+    $output = @($Sql | docker compose -f $composeFile exec -T mysql sh -c 'exec mysql -uroot --password="$MYSQL_ROOT_PASSWORD" --database=trade_db --batch --skip-column-names' 2>&1)
     if ($LASTEXITCODE -ne 0) { throw 'Isolated MySQL assertion query failed.' }
     return $output
 }

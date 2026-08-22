@@ -335,7 +335,7 @@ reviews(
 1. 创建订单时校验用户、购物车、地址和 `request_id`，并写入商品、价格和地址快照，状态为 `PENDING_PAYMENT`。
 2. 支付认领 transaction 将订单更新为 `PAYMENT_PROCESSING` 并保存不可复用的 `payment_attempt_id` 与 `reservation_id`。请求重复到达时，`PAID` 返回原结果，处理中返回 `PAYMENT_IN_PROGRESS`。
 3. `product-service.ReserveStock` 在自己的 transaction 内对所有 SKU 执行库存条件更新并写 `RESERVED` 预留；任一 SKU 失败则整体 rollback。
-4. `order-service` 仅在 `trade_db` transaction 内锁定支付尝试；总额大于零时锁定钱包并写流水。全额优惠的零金额订单不读取钱包、不更新余额、不写零金额流水，但仍在同一 transaction 写订单 `PAID` 与 `inventory.reservation.confirm` Outbox。此 transaction 不访问库存表。
+4. `order-service` 仅在 `trade_db` transaction 内锁定支付尝试；`total_amount > 0` 时才锁定、校验并更新钱包，且写入 debit 钱包流水。`total_amount == 0` 的全额优惠订单不查询或更新钱包、不写零金额流水，但仍在同一 transaction 写订单 `PAID` 与 `inventory.reservation.confirm` Outbox；Outbox 写入失败必须使订单、钱包（若适用）和流水（若适用）全部 rollback。此 transaction 不访问库存表。
 5. `product-service` 幂等消费确认事件，把预留置为 `CONFIRMED`。预留过期时先查询 order 的结算状态，`PAID` 则确认，未支付或已取消才置为 `RELEASED` 并返还库存；查询失败保留预留并退避。
 
 库存扣减 SQL：
@@ -529,7 +529,7 @@ products 1--N knowledge_documents 1--N knowledge_chunks
 
 `POST /api/v1/orders/{order_no}/payments/wallet`
 
-服务端先在 `trade_db` 认领 `PAYMENT_PROCESSING` 支付尝试，再调用 product-service 创建库存预留。扣款 transaction 只锁定订单与钱包、写入流水和 `inventory.reservation.confirm` Outbox；产品侧异步确认预留。重复支付返回已支付结果或 `PAYMENT_IN_PROGRESS`，订单服务不能直接更新 `catalog_db.inventory`。详见 9.3 的库存预留 Saga。
+服务端先在 `trade_db` 认领 `PAYMENT_PROCESSING` 支付尝试，再调用 product-service 创建库存预留。结算 transaction 始终锁定订单并写入 `inventory.reservation.confirm` Outbox；仅 `total_amount > 0` 时锁定、校验和更新钱包并写 debit 流水，`total_amount == 0` 时不查询或更新钱包且不写流水。Outbox 写入失败必须使该 transaction 的全部变更 rollback；产品侧异步确认预留。重复支付返回已支付结果或 `PAYMENT_IN_PROGRESS`，订单服务不能直接更新 `catalog_db.inventory`。详见 9.3 的库存预留 Saga。
 
 ## 11. 原型与交互
 

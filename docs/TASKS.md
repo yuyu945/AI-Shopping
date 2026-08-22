@@ -56,11 +56,11 @@
 - [ ] 创建钱包账户、钱包流水、支付尝试、库存预留、Outbox 和消费幂等迁移，金额字段统一为 `DECIMAL(12,2)`。
 - [ ] 在订单本地 transaction 中用 `PENDING_PAYMENT -> PAYMENT_PROCESSING` 原子认领支付，并持久化 `payment_attempt_id`、`reservation_id` 与开始时间；重复支付返回已支付结果或稳定的 `PAYMENT_IN_PROGRESS`。
 - [ ] 由 `product-service` 实现 `ReserveStock`、`ConfirmReservation`、`ReleaseReservation`：在 `catalog_db` transaction 内按 SKU 条件更新库存并写 `inventory_reservations`，任一 SKU 失败时全部回滚。`reservation_id + sku_id` 保障重试幂等。
-- [ ] 在 `trade_db` transaction 内锁定匹配支付尝试和钱包，校验余额、写钱包流水、更新订单为 `PAID`，并写 `inventory.reservation.confirm` Outbox；该 transaction 不得访问 `catalog_db`。
+- [ ] 在 `trade_db` transaction 内锁定匹配支付尝试：`total_amount > 0` 时才锁定、校验并更新钱包，且写入 debit 钱包流水；`total_amount == 0` 时不得查询或更新钱包、不得写入流水。两种金额路径都必须在同一 transaction 更新订单为 `PAID`、写入 `inventory.reservation.confirm` Outbox；Outbox 写入失败必须使订单、钱包（若适用）和流水（若适用）全部 rollback。该 transaction 不得访问 `catalog_db`。
 - [ ] 实现支付恢复与预留过期 worker：过期预留必须查询订单结算状态，已支付则确认，未支付/取消才释放；依赖超时进入退避重试，不能猜测性释放。
 - [ ] 实现 Outbox Worker 扫描、发布和失败退避，保留未成功投递记录；产品侧 consumer 使用 `event_consumptions` 幂等确认预留。
 
-测试：部分 SKU 库存不足导致整个预留回滚、余额不足后库存最终释放、重复支付、并发支付、支付 transaction 回滚、确认事件首次失败后补偿成功、支付完成但确认延迟、预留过期时 order-service 超时、进程崩溃后的 `PAYMENT_PROCESSING` 恢复。验收时查询余额、库存、预留、订单、流水和 Outbox，确认不存在重复扣款、超卖或永久悬挂预留。
+测试：部分 SKU 库存不足导致整个预留回滚、余额不足后库存最终释放、重复支付、并发支付、支付 transaction 回滚、全额优惠零金额订单不查询/更新钱包且不写钱包流水、Outbox 写入失败时订单/钱包/流水全部回滚、确认事件首次失败后补偿成功、支付完成但确认延迟、预留过期时 order-service 超时、进程崩溃后的 `PAYMENT_PROCESSING` 恢复。验收时查询余额、库存、预留、订单、流水和 Outbox，确认不存在重复扣款、超卖或永久悬挂预留。
 
 ## 5. M3：异步知识库与 RAG
 

@@ -66,8 +66,8 @@ func TestTradeSchemaOwnsCartAndOrderSnapshots(t *testing.T) {
 	if !strings.Contains(candidateMigrationText, "JSON_ARRAY()") {
 		t.Fatalf("candidate migration must backfill existing rows with an empty JSON array")
 	}
-	if count := strings.Count(schemaText, "DECIMAL(12,2)"); count != 5 {
-		t.Fatalf("trade schema %s must define exactly five DECIMAL(12,2) amount columns, got %d", schemaPath, count)
+	if count := strings.Count(schemaText, "DECIMAL(12,2)"); count != 7 {
+		t.Fatalf("trade schema %s must define five order amounts plus wallet balance and ledger amount as DECIMAL(12,2), got %d", schemaPath, count)
 	}
 	foreignKeys := regexp.MustCompile(`(?m)CONSTRAINT\s+\w+\s+FOREIGN KEY\s+\([^)]*\)\s+REFERENCES\s+\w+\([^)]*\)`).FindAllString(schemaText, -1)
 	if len(foreignKeys) != 2 {
@@ -93,6 +93,18 @@ func TestTradeSchemaOwnsCartAndOrderSnapshots(t *testing.T) {
 	} {
 		if !strings.Contains(schemaText, value) || !strings.Contains(string(paymentMigration), value) {
 			t.Fatalf("M2.2 payment persistence must contain %q in both init schema and migration", value)
+		}
+	}
+	for _, value := range []string{
+		"wallet_accounts (",
+		"wallet_ledger (",
+		"outbox_events (",
+		"UNIQUE KEY uq_wallet_ledger_business (biz_type, biz_id, direction)",
+		"UNIQUE KEY uq_outbox_event_id (event_id)",
+		"UNIQUE KEY uq_outbox_aggregate_event (aggregate_type, aggregate_id, event_type)",
+	} {
+		if !strings.Contains(schemaText, value) || !strings.Contains(string(paymentMigration), value) {
+			t.Fatalf("M2.2 payment settlement persistence must contain %q in both init schema and migration", value)
 		}
 	}
 	for _, forbidden := range []string{"catalog_db", "inventory_reservations", "USE catalog_db"} {

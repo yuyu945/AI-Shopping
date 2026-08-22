@@ -9,10 +9,14 @@ import (
 type Code string
 
 const (
-	InvalidArgument   Code = "INVALID_ARGUMENT"
-	NotFound          Code = "NOT_FOUND"
-	DependencyTimeout Code = "DEPENDENCY_TIMEOUT"
-	Internal          Code = "INTERNAL"
+	InvalidArgument     Code = "INVALID_ARGUMENT"
+	NotFound            Code = "NOT_FOUND"
+	OutOfStock          Code = "OUT_OF_STOCK"
+	InsufficientBalance Code = "INSUFFICIENT_BALANCE"
+	PaymentInProgress   Code = "PAYMENT_IN_PROGRESS"
+	IdempotencyConflict Code = "IDEMPOTENCY_CONFLICT"
+	DependencyTimeout   Code = "DEPENDENCY_TIMEOUT"
+	Internal            Code = "INTERNAL"
 )
 
 // Error is a stable error that can be mapped to the service transport.
@@ -47,7 +51,17 @@ type UpdateCartItemInput struct {
 
 type OrderStatus string
 
-const PendingPayment OrderStatus = "PENDING_PAYMENT"
+const (
+	PendingPayment    OrderStatus = "PENDING_PAYMENT"
+	PaymentProcessing OrderStatus = "PAYMENT_PROCESSING"
+	Paid              OrderStatus = "PAID"
+)
+
+// PaymentAttempt identifies the durable claim that owns an in-progress payment.
+type PaymentAttempt struct {
+	ID            string
+	ReservationID string
+}
 
 type AddressSnapshot struct {
 	AddressID                                                     uint64
@@ -82,6 +96,7 @@ type Order struct {
 	UserID                  uint64
 	Status                  OrderStatus
 	TotalAmount, PaidAmount string
+	Payment                 PaymentAttempt
 	Shipping                AddressSnapshot
 	Items                   []OrderItem
 }

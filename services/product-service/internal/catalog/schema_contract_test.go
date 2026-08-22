@@ -39,7 +39,8 @@ func TestPaymentReservationSchema(t *testing.T) {
 			"UNIQUE KEY uq_inventory_reservation_sku (reservation_id, sku_id)",
 			"KEY idx_inventory_reservation_status_expiry (status, expires_at, id)",
 			"CONSTRAINT fk_inventory_reservation_sku FOREIGN KEY (sku_id) REFERENCES product_skus(id)",
-			"CREATE TABLE reservation_event_consumptions",
+			"CREATE TABLE event_consumptions",
+			"status VARCHAR(16) NOT NULL DEFAULT 'CONSUMED'",
 			"PRIMARY KEY (event_id, consumer_group)",
 		},
 		tradeSchemaPath: {
@@ -52,8 +53,12 @@ func TestPaymentReservationSchema(t *testing.T) {
 			"UNIQUE KEY uq_inventory_reservation_sku (reservation_id, sku_id)",
 			"KEY idx_inventory_reservation_status_expiry (status, expires_at, id)",
 			"CONSTRAINT fk_inventory_reservation_sku FOREIGN KEY (sku_id) REFERENCES product_skus(id)",
-			"CREATE TABLE IF NOT EXISTS reservation_event_consumptions",
+			"CREATE TABLE IF NOT EXISTS event_consumptions",
+			"status VARCHAR(16) NOT NULL DEFAULT 'CONSUMED'",
 			"PRIMARY KEY (event_id, consumer_group)",
+			"reservation_event_consumptions",
+			"INSERT IGNORE INTO event_consumptions",
+			"DROP TABLE reservation_event_consumptions",
 		},
 	} {
 		content, err := os.ReadFile(path)

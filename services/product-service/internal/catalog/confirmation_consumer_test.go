@@ -226,6 +226,12 @@ func TestReservationRepositoryConfirmConsumedRollsBackWhenConfirmationFails(t *t
 	}
 }
 
+func TestReservationRepositoryUsesStandardEventConsumptionTable(t *testing.T) {
+	if got, want := insertReservationConsumptionQuery, "INSERT IGNORE INTO event_consumptions (event_id, consumer_group) VALUES (?, ?)"; got != want {
+		t.Fatalf("consumption query = %q, want %q", got, want)
+	}
+}
+
 func TestReservationRepositoryConfirmConsumedRollsBackWhenReservationIsUnknown(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

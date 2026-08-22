@@ -19,9 +19,33 @@ CREATE TABLE IF NOT EXISTS inventory_reservations (
     CONSTRAINT fk_inventory_reservation_sku FOREIGN KEY (sku_id) REFERENCES product_skus(id)
 ) ENGINE=InnoDB;
 
-CREATE TABLE IF NOT EXISTS reservation_event_consumptions (
+CREATE TABLE IF NOT EXISTS event_consumptions (
     event_id CHAR(36) NOT NULL,
     consumer_group VARCHAR(128) NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'CONSUMED',
     consumed_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     PRIMARY KEY (event_id, consumer_group)
 ) ENGINE=InnoDB;
+
+SET @legacy_reservation_event_consumptions_exists := (
+    SELECT COUNT(*)
+    FROM information_schema.tables
+    WHERE table_schema = DATABASE() AND table_name = 'reservation_event_consumptions'
+);
+SET @copy_reservation_event_consumptions := IF(
+    @legacy_reservation_event_consumptions_exists = 1,
+    'INSERT IGNORE INTO event_consumptions (event_id, consumer_group, status, consumed_at, created_at) SELECT event_id, consumer_group, ''CONSUMED'', consumed_at, consumed_at FROM reservation_event_consumptions',
+    'SELECT 1'
+);
+PREPARE copy_reservation_event_consumptions FROM @copy_reservation_event_consumptions;
+EXECUTE copy_reservation_event_consumptions;
+DEALLOCATE PREPARE copy_reservation_event_consumptions;
+SET @drop_reservation_event_consumptions := IF(
+    @legacy_reservation_event_consumptions_exists = 1,
+    'DROP TABLE reservation_event_consumptions',
+    'SELECT 1'
+);
+PREPARE drop_reservation_event_consumptions FROM @drop_reservation_event_consumptions;
+EXECUTE drop_reservation_event_consumptions;
+DEALLOCATE PREPARE drop_reservation_event_consumptions;

@@ -16,7 +16,7 @@ const (
 	releaseInventoryQuery             = "UPDATE inventory SET available_qty = available_qty + ?, version = version + 1 WHERE sku_id = ?"
 	insertReservationQuery            = "INSERT INTO inventory_reservations (reservation_id, order_no, payment_attempt_id, sku_id, quantity, status, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
 	confirmReservationRowsQuery       = "UPDATE inventory_reservations SET status = ?, confirmed_at = ? WHERE reservation_id = ? AND status = ?"
-	insertReservationConsumptionQuery = "INSERT IGNORE INTO reservation_event_consumptions (event_id, consumer_group) VALUES (?, ?)"
+	insertReservationConsumptionQuery = "INSERT IGNORE INTO event_consumptions (event_id, consumer_group) VALUES (?, ?)"
 	releaseReservationRowsQuery       = "UPDATE inventory_reservations SET status = ?, released_at = ? WHERE reservation_id = ? AND status = ?"
 	reservationProductIDQuery         = "SELECT product_id FROM product_skus WHERE id = ?"
 )

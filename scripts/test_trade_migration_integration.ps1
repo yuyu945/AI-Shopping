@@ -16,7 +16,9 @@ if ([string]::IsNullOrWhiteSpace($env:MYSQL_PASSWORD) -or [string]::IsNullOrWhit
 
 $runID = [guid]::NewGuid().ToString('N')
 $project = "m21trade$runID"
+$hadProject = Test-Path Env:COMPOSE_PROJECT_NAME
 $previousProject = $env:COMPOSE_PROJECT_NAME
+$hadPort = Test-Path Env:MYSQL_PORT
 $previousPort = $env:MYSQL_PORT
 $hadMigrationDsn = Test-Path Env:AI_SHOPPING_MYSQL_DSN
 $previousMigrationDsn = $env:AI_SHOPPING_MYSQL_DSN
@@ -25,6 +27,8 @@ $env:MYSQL_PORT = $MySQLPort.ToString()
 $composeFile = 'deploy/docker-compose.yml'
 $container = "$project-mysql-1"
 $legacyFixture = Join-Path $PSScriptRoot '..\deploy\mysql\fixtures\legacy-precheck-trade-schema.sql'
+$primaryFailure = $null
+$cleanupFailure = $null
 
 function Invoke-RootSQL {
     param([Parameter(Mandatory)][string]$Sql)
@@ -64,14 +68,41 @@ try {
     if (($result -join ',') -ne '1,4,2,5,2,4,1') { throw "Unexpected trade migration assertion counts: $($result -join ',')." }
     Write-Output "Verified isolated trade migration run $runID."
 }
+catch {
+    $primaryFailure = $_
+}
 finally {
-    if (-not $KeepEnvironment) { docker compose -f $composeFile down -v --remove-orphans | Out-Null }
-    $env:COMPOSE_PROJECT_NAME = $previousProject
-    $env:MYSQL_PORT = $previousPort
+    if (-not $KeepEnvironment) {
+        try {
+            docker compose -f $composeFile down -v --remove-orphans | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Isolated MySQL Compose cleanup failed.' }
+        }
+        catch {
+            $cleanupFailure = $_
+        }
+    }
+    if ($hadProject) {
+        $env:COMPOSE_PROJECT_NAME = $previousProject
+    }
+    else {
+        Remove-Item Env:COMPOSE_PROJECT_NAME -ErrorAction SilentlyContinue
+    }
+    if ($hadPort) {
+        $env:MYSQL_PORT = $previousPort
+    }
+    else {
+        Remove-Item Env:MYSQL_PORT -ErrorAction SilentlyContinue
+    }
     if ($hadMigrationDsn) {
         $env:AI_SHOPPING_MYSQL_DSN = $previousMigrationDsn
     }
     else {
-        Remove-Item Env:AI_SHOPPING_MYSQL_DSN
+        Remove-Item Env:AI_SHOPPING_MYSQL_DSN -ErrorAction SilentlyContinue
     }
+}
+if ($null -ne $primaryFailure) {
+    throw $primaryFailure
+}
+if ($null -ne $cleanupFailure) {
+    throw 'Isolated MySQL Compose cleanup failed.'
 }

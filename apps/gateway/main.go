@@ -58,6 +58,7 @@ func main() {
 	zrpc.DontLogClientContentForMethod(userpb.UserService_Register_FullMethodName)
 	zrpc.DontLogClientContentForMethod(userpb.UserService_Login_FullMethodName)
 	zrpc.DontLogClientContentForMethod(orderpb.OrderService_CreateOrder_FullMethodName)
+	zrpc.DontLogClientContentForMethod(orderpb.OrderService_PayWallet_FullMethodName)
 	zrpc.DontLogClientContentForMethod(orderpb.OrderService_GetOrder_FullMethodName)
 	zrpc.DontLogClientContentForMethod(orderpb.OrderService_ListOrders_FullMethodName)
 	manager, err := platformauth.NewManager([]byte(runtimeConfig.JWTSecret))
@@ -93,5 +94,6 @@ func main() {
 	server.AddRoute(rest.Route{Method: http.MethodGet, Path: "/api/v1/orders", Handler: authMiddleware.Wrap(orderHandler.Orders())})
 	server.AddRoute(rest.Route{Method: http.MethodPost, Path: "/api/v1/orders", Handler: authMiddleware.Wrap(orderHandler.Orders())})
 	server.AddRoute(rest.Route{Method: http.MethodGet, Path: "/api/v1/orders/:order_no", Handler: authMiddleware.Wrap(orderHandler.Order())})
+	server.AddRoute(rest.Route{Method: http.MethodPost, Path: "/api/v1/orders/:order_no/payments/wallet", Handler: authMiddleware.Wrap(orderHandler.WalletPayment())})
 	server.Start()
 }

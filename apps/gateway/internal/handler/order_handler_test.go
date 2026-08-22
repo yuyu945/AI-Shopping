@@ -20,6 +20,7 @@ type fakeOrderClient struct {
 	delete  func(context.Context, *orderpb.DeleteCartItemRequest) (*orderpb.Empty, error)
 	list    func(context.Context, *orderpb.ListOrdersRequest) (*orderpb.ListOrdersResponse, error)
 	get     func(context.Context, *orderpb.GetOrderRequest) (*orderpb.OrderResponse, error)
+	pay     func(context.Context, *orderpb.PayWalletRequest) (*orderpb.OrderResponse, error)
 }
 
 func (f *fakeOrderClient) GetCart(c context.Context, r *orderpb.GetCartRequest) (*orderpb.GetCartResponse, error) {
@@ -55,6 +56,12 @@ func (f *fakeOrderClient) ListOrders(ctx context.Context, req *orderpb.ListOrder
 func (f *fakeOrderClient) GetOrder(ctx context.Context, req *orderpb.GetOrderRequest) (*orderpb.OrderResponse, error) {
 	if f.get != nil {
 		return f.get(ctx, req)
+	}
+	return &orderpb.OrderResponse{Order: &orderpb.Order{}}, nil
+}
+func (f *fakeOrderClient) PayWallet(ctx context.Context, req *orderpb.PayWalletRequest) (*orderpb.OrderResponse, error) {
+	if f.pay != nil {
+		return f.pay(ctx, req)
 	}
 	return &orderpb.OrderResponse{Order: &orderpb.Order{}}, nil
 }

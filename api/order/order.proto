@@ -12,6 +12,7 @@ service OrderService {
   rpc UpdateCartItem(UpdateCartItemRequest) returns (Empty);
   rpc DeleteCartItem(DeleteCartItemRequest) returns (Empty);
   rpc CreateOrder(CreateOrderRequest) returns (OrderResponse);
+  rpc PayWallet(PayWalletRequest) returns (OrderResponse);
   rpc ListOrders(ListOrdersRequest) returns (ListOrdersResponse);
   rpc GetOrder(GetOrderRequest) returns (OrderResponse);
 }
@@ -56,6 +57,10 @@ message CartItem {
 message CreateOrderRequest {
   string request_id = 1;
   uint64 address_id = 2;
+}
+
+message PayWalletRequest {
+  string order_no = 1;
 }
 
 message ListOrdersRequest {}

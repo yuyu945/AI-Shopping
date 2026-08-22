@@ -3,17 +3,20 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/google/uuid"
 	platformauth "github.com/yuyu945/AI-Shopping/internal/platform/auth"
 	platformconfig "github.com/yuyu945/AI-Shopping/internal/platform/config"
 	orderpb "github.com/yuyu945/AI-Shopping/services/order-service/gen"
 	orderclient "github.com/yuyu945/AI-Shopping/services/order-service/internal/client"
 	"github.com/yuyu945/AI-Shopping/services/order-service/internal/order"
+	"github.com/yuyu945/AI-Shopping/services/order-service/internal/outbox"
 	orderserver "github.com/yuyu945/AI-Shopping/services/order-service/internal/server"
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/zrpc"
@@ -40,6 +43,9 @@ func main() {
 	runtimeConfig, err := platformconfig.Load()
 	if err != nil {
 		log.Fatalf("%s load runtime configuration: %v", SERVICE_NAME, err)
+	}
+	if err := platformconfig.ValidateInternalServiceToken(runtimeConfig.InternalServiceToken); err != nil {
+		log.Fatalf("%s startup: invalid internal service authentication configuration", SERVICE_NAME)
 	}
 	dsn, err := tradeDSN(runtimeConfig.MySQLDSN)
 	if err != nil {
@@ -71,17 +77,29 @@ func main() {
 	}
 	defer productRPC.Conn().Close()
 	timeout := time.Duration(config.Timeout) * time.Millisecond
-	service := order.NewService(order.NewMySQLRepository(db), orderclient.NewUserClient(userRPC.Conn(), timeout), orderclient.NewProductClient(productRPC.Conn(), timeout))
+	repository := order.NewMySQLRepository(db)
+	service := order.NewService(repository, orderclient.NewUserClient(userRPC.Conn(), timeout), orderclient.NewProductClient(productRPC.Conn(), timeout))
+	reservations := orderclient.NewReservationClient(productRPC.Conn(), runtimeConfig.InternalServiceToken, timeout)
+	payment := order.NewPaymentService(repository, reservations, order.IDGeneratorFunc(uuid.NewString), 5*time.Minute)
+	confirmationWorker := outbox.NewWorker(outbox.NewMySQLRepository(db), reservations, outbox.Config{BatchSize: 20})
 	zrpc.DontLogContentForMethod(orderpb.OrderService_CreateOrder_FullMethodName)
+	zrpc.DontLogContentForMethod(orderpb.OrderService_PayWallet_FullMethodName)
 	zrpc.DontLogContentForMethod(orderpb.OrderService_GetOrder_FullMethodName)
 	zrpc.DontLogContentForMethod(orderpb.OrderService_ListOrders_FullMethodName)
 	server, err := zrpc.NewServer(config.RpcServerConf, func(g *grpc.Server) {
-		orderpb.RegisterOrderServiceServer(g, orderserver.NewGRPCServer(service, manager, timeout))
+		orderpb.RegisterOrderServiceServer(g, orderserver.NewGRPCServerWithPayment(service, payment, manager, timeout))
 	})
 	if err != nil {
 		log.Fatalf("%s create rpc server: %v", SERVICE_NAME, err)
 	}
 	defer server.Stop()
+	workerCtx, cancelWorker := context.WithCancel(context.Background())
+	defer cancelWorker()
+	go func() {
+		if err := confirmationWorker.Run(workerCtx, time.Second); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("%s confirmation outbox worker stopped", SERVICE_NAME)
+		}
+	}()
 	server.Start()
 }
 

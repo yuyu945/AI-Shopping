@@ -24,6 +24,7 @@ const (
 	OrderService_UpdateCartItem_FullMethodName = "/order.v1.OrderService/UpdateCartItem"
 	OrderService_DeleteCartItem_FullMethodName = "/order.v1.OrderService/DeleteCartItem"
 	OrderService_CreateOrder_FullMethodName    = "/order.v1.OrderService/CreateOrder"
+	OrderService_PayWallet_FullMethodName      = "/order.v1.OrderService/PayWallet"
 	OrderService_ListOrders_FullMethodName     = "/order.v1.OrderService/ListOrders"
 	OrderService_GetOrder_FullMethodName       = "/order.v1.OrderService/GetOrder"
 )
@@ -40,6 +41,7 @@ type OrderServiceClient interface {
 	UpdateCartItem(ctx context.Context, in *UpdateCartItemRequest, opts ...grpc.CallOption) (*Empty, error)
 	DeleteCartItem(ctx context.Context, in *DeleteCartItemRequest, opts ...grpc.CallOption) (*Empty, error)
 	CreateOrder(ctx context.Context, in *CreateOrderRequest, opts ...grpc.CallOption) (*OrderResponse, error)
+	PayWallet(ctx context.Context, in *PayWalletRequest, opts ...grpc.CallOption) (*OrderResponse, error)
 	ListOrders(ctx context.Context, in *ListOrdersRequest, opts ...grpc.CallOption) (*ListOrdersResponse, error)
 	GetOrder(ctx context.Context, in *GetOrderRequest, opts ...grpc.CallOption) (*OrderResponse, error)
 }
@@ -102,6 +104,16 @@ func (c *orderServiceClient) CreateOrder(ctx context.Context, in *CreateOrderReq
 	return out, nil
 }
 
+func (c *orderServiceClient) PayWallet(ctx context.Context, in *PayWalletRequest, opts ...grpc.CallOption) (*OrderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OrderResponse)
+	err := c.cc.Invoke(ctx, OrderService_PayWallet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *orderServiceClient) ListOrders(ctx context.Context, in *ListOrdersRequest, opts ...grpc.CallOption) (*ListOrdersResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListOrdersResponse)
@@ -134,6 +146,7 @@ type OrderServiceServer interface {
 	UpdateCartItem(context.Context, *UpdateCartItemRequest) (*Empty, error)
 	DeleteCartItem(context.Context, *DeleteCartItemRequest) (*Empty, error)
 	CreateOrder(context.Context, *CreateOrderRequest) (*OrderResponse, error)
+	PayWallet(context.Context, *PayWalletRequest) (*OrderResponse, error)
 	ListOrders(context.Context, *ListOrdersRequest) (*ListOrdersResponse, error)
 	GetOrder(context.Context, *GetOrderRequest) (*OrderResponse, error)
 	mustEmbedUnimplementedOrderServiceServer()
@@ -160,6 +173,9 @@ func (UnimplementedOrderServiceServer) DeleteCartItem(context.Context, *DeleteCa
 }
 func (UnimplementedOrderServiceServer) CreateOrder(context.Context, *CreateOrderRequest) (*OrderResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateOrder not implemented")
+}
+func (UnimplementedOrderServiceServer) PayWallet(context.Context, *PayWalletRequest) (*OrderResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PayWallet not implemented")
 }
 func (UnimplementedOrderServiceServer) ListOrders(context.Context, *ListOrdersRequest) (*ListOrdersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListOrders not implemented")
@@ -278,6 +294,24 @@ func _OrderService_CreateOrder_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OrderService_PayWallet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PayWalletRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OrderServiceServer).PayWallet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OrderService_PayWallet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OrderServiceServer).PayWallet(ctx, req.(*PayWalletRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _OrderService_ListOrders_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListOrdersRequest)
 	if err := dec(in); err != nil {
@@ -340,6 +374,10 @@ var OrderService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateOrder",
 			Handler:    _OrderService_CreateOrder_Handler,
+		},
+		{
+			MethodName: "PayWallet",
+			Handler:    _OrderService_PayWallet_Handler,
 		},
 		{
 			MethodName: "ListOrders",

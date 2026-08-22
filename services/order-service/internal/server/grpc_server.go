@@ -17,8 +17,16 @@ import (
 type GRPCServer struct {
 	orderpb.UnimplementedOrderServiceServer
 	service *order.Service
+	payment *order.PaymentService
 	auth    *platformauth.Manager
 	timeout time.Duration
+}
+
+// NewGRPCServerWithPayment exposes cart/order operations and wallet payment.
+func NewGRPCServerWithPayment(service *order.Service, payment *order.PaymentService, auth *platformauth.Manager, timeout time.Duration) *GRPCServer {
+	server := NewGRPCServer(service, auth, timeout)
+	server.payment = payment
+	return server
 }
 
 func NewGRPCServer(service *order.Service, auth *platformauth.Manager, timeout time.Duration) *GRPCServer {
@@ -113,6 +121,27 @@ func (s *GRPCServer) CreateOrder(ctx context.Context, r *orderpb.CreateOrderRequ
 	}
 	return &orderpb.OrderResponse{Order: orderWire(out)}, nil
 }
+func (s *GRPCServer) PayWallet(ctx context.Context, r *orderpb.PayWalletRequest) (*orderpb.OrderResponse, error) {
+	if r == nil || r.GetOrderNo() == "" {
+		return nil, status.Error(codes.InvalidArgument, "order number is required")
+	}
+	if _, err := s.userID(ctx); err != nil {
+		return nil, err
+	}
+	if s.payment == nil {
+		return nil, status.Error(codes.Internal, "internal server error")
+	}
+	var out order.Order
+	err := s.call(ctx, func(c context.Context, id uint64) error {
+		var e error
+		out, e = s.payment.PayWallet(c, id, r.GetOrderNo())
+		return e
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &orderpb.OrderResponse{Order: orderWire(out)}, nil
+}
 func (s *GRPCServer) ListOrders(ctx context.Context, _ *orderpb.ListOrdersRequest) (*orderpb.ListOrdersResponse, error) {
 	var out []order.Order
 	err := s.call(ctx, func(c context.Context, id uint64) error { var e error; out, e = s.service.ListOrders(c, id); return e })
@@ -152,6 +181,14 @@ func orderStatus(err error) error {
 		return status.Error(codes.NotFound, "resource not found")
 	case order.DependencyTimeout:
 		return status.Error(codes.DeadlineExceeded, "dependency timeout")
+	case order.OutOfStock:
+		return status.Error(codes.FailedPrecondition, "requested inventory is unavailable")
+	case order.InsufficientBalance:
+		return status.Error(codes.ResourceExhausted, "wallet balance is insufficient")
+	case order.PaymentInProgress:
+		return status.Error(codes.Aborted, "payment is in progress")
+	case order.IdempotencyConflict:
+		return status.Error(codes.AlreadyExists, "request conflict")
 	default:
 		return status.Error(codes.Internal, "internal server error")
 	}

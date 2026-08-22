@@ -24,6 +24,17 @@ func TestOrderGRPCServerRejectsMissingBearer(t *testing.T) {
 	}
 }
 
+func TestOrderGRPCServerRejectsMissingBearerForWalletPayment(t *testing.T) {
+	manager, err := platformauth.NewManager([]byte("01234567890123456789012345678901"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = NewGRPCServer(order.NewService(nil, nil, nil), manager, time.Second).PayWallet(context.Background(), &orderpb.PayWalletRequest{OrderNo: "ORD-1"})
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("code = %v, want unauthenticated", status.Code(err))
+	}
+}
+
 func TestOrderGRPCServerRejectsInvalidRequestID(t *testing.T) {
 	manager, err := platformauth.NewManager([]byte("01234567890123456789012345678901"))
 	if err != nil {
@@ -43,6 +54,18 @@ func TestOrderGRPCServerRejectsInvalidRequestID(t *testing.T) {
 func TestOrderStatusMapsDependencyTimeout(t *testing.T) {
 	if got := status.Code(orderStatus(&order.Error{Code: order.DependencyTimeout})); got != codes.DeadlineExceeded {
 		t.Fatalf("status code = %v, want deadline exceeded", got)
+	}
+}
+
+func TestOrderStatusMapsPaymentErrors(t *testing.T) {
+	cases := map[order.Code]codes.Code{
+		order.OutOfStock: codes.FailedPrecondition, order.InsufficientBalance: codes.ResourceExhausted,
+		order.PaymentInProgress: codes.Aborted, order.IdempotencyConflict: codes.AlreadyExists,
+	}
+	for code, want := range cases {
+		if got := status.Code(orderStatus(&order.Error{Code: code})); got != want {
+			t.Fatalf("%s=%v, want %v", code, got, want)
+		}
 	}
 }
 

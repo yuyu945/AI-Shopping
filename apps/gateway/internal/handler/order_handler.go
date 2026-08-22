@@ -117,6 +117,25 @@ func (h *OrderHandler) Order() http.HandlerFunc {
 		writeJSONValue(w, http.StatusOK, map[string]any{"order": orderJSON(out.GetOrder())})
 	}
 }
+func (h *OrderHandler) WalletPayment() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeOrderError(w, status.Error(codes.InvalidArgument, "invalid request"))
+			return
+		}
+		no := strings.TrimSpace(r.PathValue("order_no"))
+		if no == "" {
+			writeOrderError(w, status.Error(codes.InvalidArgument, "invalid order number"))
+			return
+		}
+		out, err := h.client.PayWallet(r.Context(), &orderpb.PayWalletRequest{OrderNo: no})
+		if err != nil {
+			writeOrderError(w, err)
+			return
+		}
+		writeJSONValue(w, http.StatusOK, map[string]any{"order": orderJSON(out.GetOrder())})
+	}
+}
 func cartJSON(v *orderpb.Cart) map[string]any {
 	out := map[string]any{"items": []any{}}
 	for _, i := range v.GetItems() {
@@ -136,9 +155,26 @@ func orderJSON(v *orderpb.Order) map[string]any {
 		out["shipping_address"] = map[string]any{"receiver_name": a.GetReceiverName(), "receiver_phone": a.GetReceiverPhone(), "province": a.GetProvince(), "city": a.GetCity(), "district": a.GetDistrict(), "detail": a.GetDetail()}
 	}
 	for _, i := range v.GetItems() {
-		out["items"] = append(out["items"].([]any), map[string]any{"product_id": i.GetProductId(), "sku_id": i.GetSkuId(), "product_title": i.GetProductTitle(), "sku_code": i.GetSkuCode(), "sku_spec_json": json.RawMessage(i.GetSkuSpecJson()), "unit_price": i.GetUnitPrice(), "discount_amount": i.GetDiscountAmount(), "quantity": i.GetQuantity(), "item_amount": i.GetItemAmount()})
+		item := map[string]any{"product_id": i.GetProductId(), "sku_id": i.GetSkuId(), "product_title": i.GetProductTitle(), "sku_code": i.GetSkuCode(), "sku_spec_json": json.RawMessage(i.GetSkuSpecJson()), "unit_price": i.GetUnitPrice(), "discount_amount": i.GetDiscountAmount(), "quantity": i.GetQuantity(), "item_amount": i.GetItemAmount(), "candidate_promotions": []any{}}
+		for _, promotion := range i.GetCandidatePromotions() {
+			item["candidate_promotions"] = append(item["candidate_promotions"].([]any), promotionJSON(promotion))
+		}
+		if promotion := i.GetAppliedPromotion(); promotion != nil {
+			item["applied_promotion"] = promotionJSON(promotion)
+		}
+		out["items"] = append(out["items"].([]any), item)
 	}
 	return out
+}
+func promotionJSON(value *orderpb.PromotionSnapshot) map[string]any {
+	result := map[string]any{"promotion_id": value.GetPromotionId(), "rule_type": value.GetRuleType()}
+	if value.ThresholdAmount != nil {
+		result["threshold_amount"] = value.GetThresholdAmount()
+	}
+	if value.DiscountAmount != nil {
+		result["discount_amount"] = value.GetDiscountAmount()
+	}
+	return result
 }
 func writeOrderError(w http.ResponseWriter, e error) {
 	code := codes.Internal
@@ -157,9 +193,18 @@ func writeOrderError(w http.ResponseWriter, e error) {
 	case codes.NotFound:
 		httpCode = http.StatusNotFound
 		body = map[string]string{"code": "NOT_FOUND", "message": "resource not found"}
-	case codes.AlreadyExists, http.StatusConflict:
+	case codes.AlreadyExists:
 		httpCode = http.StatusConflict
-		body = map[string]string{"code": "CONFLICT", "message": "request conflict"}
+		body = map[string]string{"code": "IDEMPOTENCY_CONFLICT", "message": "request conflict"}
+	case codes.FailedPrecondition:
+		httpCode = http.StatusConflict
+		body = map[string]string{"code": "OUT_OF_STOCK", "message": "requested inventory is unavailable"}
+	case codes.ResourceExhausted:
+		httpCode = http.StatusConflict
+		body = map[string]string{"code": "INSUFFICIENT_BALANCE", "message": "wallet balance is insufficient"}
+	case codes.Aborted:
+		httpCode = http.StatusConflict
+		body = map[string]string{"code": "PAYMENT_IN_PROGRESS", "message": "payment is in progress"}
 	case codes.DeadlineExceeded, codes.Unavailable:
 		httpCode = http.StatusGatewayTimeout
 		body = map[string]string{"code": "DEPENDENCY_TIMEOUT", "message": "order service timeout"}

@@ -10,3 +10,8 @@ ProductRPC:
   Endpoints:
     - 127.0.0.1:9002
   Timeout: 2000
+ConfirmationOutbox:
+  PollInterval: 1s
+  BatchSize: 20
+  LeaseDuration: 30s
+  CallTimeout: 500ms

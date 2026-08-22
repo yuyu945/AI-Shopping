@@ -23,6 +23,15 @@ import (
 
 const SERVICE_NAME = "product-service"
 
+const (
+	confirmationConsumerRestartInitial = time.Second
+	confirmationConsumerRestartMaximum = 5 * time.Second
+)
+
+type confirmationConsumerRunner interface {
+	Run(context.Context) error
+}
+
 type productServiceConfig struct {
 	zrpc.RpcServerConf
 	CacheInvalidation cacheInvalidationConfig
@@ -132,11 +141,46 @@ func main() {
 	consumerCtx, cancelConsumer := context.WithCancel(context.Background())
 	defer cancelConsumer()
 	go func() {
-		if err := confirmationConsumer.Run(consumerCtx); err != nil && !errors.Is(err, context.Canceled) {
+		if err := runConfirmationConsumer(consumerCtx, confirmationConsumer, confirmationConsumerRestartInitial); err != nil && !errors.Is(err, context.Canceled) {
 			log.Printf("%s inventory confirmation consumer stopped", SERVICE_NAME)
 		}
 	}()
 	rpcServer.Start()
+}
+
+// runConfirmationConsumer keeps the durable consumer alive across transient Kafka failures.
+func runConfirmationConsumer(ctx context.Context, consumer confirmationConsumerRunner, initialDelay time.Duration) error {
+	if consumer == nil {
+		return errors.New("inventory confirmation consumer is unavailable")
+	}
+	if initialDelay <= 0 {
+		initialDelay = confirmationConsumerRestartInitial
+	}
+	delay := initialDelay
+	for {
+		err := consumer.Run(ctx)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil {
+			log.Printf("%s inventory confirmation consumer retrying", SERVICE_NAME)
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
+		if delay < confirmationConsumerRestartMaximum {
+			delay *= 2
+			if delay > confirmationConsumerRestartMaximum {
+				delay = confirmationConsumerRestartMaximum
+			}
+		}
+	}
 }
 
 func buildReservationService(db *sql.DB, detailCache catalog.DetailCache, config productServiceConfig) (*catalog.ReservationService, error) {

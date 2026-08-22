@@ -58,6 +58,26 @@ type Publisher interface {
 type Config struct {
 	BatchSize     int
 	LeaseDuration time.Duration
+	CallTimeout   time.Duration
+}
+
+// Validate ensures every serial call in a claimed batch finishes before its lease can expire.
+func (c Config) Validate() error {
+	if c.BatchSize <= 0 {
+		return errors.New("confirmation outbox batch size must be positive")
+	}
+	if c.LeaseDuration <= 0 {
+		return errors.New("confirmation outbox lease duration must be positive")
+	}
+	if c.CallTimeout <= 0 {
+		return errors.New("confirmation outbox call timeout must be positive")
+	}
+	// One lease, then one publish and one durable state transition per event.
+	callCount := time.Duration(1 + 2*c.BatchSize)
+	if c.CallTimeout > c.LeaseDuration/callCount {
+		return errors.New("confirmation outbox call timeout exceeds lease batch budget")
+	}
+	return nil
 }
 
 // Worker confirms paid reservations from committed outbox rows.
@@ -69,12 +89,6 @@ type Worker struct {
 
 // NewWorker constructs the minimal confirmation publisher.
 func NewWorker(repository Repository, publisher Publisher, config Config) *Worker {
-	if config.BatchSize <= 0 {
-		config.BatchSize = 20
-	}
-	if config.LeaseDuration <= 0 {
-		config.LeaseDuration = 30 * time.Second
-	}
 	return &Worker{repository: repository, publisher: publisher, config: config}
 }
 
@@ -83,7 +97,12 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 	if w == nil || w.repository == nil || w.publisher == nil {
 		return errors.New("confirmation outbox worker is unavailable")
 	}
-	events, err := w.repository.LeasePending(ctx, w.config.BatchSize, time.Now(), w.config.LeaseDuration)
+	if err := w.config.Validate(); err != nil {
+		return err
+	}
+	claimCtx, cancelClaim := w.callContext(ctx)
+	events, err := w.repository.LeasePending(claimCtx, w.config.BatchSize, time.Now(), w.config.LeaseDuration)
+	cancelClaim()
 	if err != nil {
 		return errors.New("lease confirmation outbox events failed")
 	}
@@ -98,17 +117,30 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 		if err != nil {
 			return errors.New("marshal reservation confirmation failed")
 		}
-		if err := w.publisher.Publish(ctx, Message{Topic: confirmationTopic, Key: event.ReservationID, Value: payload}); err != nil {
-			if retryErr := w.repository.Retry(ctx, event.ID, time.Now().Add(retryDelay(event.Attempts))); retryErr != nil {
+		publishCtx, cancelPublish := w.callContext(ctx)
+		err = w.publisher.Publish(publishCtx, Message{Topic: confirmationTopic, Key: event.ReservationID, Value: payload})
+		cancelPublish()
+		if err != nil {
+			retryCtx, cancelRetry := w.callContext(ctx)
+			retryErr := w.repository.Retry(retryCtx, event.ID, time.Now().Add(retryDelay(event.Attempts)))
+			cancelRetry()
+			if retryErr != nil {
 				return errors.New("persist confirmation retry failed")
 			}
 			return errors.New("publish reservation confirmation failed")
 		}
-		if err := w.repository.MarkPublished(ctx, event.ID); err != nil {
+		markCtx, cancelMark := w.callContext(ctx)
+		err = w.repository.MarkPublished(markCtx, event.ID)
+		cancelMark()
+		if err != nil {
 			return errors.New("persist confirmation publication failed")
 		}
 	}
 	return nil
+}
+
+func (w *Worker) callContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, w.config.CallTimeout)
 }
 
 // MySQLRepository persists confirmation events in order-service's trade_db outbox.

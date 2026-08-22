@@ -10,7 +10,7 @@ import (
 func TestConfirmationOutboxRetriesWithoutReleasingPaidReservation(t *testing.T) {
 	repository := &fakeRepository{events: []Event{{ID: 1, EventID: "event-1", ReservationID: "reservation-1", OrderNo: "order-1", PaymentAttemptID: "attempt-1", Version: 1}}}
 	publisher := &fakePublisher{err: errors.New("product unavailable")}
-	worker := NewWorker(repository, publisher, Config{BatchSize: 1, LeaseDuration: time.Minute})
+	worker := NewWorker(repository, publisher, Config{BatchSize: 1, LeaseDuration: time.Minute, CallTimeout: 100 * time.Millisecond})
 
 	if err := worker.RunOnce(context.Background()); err == nil {
 		t.Fatal("first publish must fail")
@@ -36,13 +36,54 @@ func TestConfirmationOutboxRetriesWithoutReleasingPaidReservation(t *testing.T) 
 func TestConfirmationOutboxReclaimsExpiredProcessingLease(t *testing.T) {
 	repository := &fakeRepository{events: []Event{{ID: 1, EventID: "event-1", ReservationID: "reservation-1", Status: Processing, LeaseUntil: time.Now().Add(-time.Minute)}}}
 	publisher := &fakePublisher{}
-	worker := NewWorker(repository, publisher, Config{BatchSize: 1, LeaseDuration: time.Minute})
+	worker := NewWorker(repository, publisher, Config{BatchSize: 1, LeaseDuration: time.Minute, CallTimeout: 100 * time.Millisecond})
 
 	if err := worker.RunOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if got := repository.events[0].Status; got != Published {
 		t.Fatalf("status after expired lease = %s, want %s", got, Published)
+	}
+}
+
+func TestConfirmationOutboxTimesOutBlockedPublisherAndRetainsEventForRetry(t *testing.T) {
+	repository := &fakeRepository{events: []Event{{ID: 1, EventID: "event-1", ReservationID: "reservation-1", OrderNo: "order-1", PaymentAttemptID: "attempt-1", Version: 1}}}
+	publisher := &blockedPublisher{}
+	worker := NewWorker(repository, publisher, Config{BatchSize: 1, LeaseDuration: time.Minute, CallTimeout: 100 * time.Millisecond})
+
+	startedAt := time.Now()
+	err := worker.RunOnce(context.Background())
+	if err == nil {
+		t.Fatal("RunOnce() error = nil, want publisher timeout")
+	}
+	if elapsed := time.Since(startedAt); elapsed > 2*time.Second {
+		t.Fatalf("RunOnce() blocked for %s, want bounded publisher call", elapsed)
+	}
+	if !publisher.sawDeadline {
+		t.Fatal("Publish() context had no deadline")
+	}
+	if got := repository.events[0].Status; got != Pending {
+		t.Fatalf("status after publisher timeout = %s, want %s", got, Pending)
+	}
+	if publisher.publishCalls != 1 {
+		t.Fatalf("publish calls = %d, want 1", publisher.publishCalls)
+	}
+}
+
+func TestConfigValidateRejectsCallTimeoutOutsideLeaseBatchBudget(t *testing.T) {
+	tests := []struct {
+		name   string
+		config Config
+	}{
+		{name: "zero call timeout", config: Config{BatchSize: 1, LeaseDuration: time.Second}},
+		{name: "batch exceeds lease", config: Config{BatchSize: 2, LeaseDuration: time.Second, CallTimeout: 250 * time.Millisecond}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.config.Validate(); err == nil {
+				t.Fatal("Validate() error = nil, want invalid configuration")
+			}
+		})
 	}
 }
 
@@ -85,4 +126,16 @@ type fakePublisher struct {
 func (p *fakePublisher) Publish(context.Context, Message) error {
 	p.publishCalls++
 	return p.err
+}
+
+type blockedPublisher struct {
+	publishCalls int
+	sawDeadline  bool
+}
+
+func (p *blockedPublisher) Publish(ctx context.Context, _ Message) error {
+	p.publishCalls++
+	_, p.sawDeadline = ctx.Deadline()
+	<-ctx.Done()
+	return ctx.Err()
 }

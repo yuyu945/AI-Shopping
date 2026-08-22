@@ -28,8 +28,24 @@ const SERVICE_NAME = "order-service"
 
 type orderServiceConfig struct {
 	zrpc.RpcServerConf
-	UserRPC    zrpc.RpcClientConf
-	ProductRPC zrpc.RpcClientConf
+	UserRPC            zrpc.RpcClientConf
+	ProductRPC         zrpc.RpcClientConf
+	ConfirmationOutbox confirmationOutboxConfig
+}
+
+type confirmationOutboxConfig struct {
+	PollInterval  time.Duration
+	BatchSize     int
+	LeaseDuration time.Duration
+	CallTimeout   time.Duration
+}
+
+func (c orderServiceConfig) confirmationOutboxWorkerConfig() outbox.Config {
+	return outbox.Config{
+		BatchSize:     c.ConfirmationOutbox.BatchSize,
+		LeaseDuration: c.ConfirmationOutbox.LeaseDuration,
+		CallTimeout:   c.ConfirmationOutbox.CallTimeout,
+	}
 }
 
 func main() {
@@ -40,6 +56,10 @@ func main() {
 	var config orderServiceConfig
 	if err := conf.Load(configFile, &config); err != nil {
 		log.Fatalf("%s startup: %v", SERVICE_NAME, err)
+	}
+	outboxConfig := config.confirmationOutboxWorkerConfig()
+	if err := outboxConfig.Validate(); err != nil {
+		log.Fatalf("%s startup: invalid confirmation outbox configuration", SERVICE_NAME)
 	}
 	runtimeConfig, err := platformconfig.Load()
 	if err != nil {
@@ -84,7 +104,7 @@ func main() {
 	payment := order.NewPaymentService(repository, reservations, order.IDGeneratorFunc(uuid.NewString), 5*time.Minute)
 	publisher := outbox.NewKafkaPublisher(strings.Split(runtimeConfig.KafkaBrokers, ","))
 	defer publisher.Close()
-	confirmationWorker := outbox.NewWorker(outbox.NewMySQLRepository(db), publisher, outbox.Config{BatchSize: 20, LeaseDuration: 30 * time.Second})
+	confirmationWorker := outbox.NewWorker(outbox.NewMySQLRepository(db), publisher, outboxConfig)
 	zrpc.DontLogContentForMethod(orderpb.OrderService_CreateOrder_FullMethodName)
 	zrpc.DontLogContentForMethod(orderpb.OrderService_PayWallet_FullMethodName)
 	zrpc.DontLogContentForMethod(orderpb.OrderService_GetOrder_FullMethodName)
@@ -99,7 +119,7 @@ func main() {
 	workerCtx, cancelWorker := context.WithCancel(context.Background())
 	defer cancelWorker()
 	go func() {
-		if err := confirmationWorker.Run(workerCtx, time.Second); err != nil && !errors.Is(err, context.Canceled) {
+		if err := confirmationWorker.Run(workerCtx, config.ConfirmationOutbox.PollInterval); err != nil && !errors.Is(err, context.Canceled) {
 			log.Printf("%s confirmation outbox worker stopped", SERVICE_NAME)
 		}
 	}()

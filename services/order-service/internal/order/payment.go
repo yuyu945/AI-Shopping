@@ -63,6 +63,7 @@ type ReservationClient interface {
 type PaymentRepository interface {
 	ClaimPayment(context.Context, uint64, string, PaymentAttempt) (Order, error)
 	ResetPaymentClaim(context.Context, uint64, string, PaymentAttempt) (bool, error)
+	GetPaymentOrder(context.Context, uint64, string) (Order, error)
 	SettleWalletPayment(context.Context, uint64, string, PaymentAttempt) (Order, error)
 }
 
@@ -128,7 +129,7 @@ func (s *PaymentService) PayWallet(ctx context.Context, userID uint64, orderNo s
 				return Order{}, paymentRepositoryError(resetErr)
 			}
 			if !reset {
-				return Order{}, &Error{Code: PaymentInProgress, Message: "payment is in progress"}
+				return s.paymentAfterFailedReset(ctx, userID, order.OrderNo)
 			}
 			return Order{}, &Error{Code: OutOfStock, Message: "requested inventory is unavailable"}
 		}
@@ -147,12 +148,28 @@ func (s *PaymentService) PayWallet(ctx context.Context, userID uint64, orderNo s
 			return Order{}, paymentRepositoryError(resetErr)
 		}
 		if !reset {
-			return Order{}, &Error{Code: PaymentInProgress, Message: "payment is in progress"}
+			return s.paymentAfterFailedReset(ctx, userID, order.OrderNo)
 		}
 		_ = s.reservations.ReleaseReservation(ctx, attempt.ReservationID)
 		return Order{}, &Error{Code: InsufficientBalance, Message: "wallet balance is insufficient"}
 	}
 	return Order{}, paymentRepositoryError(err)
+}
+
+// paymentAfterFailedReset reads the durable state because a CAS miss can mean another caller has paid the order.
+func (s *PaymentService) paymentAfterFailedReset(ctx context.Context, userID uint64, orderNo string) (Order, error) {
+	order, err := s.repository.GetPaymentOrder(ctx, userID, orderNo)
+	if err != nil {
+		return Order{}, paymentRepositoryError(err)
+	}
+	switch order.Status {
+	case Paid:
+		return order, nil
+	case PaymentProcessing:
+		return Order{}, &Error{Code: PaymentInProgress, Message: "payment is in progress"}
+	default:
+		return Order{}, &Error{Code: Internal, Message: "payment state is unavailable"}
+	}
 }
 
 func isOutOfStock(err error) bool {

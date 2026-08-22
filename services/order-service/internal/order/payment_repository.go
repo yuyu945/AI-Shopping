@@ -9,6 +9,7 @@ import (
 )
 
 const queryPaymentOrderForUpdate = `SELECT id, order_no, user_id, status, total_amount, paid_amount, payment_attempt_id, reservation_id FROM orders WHERE user_id = ? AND order_no = ? FOR UPDATE`
+const queryPaymentOrder = `SELECT id, order_no, user_id, status, total_amount, paid_amount, payment_attempt_id, reservation_id FROM orders WHERE user_id = ? AND order_no = ?`
 const queryWalletForUpdate = `SELECT balance, version FROM wallet_accounts WHERE user_id = ? FOR UPDATE`
 const claimPaymentOrder = `UPDATE orders SET status = ?, payment_attempt_id = ?, reservation_id = ?, payment_started_at = CURRENT_TIMESTAMP(3) WHERE id = ? AND user_id = ? AND status = ?`
 const resetPaymentOrder = `UPDATE orders SET status = ?, payment_attempt_id = NULL, reservation_id = NULL, payment_started_at = NULL WHERE user_id = ? AND order_no = ? AND status = ? AND payment_attempt_id = ? AND reservation_id = ?`
@@ -80,6 +81,18 @@ func (r *MySQLRepository) ResetPaymentClaim(ctx context.Context, userID uint64, 
 		return false, fmt.Errorf("read reset payment claim rows: %w", err)
 	}
 	return rows == 1, nil
+}
+
+// GetPaymentOrder reads the current durable order state after a payment claim CAS miss.
+func (r *MySQLRepository) GetPaymentOrder(ctx context.Context, userID uint64, orderNo string) (Order, error) {
+	order, err := scanPaymentOrder(r.db.QueryRowContext(ctx, queryPaymentOrder, userID, orderNo))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Order{}, ErrNotFound
+	}
+	if err != nil {
+		return Order{}, fmt.Errorf("read payment order: %w", err)
+	}
+	return order, nil
 }
 
 // SettleWalletPayment atomically debits the locked wallet, writes one ledger, marks PAID, and records confirmation.

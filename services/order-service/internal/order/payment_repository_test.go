@@ -116,6 +116,25 @@ func TestMySQLPaymentRepositoryResetPaymentClaimReportsWhetherExactClaimChanged(
 	}
 }
 
+func TestMySQLPaymentRepositoryGetPaymentOrderReadsCurrentDurableState(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta(queryPaymentOrder)).WithArgs(uint64(7), "order-1").WillReturnRows(
+		sqlmock.NewRows(paymentOrderColumns()).AddRow(uint64(11), "order-1", uint64(7), Paid, "12.00", "12.00", "attempt-1", "reservation-1"),
+	)
+
+	got, err := NewMySQLRepository(db).GetPaymentOrder(context.Background(), 7, "order-1")
+	if err != nil || got.Status != Paid || got.OrderNo != "order-1" || got.Payment != (PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}) {
+		t.Fatalf("GetPaymentOrder() = %#v, %v", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestMySQLPaymentRepositoryRollsBackWhenLedgerOrOutboxWriteFails(t *testing.T) {
 	cases := []struct {
 		name      string

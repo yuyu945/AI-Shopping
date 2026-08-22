@@ -20,7 +20,7 @@ if ($source -notmatch [regex]::Escape('MYSQL_ROOT_PASSWORD')) {
 if ($source -match '&\s+"\$PSScriptRoot\\apply_migrations\.ps1"[^\r\n]*-MySQLDsn') {
     throw 'Trade migration integration script must not pass a DSN to apply_migrations.ps1 through child argv.'
 }
-foreach ($required in @('$env:AI_SHOPPING_MYSQL_DSN = $dsn', '& "$PSScriptRoot\apply_migrations.ps1" -ComposeFile $composeFile', '$previousMigrationDsn', '$hadMigrationDsn', 'Remove-Item Env:AI_SHOPPING_MYSQL_DSN')) {
+foreach ($required in @('$env:AI_SHOPPING_MYSQL_DSN = $tradeDsn', '$env:AI_SHOPPING_MYSQL_DSN = $catalogDsn', '& "$PSScriptRoot\apply_migrations.ps1" -ComposeFile $composeFile', '& "$PSScriptRoot\apply_catalog_migrations.ps1" -ComposeFile $composeFile', '$previousMigrationDsn', '$hadMigrationDsn', 'Remove-Item Env:AI_SHOPPING_MYSQL_DSN')) {
     if ($source -notmatch [regex]::Escape($required)) {
         throw "Trade migration integration script must preserve inherited DSN handling: '$required'."
     }

@@ -95,6 +95,11 @@ func TestTradeSchemaOwnsCartAndOrderSnapshots(t *testing.T) {
 			t.Fatalf("M2.2 payment persistence must contain %q in both init schema and migration", value)
 		}
 	}
+	for _, forbidden := range []string{"catalog_db", "inventory_reservations", "USE catalog_db"} {
+		if strings.Contains(string(paymentMigration), forbidden) {
+			t.Fatalf("trade payment migration must not contain catalog schema DDL marker %q", forbidden)
+		}
+	}
 	for name, source := range map[string]string{"init schema": schemaText, "M2.1 migration": migrationText} {
 		for _, check := range []string{
 			"CONSTRAINT chk_cart_items_quantity_positive CHECK (quantity > 0)",

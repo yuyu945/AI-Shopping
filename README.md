@@ -11,9 +11,9 @@ M1 已完成：Go-zero Gateway 与五个服务启动骨架、共享运行时基�
 
 ## Trade schema upgrade
 
-已有 M1 MySQL volume 不会重新执行 `deploy/mysql/init`。设置 `AI_SHOPPING_MYSQL_DSN` 后，运行 `pwsh -File scripts/apply_migrations.ps1` 升级 `trade_db`。migration runner 只从该环境变量读取 DSN metadata（app user、host、port），不接受命令行 DSN；MySQL client authentication 使用 Compose container 内的 `MYSQL_PASSWORD`，二者均不会被记录或输出。脚本按文件名顺序记录 `trade_db.schema_migrations`；已应用版本会安全跳过。M2.1 会创建购物车和订单快照表，并在 `cart_items.quantity` 与 `order_items.quantity` 上使用 MySQL 8.4 enforced `CHECK (quantity > 0)`。
+已有 M1 MySQL volume 不会重新执行 `deploy/mysql/init`。设置指向 `trade_db` 的 `AI_SHOPPING_MYSQL_DSN` 后，运行 `pwsh -File scripts/apply_migrations.ps1` 升级订单 schema；设置指向 `catalog_db` 的 DSN 后，运行 `pwsh -File scripts/apply_catalog_migrations.ps1` 升级商品 schema。两个 runner 都只从环境变量读取 DSN metadata（app user、host、port），不接受命令行 DSN；MySQL client authentication 使用 Compose container 内的 `MYSQL_PASSWORD`，二者均不会被记录或输出。它们分别记录 `trade_db.schema_migrations` 与 `catalog_db.schema_migrations`，已应用版本会安全跳过。trade runner 不执行 catalog DDL；catalog runner 不执行 trade DDL。
 
-可在 disposable Compose 环境验证 M1 到 M2.1 升级。设置本地临时 `MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD` 后运行：`$env:AI_SHOPPING_TRADE_MIGRATION_INTEGRATION='1'; pwsh -File scripts/test_trade_migration_integration.ps1 -MySQLPort 33306`。脚本使用 UUID project、清空仅 M1 的 `trade_db` 状态，连续升级两次并验证版本、表、FK、金额列和 CHECK；未设置 opt-in guard 时会显式跳过且不写入。
+可在 disposable Compose 环境验证 M1 到 M2.2 升级。设置本地临时 `MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD` 后运行：`$env:AI_SHOPPING_TRADE_MIGRATION_INTEGRATION='1'; pwsh -File scripts/test_trade_migration_integration.ps1 -MySQLPort 33306`。脚本使用 UUID project，在 empty 与 M2.1 legacy 两种场景分别连续运行两个 runner 两次，验证两个 migration ledger、索引定义、FK 与 MySQL enforced CHECK；未设置 opt-in guard 时会显式跳过且不写入。
 
 ## M2.1 购物车与订单快照集成验证
 

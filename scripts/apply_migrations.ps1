@@ -17,6 +17,9 @@ function ConvertFrom-MySQLDsn {
     if (-not $match.Success) {
         throw 'MySQL DSN must use Go MySQL syntax user:password@tcp(host:port)/database; its value is not echoed.'
     }
+    if ($match.Groups['database'].Value -ne 'trade_db') {
+        throw 'AI_SHOPPING_MYSQL_DSN must target trade_db for trade migrations; its value is intentionally not echoed.'
+    }
 
     [pscustomobject]@{
         User = $match.Groups['user'].Value

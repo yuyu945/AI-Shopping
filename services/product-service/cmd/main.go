@@ -34,8 +34,11 @@ type confirmationConsumerRunner interface {
 
 type productServiceConfig struct {
 	zrpc.RpcServerConf
-	CacheInvalidation cacheInvalidationConfig
+	CacheInvalidation    cacheInvalidationConfig
+	ConfirmationConsumer confirmationConsumerConfig
 }
+
+type confirmationConsumerConfig struct{ CallTimeout time.Duration }
 
 type cacheInvalidationConfig struct {
 	PollInterval       time.Duration
@@ -115,7 +118,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("%s startup: invalid inventory reservation configuration", SERVICE_NAME)
 	}
-	confirmationConsumer := catalog.NewKafkaConfirmationConsumer(strings.Split(runtimeConfig.KafkaBrokers, ","), catalog.NewConfirmationConsumer(catalog.NewReservationRepository(db), ""))
+	if config.ConfirmationConsumer.CallTimeout <= 0 {
+		log.Fatalf("%s startup: invalid inventory confirmation consumer configuration", SERVICE_NAME)
+	}
+	confirmationConsumer := catalog.NewKafkaConfirmationConsumer(strings.Split(runtimeConfig.KafkaBrokers, ","), catalog.NewConfirmationConsumer(catalog.NewReservationRepository(db), ""), config.ConfirmationConsumer.CallTimeout)
 	defer confirmationConsumer.Close()
 	_, worker, err := buildCatalogMutationComponents(db, detailCache, config)
 	if err != nil {

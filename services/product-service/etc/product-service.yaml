@@ -13,3 +13,5 @@ CacheInvalidation:
   MaxRetries: 5
   RetryBaseDelay: 1s
   RetryMaxDelay: 30s
+ConfirmationConsumer:
+  CallTimeout: 2s

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -33,13 +34,14 @@ type Event struct {
 	PaymentAttemptID string
 	Version          int
 	LeaseUntil       time.Time
+	ClaimToken       string
 }
 
 // Repository provides durable ownership and retry transitions for confirmation events.
 type Repository interface {
 	LeasePending(context.Context, int, time.Time, time.Duration) ([]Event, error)
-	MarkPublished(context.Context, uint64) error
-	Retry(context.Context, uint64, time.Time) error
+	MarkPublished(context.Context, uint64, string) error
+	Retry(context.Context, uint64, string, time.Time) error
 }
 
 // Message is the stable confirmation event sent to Kafka.
@@ -122,7 +124,7 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 		cancelPublish()
 		if err != nil {
 			retryCtx, cancelRetry := w.callContext(ctx)
-			retryErr := w.repository.Retry(retryCtx, event.ID, time.Now().Add(retryDelay(event.Attempts)))
+			retryErr := w.repository.Retry(retryCtx, event.ID, event.ClaimToken, time.Now().Add(retryDelay(event.Attempts)))
 			cancelRetry()
 			if retryErr != nil {
 				return errors.New("persist confirmation retry failed")
@@ -130,7 +132,7 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 			return errors.New("publish reservation confirmation failed")
 		}
 		markCtx, cancelMark := w.callContext(ctx)
-		err = w.repository.MarkPublished(markCtx, event.ID)
+		err = w.repository.MarkPublished(markCtx, event.ID, event.ClaimToken)
 		cancelMark()
 		if err != nil {
 			return errors.New("persist confirmation publication failed")
@@ -191,11 +193,17 @@ func (r *MySQLRepository) LeasePending(ctx context.Context, limit int, now time.
 		return nil, err
 	}
 	for i := range events {
+		claimToken := uuid.NewString()
 		leaseUntil := now.UTC().Add(leaseDuration).Truncate(time.Millisecond)
-		if _, err := tx.ExecContext(ctx, `UPDATE outbox_events SET status = 'PROCESSING', attempts = attempts + 1, locked_at = ?, lease_until = ? WHERE id = ? AND (status = 'PENDING' OR (status = 'PROCESSING' AND lease_until <= ?))`, now.UTC().Truncate(time.Millisecond), leaseUntil, events[i].ID, now.UTC().Truncate(time.Millisecond)); err != nil {
+		result, err := tx.ExecContext(ctx, `UPDATE outbox_events SET status = 'PROCESSING', attempts = attempts + 1, locked_at = ?, lease_until = ?, claim_token = ? WHERE id = ? AND (status = 'PENDING' OR (status = 'PROCESSING' AND lease_until <= ?))`, now.UTC().Truncate(time.Millisecond), leaseUntil, claimToken, events[i].ID, now.UTC().Truncate(time.Millisecond))
+		if err != nil {
 			return nil, err
 		}
-		events[i].Status, events[i].Attempts, events[i].LeaseUntil = Processing, events[i].Attempts+1, leaseUntil
+		rows, err := result.RowsAffected()
+		if err != nil || rows != 1 {
+			return nil, errors.New("confirmation event lease lost")
+		}
+		events[i].Status, events[i].Attempts, events[i].LeaseUntil, events[i].ClaimToken = Processing, events[i].Attempts+1, leaseUntil, claimToken
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
@@ -204,8 +212,8 @@ func (r *MySQLRepository) LeasePending(ctx context.Context, limit int, now time.
 }
 
 // MarkPublished records product acknowledgement before the event leaves the queue.
-func (r *MySQLRepository) MarkPublished(ctx context.Context, id uint64) error {
-	result, err := r.db.ExecContext(ctx, `UPDATE outbox_events SET status = 'PUBLISHED', published_at = CURRENT_TIMESTAMP(3), next_retry_at = NULL, locked_at = NULL, lease_until = NULL WHERE id = ? AND status = 'PROCESSING'`, id)
+func (r *MySQLRepository) MarkPublished(ctx context.Context, id uint64, claimToken string) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE outbox_events SET status = 'PUBLISHED', published_at = CURRENT_TIMESTAMP(3), next_retry_at = NULL, locked_at = NULL, lease_until = NULL, claim_token = NULL WHERE id = ? AND status = 'PROCESSING' AND claim_token = ?`, id, claimToken)
 	if err != nil {
 		return err
 	}
@@ -217,8 +225,8 @@ func (r *MySQLRepository) MarkPublished(ctx context.Context, id uint64) error {
 }
 
 // Retry makes an unacknowledged confirmation eligible again with a small bounded delay.
-func (r *MySQLRepository) Retry(ctx context.Context, id uint64, nextRetryAt time.Time) error {
-	result, err := r.db.ExecContext(ctx, `UPDATE outbox_events SET status = 'PENDING', next_retry_at = ?, locked_at = NULL, lease_until = NULL WHERE id = ? AND status = 'PROCESSING'`, nextRetryAt.UTC().Truncate(time.Millisecond), id)
+func (r *MySQLRepository) Retry(ctx context.Context, id uint64, claimToken string, nextRetryAt time.Time) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE outbox_events SET status = 'PENDING', next_retry_at = ?, locked_at = NULL, lease_until = NULL, claim_token = NULL WHERE id = ? AND status = 'PROCESSING' AND claim_token = ?`, nextRetryAt.UTC().Truncate(time.Millisecond), id, claimToken)
 	if err != nil {
 		return err
 	}

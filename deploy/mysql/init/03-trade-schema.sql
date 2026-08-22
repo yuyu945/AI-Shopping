@@ -59,7 +59,7 @@ CREATE TABLE outbox_events (
     aggregate_type VARCHAR(64) NOT NULL, aggregate_id VARCHAR(64) NOT NULL, event_type VARCHAR(64) NOT NULL,
     topic VARCHAR(128) NOT NULL, event_key VARCHAR(128) NOT NULL, payload JSON NOT NULL,
     status VARCHAR(16) NOT NULL DEFAULT 'PENDING', attempts INT UNSIGNED NOT NULL DEFAULT 0,
-    next_retry_at DATETIME(3) NULL, locked_at DATETIME(3) NULL, lease_until DATETIME(3) NULL, published_at DATETIME(3) NULL,
+    next_retry_at DATETIME(3) NULL, locked_at DATETIME(3) NULL, lease_until DATETIME(3) NULL, claim_token CHAR(36) NULL, published_at DATETIME(3) NULL,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3), updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id), UNIQUE KEY uq_outbox_event_id (event_id),
     UNIQUE KEY uq_outbox_aggregate_event (aggregate_type, aggregate_id, event_type),

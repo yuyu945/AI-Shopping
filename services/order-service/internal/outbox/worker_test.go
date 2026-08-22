@@ -3,8 +3,11 @@ package outbox
 import (
 	"context"
 	"errors"
+	"regexp"
 	"testing"
 	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
 )
 
 func TestConfirmationOutboxRetriesWithoutReleasingPaidReservation(t *testing.T) {
@@ -87,6 +90,44 @@ func TestConfigValidateRejectsCallTimeoutOutsideLeaseBatchBudget(t *testing.T) {
 	}
 }
 
+func TestMySQLRepositoryRejectsStaleClaimWithoutChangingNewOwnerLease(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repository := NewMySQLRepository(db)
+	claimQuery := regexp.QuoteMeta("UPDATE outbox_events SET status = 'PUBLISHED', published_at = CURRENT_TIMESTAMP(3), next_retry_at = NULL, locked_at = NULL, lease_until = NULL, claim_token = NULL WHERE id = ? AND status = 'PROCESSING' AND claim_token = ?")
+	mock.ExpectExec(claimQuery).WithArgs(uint64(7), "claim-a").WillReturnResult(sqlmock.NewResult(0, 0))
+	if err := repository.MarkPublished(context.Background(), 7, "claim-a"); err == nil {
+		t.Fatal("stale claim published event, want lease lost error")
+	}
+	mock.ExpectExec(claimQuery).WithArgs(uint64(7), "claim-b").WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := repository.MarkPublished(context.Background(), 7, "claim-b"); err != nil {
+		t.Fatalf("new owner MarkPublished() error = %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMySQLRepositoryRejectsStaleClaimRetryWithoutChangingNewOwnerLease(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	nextRetryAt := time.Date(2026, time.August, 22, 10, 0, 0, 0, time.UTC)
+	retryQuery := regexp.QuoteMeta("UPDATE outbox_events SET status = 'PENDING', next_retry_at = ?, locked_at = NULL, lease_until = NULL, claim_token = NULL WHERE id = ? AND status = 'PROCESSING' AND claim_token = ?")
+	mock.ExpectExec(retryQuery).WithArgs(nextRetryAt, uint64(7), "claim-a").WillReturnResult(sqlmock.NewResult(0, 0))
+	if err := NewMySQLRepository(db).Retry(context.Background(), 7, "claim-a", nextRetryAt); err == nil {
+		t.Fatal("stale claim retried event, want lease lost error")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 type fakeRepository struct {
 	events       []Event
 	releaseCalls int
@@ -101,7 +142,7 @@ func (r *fakeRepository) LeasePending(_ context.Context, _ int, now time.Time, _
 	}
 	return nil, nil
 }
-func (r *fakeRepository) MarkPublished(_ context.Context, id uint64) error {
+func (r *fakeRepository) MarkPublished(_ context.Context, id uint64, _ string) error {
 	for i := range r.events {
 		if r.events[i].ID == id {
 			r.events[i].Status = Published
@@ -109,7 +150,7 @@ func (r *fakeRepository) MarkPublished(_ context.Context, id uint64) error {
 	}
 	return nil
 }
-func (r *fakeRepository) Retry(_ context.Context, id uint64, _ time.Time) error {
+func (r *fakeRepository) Retry(_ context.Context, id uint64, _ string, _ time.Time) error {
 	for i := range r.events {
 		if r.events[i].ID == id {
 			r.events[i].Status = Pending

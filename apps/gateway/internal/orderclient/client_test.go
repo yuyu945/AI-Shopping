@@ -8,6 +8,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"testing"
+	"time"
 )
 
 type recordingConn struct{ ctx context.Context }
@@ -33,5 +34,20 @@ func TestClientForwardsVerifiedBearer(t *testing.T) {
 	}
 	if got := md.Get("trace_id"); len(got) != 1 || got[0] != "4bf92f3577b34da6a3ce929d0e0e4736" {
 		t.Fatalf("trace_id=%v", got)
+	}
+}
+
+func TestClientAddsDeadlineBeforeForwardingMetadata(t *testing.T) {
+	conn := &recordingConn{}
+	_, err := NewGRPCClient(conn).GetCart(context.Background(), &orderpb.GetCartRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline, ok := conn.ctx.Deadline()
+	if !ok {
+		t.Fatal("outgoing order RPC context has no deadline")
+	}
+	if remaining := time.Until(deadline); remaining <= 0 || remaining > orderCallTimeout {
+		t.Fatalf("outgoing deadline remaining = %s, want (0,%s]", remaining, orderCallTimeout)
 	}
 }

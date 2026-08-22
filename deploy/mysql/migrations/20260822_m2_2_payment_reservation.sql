@@ -122,6 +122,12 @@ PREPARE outbox_lease_until_statement FROM @outbox_lease_until_sql;
 EXECUTE outbox_lease_until_statement;
 DEALLOCATE PREPARE outbox_lease_until_statement;
 
+SET @outbox_claim_token_exists = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'trade_db' AND table_name = 'outbox_events' AND column_name = 'claim_token');
+SET @outbox_claim_token_sql = IF(@outbox_claim_token_exists = 0, 'ALTER TABLE outbox_events ADD COLUMN claim_token CHAR(36) NULL AFTER lease_until', 'SELECT 1');
+PREPARE outbox_claim_token_statement FROM @outbox_claim_token_sql;
+EXECUTE outbox_claim_token_statement;
+DEALLOCATE PREPARE outbox_claim_token_statement;
+
 SET @outbox_processing_lease_index_exists = (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = 'trade_db' AND table_name = 'outbox_events' AND index_name = 'idx_outbox_processing_lease');
 SET @outbox_processing_lease_index_sql = IF(@outbox_processing_lease_index_exists = 0, 'ALTER TABLE outbox_events ADD KEY idx_outbox_processing_lease (status, lease_until, id)', 'SELECT 1');
 PREPARE outbox_processing_lease_index_statement FROM @outbox_processing_lease_index_sql;

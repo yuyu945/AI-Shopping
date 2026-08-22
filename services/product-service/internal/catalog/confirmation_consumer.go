@@ -86,17 +86,22 @@ type KafkaConfirmationConsumer struct {
 	reader       confirmationMessageReader
 	handler      *ConfirmationConsumer
 	dlqPublisher confirmationDeadLetterPublisher
+	callTimeout  time.Duration
 }
 
 // NewKafkaConfirmationConsumer creates the product-service consumer for paid inventory confirmations.
-func NewKafkaConfirmationConsumer(brokers []string, handler *ConfirmationConsumer) *KafkaConfirmationConsumer {
+func NewKafkaConfirmationConsumer(brokers []string, handler *ConfirmationConsumer, callTimeout time.Duration) *KafkaConfirmationConsumer {
 	reader := kafka.NewReader(kafka.ReaderConfig{Brokers: brokers, GroupID: inventoryConfirmationConsumerGroup, Topic: "inventory.reservation.confirm", MinBytes: 1, MaxBytes: 1e6})
 	publisher := &kafkaConfirmationDeadLetterPublisher{writer: &kafka.Writer{Addr: kafka.TCP(brokers...), RequiredAcks: kafka.RequireAll, Async: false}}
-	return newKafkaConfirmationConsumer(reader, handler, publisher)
+	return newKafkaConfirmationConsumerWithTimeout(reader, handler, publisher, callTimeout)
 }
 
 func newKafkaConfirmationConsumer(reader confirmationMessageReader, handler *ConfirmationConsumer, publisher confirmationDeadLetterPublisher) *KafkaConfirmationConsumer {
-	return &KafkaConfirmationConsumer{reader: reader, handler: handler, dlqPublisher: publisher}
+	return newKafkaConfirmationConsumerWithTimeout(reader, handler, publisher, time.Second)
+}
+
+func newKafkaConfirmationConsumerWithTimeout(reader confirmationMessageReader, handler *ConfirmationConsumer, publisher confirmationDeadLetterPublisher, callTimeout time.Duration) *KafkaConfirmationConsumer {
+	return &KafkaConfirmationConsumer{reader: reader, handler: handler, dlqPublisher: publisher, callTimeout: callTimeout}
 }
 
 // Close releases the Kafka reader.
@@ -117,11 +122,13 @@ func (c *KafkaConfirmationConsumer) Close() error {
 
 // Run consumes until cancellation. Messages are committed only after local confirmation or a producer-acknowledged DLQ publication.
 func (c *KafkaConfirmationConsumer) Run(ctx context.Context) error {
-	if c == nil || c.reader == nil || c.handler == nil || c.dlqPublisher == nil {
+	if c == nil || c.reader == nil || c.handler == nil || c.dlqPublisher == nil || c.callTimeout <= 0 {
 		return errors.New("inventory confirmation kafka consumer is unavailable")
 	}
 	for {
-		message, err := c.reader.FetchMessage(ctx)
+		fetchCtx, cancelFetch := c.callContext(ctx)
+		message, err := c.reader.FetchMessage(fetchCtx)
+		cancelFetch()
 		if err != nil {
 			return err
 		}
@@ -132,7 +139,12 @@ func (c *KafkaConfirmationConsumer) Run(ctx context.Context) error {
 			}
 			continue
 		}
-		if err := retryConfirmation(ctx, func() error { return c.handler.Handle(ctx, event) }); err != nil {
+		if err := retryConfirmation(ctx, func() error {
+			handleCtx, cancelHandle := c.callContext(ctx)
+			err := c.handler.Handle(handleCtx, event)
+			cancelHandle()
+			return err
+		}); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
@@ -141,10 +153,17 @@ func (c *KafkaConfirmationConsumer) Run(ctx context.Context) error {
 			}
 			continue
 		}
-		if err := c.reader.CommitMessages(ctx, message); err != nil {
+		commitCtx, cancelCommit := c.callContext(ctx)
+		err = c.reader.CommitMessages(commitCtx, message)
+		cancelCommit()
+		if err != nil {
 			return err
 		}
 	}
+}
+
+func (c *KafkaConfirmationConsumer) callContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, c.callTimeout)
 }
 
 func retryConfirmation(ctx context.Context, handle func() error) error {
@@ -187,11 +206,17 @@ func (c *KafkaConfirmationConsumer) deadLetterAndCommit(ctx context.Context, mes
 		return errors.New("marshal inventory confirmation dead-letter event failed")
 	}
 	if err := retryConfirmation(ctx, func() error {
-		return c.dlqPublisher.Publish(ctx, kafka.Message{Topic: inventoryConfirmationDeadLetterTopic, Key: message.Key, Value: payload})
+		publishCtx, cancelPublish := c.callContext(ctx)
+		err := c.dlqPublisher.Publish(publishCtx, kafka.Message{Topic: inventoryConfirmationDeadLetterTopic, Key: message.Key, Value: payload})
+		cancelPublish()
+		return err
 	}); err != nil {
 		return errors.New("publish inventory confirmation dead-letter event failed")
 	}
-	if err := c.reader.CommitMessages(ctx, message); err != nil {
+	commitCtx, cancelCommit := c.callContext(ctx)
+	err = c.reader.CommitMessages(commitCtx, message)
+	cancelCommit()
+	if err != nil {
 		return errors.New("commit dead-lettered inventory confirmation message failed")
 	}
 	return nil

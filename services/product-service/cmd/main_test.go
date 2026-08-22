@@ -63,6 +63,9 @@ func TestProductServiceConfigBuildsCatalogMutationComponents(t *testing.T) {
 	if got, want := serviceConfig.CacheInvalidation.RetryMaxDelay, 30*time.Second; got != want {
 		t.Fatalf("RetryMaxDelay = %s, want %s", got, want)
 	}
+	if got, want := serviceConfig.ConfirmationConsumer.CallTimeout, 2*time.Second; got != want {
+		t.Fatalf("ConfirmationConsumer.CallTimeout = %s, want %s", got, want)
+	}
 	if got, want := serviceConfig.cacheInvalidationWorkerConfig().CallTimeout, 600*time.Millisecond; got != want {
 		t.Fatalf("CallTimeout = %s, want %s", got, want)
 	}
@@ -194,6 +197,7 @@ func testProductServiceConfig() productServiceConfig {
 			RetryBaseDelay:     time.Second,
 			RetryMaxDelay:      30 * time.Second,
 		},
+		ConfirmationConsumer: confirmationConsumerConfig{CallTimeout: time.Second},
 	}
 }
 

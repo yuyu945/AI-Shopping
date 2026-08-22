@@ -146,6 +146,56 @@ func TestKafkaConfirmationConsumerDoesNotCommitWhenDeadLetterPublicationFails(t 
 	}
 }
 
+func TestKafkaConfirmationConsumerBoundsBlockedHandlerWithoutCommit(t *testing.T) {
+	reader := &fakeConfirmationMessageReader{messages: []kafka.Message{{Value: confirmationEventJSON(t, "event-1")}}}
+	store := &blockingConfirmationStore{}
+	consumer := newKafkaConfirmationConsumerWithTimeout(reader, NewConfirmationConsumer(store, ""), &fakeConfirmationDeadLetterPublisher{}, 20*time.Millisecond)
+
+	started := time.Now()
+	err := consumer.Run(context.Background())
+	if err == nil {
+		t.Fatal("Run() error = nil, want timeout handling failure")
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("Run() elapsed = %s, want bounded handler calls", elapsed)
+	}
+	if !store.sawDeadline {
+		t.Fatal("handler context has no deadline")
+	}
+	if reader.commits != 1 {
+		t.Fatalf("commits = %d, want 1 after acknowledged DLQ publication", reader.commits)
+	}
+}
+
+func TestKafkaConfirmationConsumerBoundsBlockedDeadLetterWithoutCommit(t *testing.T) {
+	reader := &fakeConfirmationMessageReader{messages: []kafka.Message{{Value: []byte("not-json")}}}
+	dlq := &blockingConfirmationDeadLetterPublisher{}
+	consumer := newKafkaConfirmationConsumerWithTimeout(reader, NewConfirmationConsumer(&fakeConfirmationStore{}, ""), dlq, 20*time.Millisecond)
+
+	started := time.Now()
+	err := consumer.Run(context.Background())
+	if err == nil || time.Since(started) > time.Second {
+		t.Fatalf("Run() error = %v, elapsed = %s; want bounded DLQ failure", err, time.Since(started))
+	}
+	if !dlq.sawDeadline || reader.commits != 0 {
+		t.Fatalf("deadline=%v commits=%d, want true 0", dlq.sawDeadline, reader.commits)
+	}
+}
+
+func TestKafkaConfirmationConsumerBoundsBlockedCommit(t *testing.T) {
+	reader := &blockingCommitConfirmationReader{message: kafka.Message{Value: confirmationEventJSON(t, "event-1")}}
+	consumer := newKafkaConfirmationConsumerWithTimeout(reader, NewConfirmationConsumer(&fakeConfirmationStore{}, ""), &fakeConfirmationDeadLetterPublisher{}, 20*time.Millisecond)
+
+	started := time.Now()
+	err := consumer.Run(context.Background())
+	if err == nil || time.Since(started) > time.Second {
+		t.Fatalf("Run() error = %v, elapsed = %s; want bounded commit failure", err, time.Since(started))
+	}
+	if !reader.sawDeadline {
+		t.Fatal("commit context has no deadline")
+	}
+}
+
 func TestReservationRepositoryConfirmConsumedRollsBackWhenConfirmationFails(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -218,6 +268,44 @@ type fakeConfirmationStore struct {
 	calls    int
 	failures int
 }
+
+type blockingConfirmationStore struct{ sawDeadline bool }
+
+func (s *blockingConfirmationStore) ConfirmConsumed(ctx context.Context, _ string, _ string, _ string, _ time.Time) error {
+	_, s.sawDeadline = ctx.Deadline()
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+type blockingConfirmationDeadLetterPublisher struct{ sawDeadline bool }
+
+func (p *blockingConfirmationDeadLetterPublisher) Publish(ctx context.Context, _ kafka.Message) error {
+	_, p.sawDeadline = ctx.Deadline()
+	<-ctx.Done()
+	return ctx.Err()
+}
+func (*blockingConfirmationDeadLetterPublisher) Close() error { return nil }
+
+type blockingCommitConfirmationReader struct {
+	message     kafka.Message
+	fetched     bool
+	sawDeadline bool
+}
+
+func (r *blockingCommitConfirmationReader) FetchMessage(ctx context.Context) (kafka.Message, error) {
+	if r.fetched {
+		<-ctx.Done()
+		return kafka.Message{}, ctx.Err()
+	}
+	r.fetched = true
+	return r.message, nil
+}
+func (r *blockingCommitConfirmationReader) CommitMessages(ctx context.Context, _ ...kafka.Message) error {
+	_, r.sawDeadline = ctx.Deadline()
+	<-ctx.Done()
+	return ctx.Err()
+}
+func (*blockingCommitConfirmationReader) Close() error { return nil }
 
 func (s *fakeConfirmationStore) ConfirmConsumed(context.Context, string, string, string, time.Time) error {
 	s.calls++

@@ -2,19 +2,28 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 )
 
 const (
-	mysqlDSNEnv             = "AI_SHOPPING_MYSQL_DSN"
-	redisAddrEnv            = "AI_SHOPPING_REDIS_ADDR"
-	kafkaBrokersEnv         = "AI_SHOPPING_KAFKA_BROKERS"
-	minIOEndpointEnv        = "AI_SHOPPING_MINIO_ENDPOINT"
-	milvusAddressEnv        = "AI_SHOPPING_MILVUS_ADDRESS"
-	jwtSecretEnv            = "AI_SHOPPING_JWT_SECRET"
-	internalServiceTokenEnv = "AI_SHOPPING_INTERNAL_SERVICE_TOKEN"
+	mysqlDSNEnv                              = "AI_SHOPPING_MYSQL_DSN"
+	redisAddrEnv                             = "AI_SHOPPING_REDIS_ADDR"
+	kafkaBrokersEnv                          = "AI_SHOPPING_KAFKA_BROKERS"
+	minIOEndpointEnv                         = "AI_SHOPPING_MINIO_ENDPOINT"
+	milvusAddressEnv                         = "AI_SHOPPING_MILVUS_ADDRESS"
+	jwtSecretEnv                             = "AI_SHOPPING_JWT_SECRET"
+	internalServiceTokenEnv                  = "AI_SHOPPING_INTERNAL_SERVICE_TOKEN"
+	minimumInternalServiceTokenBytes         = 32
+	minimumInternalServiceTokenDistinctBytes = 16
 )
+
+var errInvalidInternalServiceToken = errors.New("invalid internal service token")
+
+var internalServiceTokenPlaceholders = map[string]struct{}{
+	"REPLACE_WITH_SECRET_MANAGER_VALUE": {},
+}
 
 // Config contains the infrastructure endpoints required by the MVP services.
 // Values are loaded only from AI_SHOPPING_ environment variables.
@@ -56,4 +65,31 @@ func Load() (Config, error) {
 		JWTSecret:            values[jwtSecretEnv],
 		InternalServiceToken: os.Getenv(internalServiceTokenEnv),
 	}, nil
+}
+
+// ValidateInternalServiceToken verifies that an internal service token is a
+// non-placeholder opaque ASCII secret suitable for service-to-service use.
+// The caller must obtain the token from a secret manager or environment, not
+// from a checked-in example file.
+func ValidateInternalServiceToken(token string) error {
+	if len(token) < minimumInternalServiceTokenBytes {
+		return errInvalidInternalServiceToken
+	}
+	if _, isPlaceholder := internalServiceTokenPlaceholders[token]; isPlaceholder {
+		return errInvalidInternalServiceToken
+	}
+
+	distinct := make(map[byte]struct{}, len(token))
+	for i := 0; i < len(token); i++ {
+		// Restrict the token to visible ASCII. This avoids whitespace and makes
+		// metadata transport unambiguous while permitting random base64url values.
+		if token[i] < '!' || token[i] > '~' {
+			return errInvalidInternalServiceToken
+		}
+		distinct[token[i]] = struct{}{}
+	}
+	if len(distinct) < minimumInternalServiceTokenDistinctBytes {
+		return errInvalidInternalServiceToken
+	}
+	return nil
 }

@@ -73,7 +73,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("%s load runtime configuration: %v", SERVICE_NAME, err)
 	}
-	if err := validateInternalServiceToken(runtimeConfig.InternalServiceToken); err != nil {
+	if err := platformconfig.ValidateInternalServiceToken(runtimeConfig.InternalServiceToken); err != nil {
 		log.Fatalf("%s startup: invalid internal service authentication configuration", SERVICE_NAME)
 	}
 
@@ -135,13 +135,6 @@ func buildReservationService(db *sql.DB, detailCache catalog.DetailCache, config
 		return nil, err
 	}
 	return catalog.NewReservationService(catalog.NewReservationRepository(db), detailCache, time.Now, config.CacheInvalidation.DelayedDeleteDelay, workerConfig.CallTimeout)
-}
-
-func validateInternalServiceToken(token string) error {
-	if token == "" {
-		return errors.New("internal service token is required")
-	}
-	return nil
 }
 
 type redisOptions struct {

@@ -147,16 +147,33 @@ func orderItem(product ProductSnapshot, quantity uint32) (OrderItem, *big.Rat, e
 	if !ok {
 		return OrderItem{}, nil, errors.New("invalid price")
 	}
+	lineSubtotal := new(big.Rat).Mul(unit, new(big.Rat).SetUint64(uint64(quantity)))
 	discount := new(big.Rat)
 	var applied *PromotionSnapshot
 	for _, promotion := range product.Promotions {
-		if value, ok := parseMoney(promotion.DiscountAmount); ok && value.Cmp(discount) > 0 {
+		value, ok := parseMoney(promotion.DiscountAmount)
+		if !ok {
+			return OrderItem{}, nil, errors.New("invalid promotion discount")
+		}
+		if promotion.ThresholdAmount != "" {
+			threshold, valid := parseMoney(promotion.ThresholdAmount)
+			if !valid {
+				return OrderItem{}, nil, errors.New("invalid promotion threshold")
+			}
+			if threshold.Cmp(lineSubtotal) > 0 {
+				continue
+			}
+		}
+		if value.Sign() <= 0 {
+			continue
+		}
+		if applied == nil || value.Cmp(discount) > 0 || (value.Cmp(discount) == 0 && promotion.PromotionID < applied.PromotionID) {
 			discount = value
 			selected := promotion
 			applied = &selected
 		}
 	}
-	amount := new(big.Rat).Mul(unit, new(big.Rat).SetUint64(uint64(quantity)))
+	amount := new(big.Rat).Set(lineSubtotal)
 	amount.Sub(amount, new(big.Rat).Mul(discount, new(big.Rat).SetUint64(uint64(quantity))))
 	if amount.Sign() < 0 {
 		return OrderItem{}, nil, errors.New("negative amount")

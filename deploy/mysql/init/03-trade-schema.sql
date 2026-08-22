@@ -20,8 +20,10 @@ CREATE TABLE orders (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, order_no VARCHAR(64) NOT NULL, user_id BIGINT UNSIGNED NOT NULL, request_id VARCHAR(128) NOT NULL,
     status VARCHAR(32) NOT NULL, total_amount DECIMAL(12,2) NOT NULL, paid_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
     shipping_name_snapshot VARCHAR(128) NOT NULL, shipping_phone_snapshot VARCHAR(32) NOT NULL, shipping_address_snapshot JSON NOT NULL,
+    payment_attempt_id CHAR(36) NULL, reservation_id CHAR(36) NULL, payment_started_at DATETIME(3) NULL,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3), updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3), paid_at DATETIME(3) NULL, closed_at DATETIME(3) NULL,
-    PRIMARY KEY (id), UNIQUE KEY uq_orders_order_no (order_no), UNIQUE KEY uq_orders_user_request (user_id, request_id), KEY idx_orders_user_created (user_id, created_at)
+    PRIMARY KEY (id), UNIQUE KEY uq_orders_order_no (order_no), UNIQUE KEY uq_orders_user_request (user_id, request_id), KEY idx_orders_user_created (user_id, created_at),
+    UNIQUE KEY uq_orders_payment_attempt (payment_attempt_id), UNIQUE KEY uq_orders_reservation (reservation_id), KEY idx_orders_status_payment_started (status, payment_started_at, id)
 ) ENGINE=InnoDB;
 CREATE TABLE order_items (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, order_id BIGINT UNSIGNED NOT NULL, product_id BIGINT UNSIGNED NOT NULL, sku_id BIGINT UNSIGNED NOT NULL,

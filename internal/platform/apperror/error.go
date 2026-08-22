@@ -13,6 +13,10 @@ const (
 	NotFound Code = "NOT_FOUND"
 	// OutOfStock indicates the requested inventory is unavailable.
 	OutOfStock Code = "OUT_OF_STOCK"
+	// InsufficientBalance indicates the user's wallet balance cannot cover the order.
+	InsufficientBalance Code = "INSUFFICIENT_BALANCE"
+	// PaymentInProgress indicates a payment attempt is already being settled.
+	PaymentInProgress Code = "PAYMENT_IN_PROGRESS"
 	// IdempotencyConflict indicates a request ID conflicts with a prior request.
 	IdempotencyConflict Code = "IDEMPOTENCY_CONFLICT"
 	// DependencyTimeout indicates an external dependency exceeded its timeout.

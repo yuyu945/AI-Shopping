@@ -14,6 +14,8 @@ func TestCodesAreStableAndSafe(t *testing.T) {
 		apperror.Unauthenticated,
 		apperror.NotFound,
 		apperror.OutOfStock,
+		apperror.InsufficientBalance,
+		apperror.PaymentInProgress,
 		apperror.IdempotencyConflict,
 		apperror.DependencyTimeout,
 		apperror.Internal,

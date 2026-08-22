@@ -29,6 +29,11 @@ func TestTradeSchemaOwnsCartAndOrderSnapshots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read candidate promotion migration: %v", err)
 	}
+	paymentMigrationPath := filepath.Join(filepath.Dir(sourceFile), "..", "..", "..", "..", "deploy", "mysql", "migrations", "20260822_m2_2_payment_reservation.sql")
+	paymentMigration, err := os.ReadFile(paymentMigrationPath)
+	if err != nil {
+		t.Fatalf("read payment reservation migration: %v", err)
+	}
 
 	schemaText := string(schema)
 	migrationText := string(migration)
@@ -71,11 +76,23 @@ func TestTradeSchemaOwnsCartAndOrderSnapshots(t *testing.T) {
 	if strings.Contains(schemaText, "REFERENCES user_db.") || strings.Contains(schemaText, "REFERENCES catalog_db.") {
 		t.Fatalf("trade schema %s must not define cross-service foreign keys", schemaPath)
 	}
-	for name, source := range map[string]string{"init schema": schemaText, "M2.1 migration": migrationText, "candidate migration": candidateMigrationText} {
+	for name, source := range map[string]string{"M2.1 migration": migrationText, "candidate migration": candidateMigrationText} {
 		for _, forbidden := range []string{"inventory_reservations", "payment_attempt_id", "reservation_id"} {
 			if strings.Contains(source, forbidden) {
 				t.Fatalf("%s must not contain M2.2 field %q", name, forbidden)
 			}
+		}
+	}
+	for _, value := range []string{
+		"payment_attempt_id CHAR(36) NULL",
+		"reservation_id CHAR(36) NULL",
+		"payment_started_at DATETIME(3) NULL",
+		"UNIQUE KEY uq_orders_payment_attempt (payment_attempt_id)",
+		"UNIQUE KEY uq_orders_reservation (reservation_id)",
+		"KEY idx_orders_status_payment_started (status, payment_started_at, id)",
+	} {
+		if !strings.Contains(schemaText, value) || !strings.Contains(string(paymentMigration), value) {
+			t.Fatalf("M2.2 payment persistence must contain %q in both init schema and migration", value)
 		}
 	}
 	for name, source := range map[string]string{"init schema": schemaText, "M2.1 migration": migrationText} {

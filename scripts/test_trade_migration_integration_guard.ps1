@@ -25,6 +25,11 @@ foreach ($required in @('$env:AI_SHOPPING_MYSQL_DSN = $dsn', '& "$PSScriptRoot\a
         throw "Trade migration integration script must preserve inherited DSN handling: '$required'."
     }
 }
+foreach ($required in @('20260822_m2_2_payment_reservation', 'inventory_reservations', 'payment_attempt_id', 'reservation_id', 'payment_started_at', 'Legacy M2.1 pre-check schema unexpectedly contains M2.2 persistence')) {
+    if ($source -notmatch [regex]::Escape($required)) {
+        throw "Trade migration integration script must assert M2.2 persistence: '$required'."
+    }
+}
 
 function Assert-CleanupRestoresEnvironment {
     param(

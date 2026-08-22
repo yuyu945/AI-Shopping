@@ -261,4 +261,9 @@ func repositoryError(err error) error {
 	}
 	return &Error{Code: Internal, Message: "order service failed"}
 }
-func dependencyError(error) error { return &Error{Code: Internal, Message: "dependency unavailable"} }
+func dependencyError(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return &Error{Code: DependencyTimeout, Message: "dependency timeout"}
+	}
+	return &Error{Code: Internal, Message: "dependency unavailable"}
+}

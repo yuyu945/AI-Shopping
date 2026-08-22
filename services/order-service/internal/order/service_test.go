@@ -103,6 +103,37 @@ func TestCreateOrderIdempotency(t *testing.T) {
 	}
 }
 
+func TestCreateOrderMapsDependencyTimeoutToStableCode(t *testing.T) {
+	repository := newMemoryRepository()
+	repository.items[1] = CartItem{ID: 1, CartID: repository.cart(7), SKUID: 101, Quantity: 1, Selected: true}
+	_, err := NewService(repository, timeoutAddressReader{}, repository).CreateOrder(context.Background(), 7, CreateOrderInput{RequestID: "request-1", AddressID: 11})
+	if !IsCode(err, DependencyTimeout) {
+		t.Fatalf("CreateOrder() error = %v, want dependency timeout", err)
+	}
+}
+
+func TestCreateOrderMapsProductDependencyTimeoutToStableCode(t *testing.T) {
+	repository := newMemoryRepository()
+	repository.address = AddressSnapshot{AddressID: 11, ReceiverName: "Ada", ReceiverPhone: "13800138000", Province: "Zhejiang", City: "Hangzhou", District: "Xihu", Detail: "No. 1"}
+	repository.items[1] = CartItem{ID: 1, CartID: repository.cart(7), SKUID: 101, Quantity: 1, Selected: true}
+	_, err := NewService(repository, repository, timeoutProductReader{}).CreateOrder(context.Background(), 7, CreateOrderInput{RequestID: "request-1", AddressID: 11})
+	if !IsCode(err, DependencyTimeout) {
+		t.Fatalf("CreateOrder() error = %v, want dependency timeout", err)
+	}
+}
+
+type timeoutAddressReader struct{}
+
+func (timeoutAddressReader) GetAddress(context.Context, uint64, uint64) (AddressSnapshot, error) {
+	return AddressSnapshot{}, context.DeadlineExceeded
+}
+
+type timeoutProductReader struct{}
+
+func (timeoutProductReader) GetProducts(context.Context, []uint64) ([]ProductSnapshot, error) {
+	return nil, context.DeadlineExceeded
+}
+
 func TestCreateOrderGeneratesDistinctOrderNumbers(t *testing.T) {
 	repo := newMemoryRepository()
 	repo.address = AddressSnapshot{AddressID: 11, ReceiverName: "Ada", ReceiverPhone: "13800138000", Province: "Zhejiang", City: "Hangzhou", District: "Xihu", Detail: "No. 1"}

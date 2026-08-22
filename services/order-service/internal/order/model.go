@@ -9,9 +9,10 @@ import (
 type Code string
 
 const (
-	InvalidArgument Code = "INVALID_ARGUMENT"
-	NotFound        Code = "NOT_FOUND"
-	Internal        Code = "INTERNAL"
+	InvalidArgument   Code = "INVALID_ARGUMENT"
+	NotFound          Code = "NOT_FOUND"
+	DependencyTimeout Code = "DEPENDENCY_TIMEOUT"
+	Internal          Code = "INTERNAL"
 )
 
 // Error is a stable error that can be mapped to the service transport.

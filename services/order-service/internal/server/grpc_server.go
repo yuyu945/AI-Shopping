@@ -150,6 +150,8 @@ func orderStatus(err error) error {
 		return status.Error(codes.InvalidArgument, e.Message)
 	case order.NotFound:
 		return status.Error(codes.NotFound, "resource not found")
+	case order.DependencyTimeout:
+		return status.Error(codes.DeadlineExceeded, "dependency timeout")
 	default:
 		return status.Error(codes.Internal, "internal server error")
 	}

@@ -3,7 +3,9 @@ package orderclient
 import (
 	"context"
 	platformauth "github.com/yuyu945/AI-Shopping/internal/platform/auth"
+	platformtrace "github.com/yuyu945/AI-Shopping/internal/platform/trace"
 	orderpb "github.com/yuyu945/AI-Shopping/services/order-service/gen"
+	oteltrace "go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -24,9 +26,17 @@ func NewGRPCClient(c grpc.ClientConnInterface) Client {
 }
 func (c *grpcClient) auth(ctx context.Context) context.Context {
 	if bearer, ok := platformauth.BearerFromContext(ctx); ok {
-		return metadata.AppendToOutgoingContext(ctx, "authorization", bearer)
+		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", bearer)
+	}
+	if traceID := platformtrace.TraceID(ctx); validTraceID(traceID) {
+		ctx = metadata.AppendToOutgoingContext(ctx, "trace_id", traceID)
 	}
 	return ctx
+}
+
+func validTraceID(value string) bool {
+	_, err := oteltrace.TraceIDFromHex(value)
+	return err == nil
 }
 func (c *grpcClient) GetCart(x context.Context, r *orderpb.GetCartRequest) (*orderpb.GetCartResponse, error) {
 	return c.client.GetCart(c.auth(x), r)

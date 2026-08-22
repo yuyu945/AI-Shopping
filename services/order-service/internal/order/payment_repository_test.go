@@ -36,6 +36,52 @@ func TestMySQLPaymentRepositorySettleWritesLedgerAndOutboxInOneTransaction(t *te
 	}
 }
 
+func TestMySQLPaymentRepositorySettlesFullyDiscountedOrderWithoutWalletDebit(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	attempt := PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(queryPaymentOrderForUpdate)).WithArgs(uint64(7), "order-1").WillReturnRows(sqlmock.NewRows(paymentOrderColumns()).AddRow(uint64(11), "order-1", uint64(7), PaymentProcessing, "0.00", "0.00", attempt.ID, attempt.ReservationID))
+	mock.ExpectExec(regexp.QuoteMeta(updateOrderPaid)).WithArgs("0.00", uint64(11), attempt.ID, attempt.ReservationID).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(insertReservationConfirmationOutbox)).WithArgs(attempt.ReservationID, "INVENTORY_RESERVATION", attempt.ReservationID, "CONFIRM", "inventory.reservation.confirm", attempt.ReservationID, `{"reservation_id":"reservation-1"}`).WillReturnResult(sqlmock.NewResult(61, 1))
+	mock.ExpectCommit()
+	mock.ExpectQuery(regexp.QuoteMeta(queryOrderItems)).WithArgs(uint64(11)).WillReturnRows(sqlmock.NewRows(orderItemColumns()).AddRow(uint64(31), uint64(11), uint64(101), uint64(201), "item", "sku", `{"size":"M"}`, `[]`, `null`, "12.00", "12.00", uint32(1), "0.00"))
+
+	got, err := NewMySQLRepository(db).SettleWalletPayment(context.Background(), 7, "order-1", attempt)
+	if err != nil || got.Status != Paid || got.PaidAmount != "0.00" || got.Payment != attempt || len(got.Items) != 1 {
+		t.Fatalf("SettleWalletPayment() = %#v, %v", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMySQLPaymentRepositoryRollsBackFullyDiscountedOrderWhenOutboxWriteFails(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	attempt := PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(queryPaymentOrderForUpdate)).WithArgs(uint64(7), "order-1").WillReturnRows(sqlmock.NewRows(paymentOrderColumns()).AddRow(uint64(11), "order-1", uint64(7), PaymentProcessing, "0.00", "0.00", attempt.ID, attempt.ReservationID))
+	mock.ExpectExec(regexp.QuoteMeta(updateOrderPaid)).WithArgs("0.00", uint64(11), attempt.ID, attempt.ReservationID).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(insertReservationConfirmationOutbox)).WithArgs(attempt.ReservationID, "INVENTORY_RESERVATION", attempt.ReservationID, "CONFIRM", "inventory.reservation.confirm", attempt.ReservationID, `{"reservation_id":"reservation-1"}`).WillReturnError(errors.New("outbox unavailable"))
+	mock.ExpectRollback()
+
+	if _, err := NewMySQLRepository(db).SettleWalletPayment(context.Background(), 7, "order-1", attempt); err == nil {
+		t.Fatal("SettleWalletPayment error = nil")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestMySQLPaymentRepositorySettlesInsufficientBalanceByRollingBack(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

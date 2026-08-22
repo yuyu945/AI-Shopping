@@ -335,7 +335,7 @@ reviews(
 1. 创建订单时校验用户、购物车、地址和 `request_id`，并写入商品、价格和地址快照，状态为 `PENDING_PAYMENT`。
 2. 支付认领 transaction 将订单更新为 `PAYMENT_PROCESSING` 并保存不可复用的 `payment_attempt_id` 与 `reservation_id`。请求重复到达时，`PAID` 返回原结果，处理中返回 `PAYMENT_IN_PROGRESS`。
 3. `product-service.ReserveStock` 在自己的 transaction 内对所有 SKU 执行库存条件更新并写 `RESERVED` 预留；任一 SKU 失败则整体 rollback。
-4. `order-service` 仅在 `trade_db` transaction 内锁定钱包和支付尝试，写流水、订单 `PAID` 与 `inventory.reservation.confirm` Outbox。此 transaction 不访问库存表。
+4. `order-service` 仅在 `trade_db` transaction 内锁定支付尝试；总额大于零时锁定钱包并写流水。全额优惠的零金额订单不读取钱包、不更新余额、不写零金额流水，但仍在同一 transaction 写订单 `PAID` 与 `inventory.reservation.confirm` Outbox。此 transaction 不访问库存表。
 5. `product-service` 幂等消费确认事件，把预留置为 `CONFIRMED`。预留过期时先查询 order 的结算状态，`PAID` 则确认，未支付或已取消才置为 `RELEASED` 并返还库存；查询失败保留预留并退避。
 
 库存扣减 SQL：

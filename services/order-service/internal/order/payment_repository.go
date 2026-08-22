@@ -95,7 +95,7 @@ func (r *MySQLRepository) GetPaymentOrder(ctx context.Context, userID uint64, or
 	return order, nil
 }
 
-// SettleWalletPayment atomically debits the locked wallet, writes one ledger, marks PAID, and records confirmation.
+// SettleWalletPayment atomically settles a matching claim, marks PAID, and records confirmation.
 func (r *MySQLRepository) SettleWalletPayment(ctx context.Context, userID uint64, orderNo string, attempt PaymentAttempt) (settled Order, err error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -122,38 +122,46 @@ func (r *MySQLRepository) SettleWalletPayment(ctx context.Context, userID uint64
 	if order.Status != PaymentProcessing || order.Payment != attempt {
 		return Order{}, ErrPaymentInProgress
 	}
-	var balanceText string
-	var version uint64
-	if err = tx.QueryRowContext(ctx, queryWalletForUpdate, userID).Scan(&balanceText, &version); errors.Is(err, sql.ErrNoRows) {
-		return Order{}, ErrInsufficientBalance
-	} else if err != nil {
-		return Order{}, fmt.Errorf("lock wallet: %w", err)
-	}
-	balance, validBalance := parseMoney(balanceText)
 	total, validTotal := parseMoney(order.TotalAmount)
-	if !validBalance || !validTotal {
+	if !validTotal {
 		return Order{}, errors.New("stored wallet or order amount is invalid")
 	}
-	if balance.Cmp(total) < 0 {
-		return Order{}, ErrInsufficientBalance
-	}
-	remaining, moneyErr := moneyString(balance.Sub(balance, total))
-	if moneyErr != nil {
-		return Order{}, fmt.Errorf("calculate wallet balance: %w", moneyErr)
-	}
-	result, err := tx.ExecContext(ctx, updateWalletBalance, remaining, userID, version)
-	if err != nil {
-		return Order{}, fmt.Errorf("debit wallet: %w", err)
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return Order{}, fmt.Errorf("read wallet debit rows: %w", err)
-	}
-	if rows != 1 {
-		return Order{}, errors.New("wallet changed during settlement")
-	}
-	if _, err = tx.ExecContext(ctx, insertWalletLedger, userID, "ORDER_PAYMENT", orderNo, "DEBIT", order.TotalAmount); err != nil {
-		return Order{}, fmt.Errorf("insert wallet ledger: %w", err)
+	var result sql.Result
+	var rows int64
+	// Fully discounted orders still settle the claim and confirm inventory without a fictitious money movement.
+	if total.Sign() > 0 {
+		var balanceText string
+		var version uint64
+		if err = tx.QueryRowContext(ctx, queryWalletForUpdate, userID).Scan(&balanceText, &version); errors.Is(err, sql.ErrNoRows) {
+			return Order{}, ErrInsufficientBalance
+		} else if err != nil {
+			return Order{}, fmt.Errorf("lock wallet: %w", err)
+		}
+		balance, validBalance := parseMoney(balanceText)
+		if !validBalance {
+			return Order{}, errors.New("stored wallet or order amount is invalid")
+		}
+		if balance.Cmp(total) < 0 {
+			return Order{}, ErrInsufficientBalance
+		}
+		remaining, moneyErr := moneyString(balance.Sub(balance, total))
+		if moneyErr != nil {
+			return Order{}, fmt.Errorf("calculate wallet balance: %w", moneyErr)
+		}
+		result, err = tx.ExecContext(ctx, updateWalletBalance, remaining, userID, version)
+		if err != nil {
+			return Order{}, fmt.Errorf("debit wallet: %w", err)
+		}
+		rows, err = result.RowsAffected()
+		if err != nil {
+			return Order{}, fmt.Errorf("read wallet debit rows: %w", err)
+		}
+		if rows != 1 {
+			return Order{}, errors.New("wallet changed during settlement")
+		}
+		if _, err = tx.ExecContext(ctx, insertWalletLedger, userID, "ORDER_PAYMENT", orderNo, "DEBIT", order.TotalAmount); err != nil {
+			return Order{}, fmt.Errorf("insert wallet ledger: %w", err)
+		}
 	}
 	result, err = tx.ExecContext(ctx, updateOrderPaid, order.TotalAmount, order.ID, attempt.ID, attempt.ReservationID)
 	if err != nil {

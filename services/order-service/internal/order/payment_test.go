@@ -72,6 +72,38 @@ func TestPayWalletReturnsPreviouslyPaidOrderWithoutReservingAgain(t *testing.T) 
 	}
 }
 
+func TestPayWalletSettlesFullyDiscountedOrder(t *testing.T) {
+	attempt := PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}
+	claimed := Order{OrderNo: "order-1", Status: PaymentProcessing, TotalAmount: "0.00", Payment: attempt, Items: []OrderItem{{SKUID: 101, Quantity: 1, UnitPrice: "12.00", DiscountAmount: "12.00", ItemAmount: "0.00"}}}
+	reserved := false
+	settled := false
+	service := NewPaymentService(fakePaymentRepository{
+		claim: func(context.Context, uint64, string, PaymentAttempt) (Order, error) { return claimed, nil },
+		reset: func(context.Context, uint64, string, PaymentAttempt) (bool, error) {
+			t.Fatal("ResetPaymentClaim must not be called")
+			return false, nil
+		},
+		settle: func(_ context.Context, _ uint64, _ string, got PaymentAttempt) (Order, error) {
+			if got != attempt {
+				t.Fatalf("attempt = %#v", got)
+			}
+			settled = true
+			return Order{OrderNo: "order-1", Status: Paid, TotalAmount: "0.00", PaidAmount: "0.00", Payment: attempt}, nil
+		},
+	}, fakeReservations{reserve: func(_ context.Context, request ReserveRequest) (Reservation, error) {
+		if request.ReservationID != attempt.ReservationID || request.PaymentAttemptID != attempt.ID || len(request.Items) != 1 || request.Items[0] != (ReservationItem{SKUID: 101, Quantity: 1}) {
+			t.Fatalf("reserve request = %#v", request)
+		}
+		reserved = true
+		return Reservation{ReservationID: attempt.ReservationID, Status: ReservationReserved}, nil
+	}, release: func(context.Context, string) error { return nil }}, fixedPaymentIDs(), time.Minute)
+
+	got, err := service.PayWallet(context.Background(), 7, "order-1")
+	if err != nil || got.Status != Paid || got.PaidAmount != "0.00" || !reserved || !settled {
+		t.Fatalf("PayWallet() = %#v, %v, reserved=%v, settled=%v", got, err, reserved, settled)
+	}
+}
+
 func TestPayWalletResetsMatchingClaimAfterOutOfStock(t *testing.T) {
 	attempt := PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}
 	claimed := Order{OrderNo: "order-1", Status: PaymentProcessing, Payment: attempt, Items: []OrderItem{{SKUID: 101, Quantity: 2}}}

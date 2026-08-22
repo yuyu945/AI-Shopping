@@ -105,7 +105,7 @@ sequenceDiagram
 
 1. `order-service` 在 `trade_db` transaction 中将订单从 `PENDING_PAYMENT` 原子认领为 `PAYMENT_PROCESSING`，同时持久化唯一的 `payment_attempt_id` 与 `reservation_id`。
 2. `product-service` 在自己的 `catalog_db` transaction 中对全部 SKU 执行条件扣减并写入 `inventory_reservations`；任一 SKU 库存不足则整个预留回滚。`reservation_id + sku_id` 是幂等键。
-3. `order-service` 在独立的 `trade_db` transaction 中锁定该支付尝试与钱包，校验余额，写 `wallet_ledger`、订单 `PAID` 和 `inventory.reservation.confirm` Outbox。该 transaction 不包含库存表。
+3. `order-service` 在独立的 `trade_db` transaction 中锁定该支付尝试；仅订单总额大于零时锁定钱包、校验余额并写 `wallet_ledger`。全额优惠的零金额订单跳过钱包读取、余额更新和流水，但仍在同一 transaction 写订单 `PAID` 和 `inventory.reservation.confirm` Outbox。该 transaction 不包含库存表。
 4. product-side consumer 幂等确认预留。确认投递失败只会延迟确认，由 Outbox 重试；已支付订单绝不因消息延迟而释放库存。
 5. 预留过期 worker 向 `order-service` 查询对应 `payment_attempt_id` 的结算状态：`PAID` 则确认，其他终态则释放。依赖超时必须保留预留并退避重试，禁止盲目释放。
 

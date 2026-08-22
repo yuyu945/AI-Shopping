@@ -109,3 +109,21 @@ CREATE TABLE IF NOT EXISTS outbox_events (
     UNIQUE KEY uq_outbox_aggregate_event (aggregate_type, aggregate_id, event_type),
     KEY idx_outbox_pending_retry (status, next_retry_at, id)
 ) ENGINE=InnoDB;
+
+SET @outbox_locked_at_exists = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'trade_db' AND table_name = 'outbox_events' AND column_name = 'locked_at');
+SET @outbox_locked_at_sql = IF(@outbox_locked_at_exists = 0, 'ALTER TABLE outbox_events ADD COLUMN locked_at DATETIME(3) NULL AFTER next_retry_at', 'SELECT 1');
+PREPARE outbox_locked_at_statement FROM @outbox_locked_at_sql;
+EXECUTE outbox_locked_at_statement;
+DEALLOCATE PREPARE outbox_locked_at_statement;
+
+SET @outbox_lease_until_exists = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'trade_db' AND table_name = 'outbox_events' AND column_name = 'lease_until');
+SET @outbox_lease_until_sql = IF(@outbox_lease_until_exists = 0, 'ALTER TABLE outbox_events ADD COLUMN lease_until DATETIME(3) NULL AFTER locked_at', 'SELECT 1');
+PREPARE outbox_lease_until_statement FROM @outbox_lease_until_sql;
+EXECUTE outbox_lease_until_statement;
+DEALLOCATE PREPARE outbox_lease_until_statement;
+
+SET @outbox_processing_lease_index_exists = (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = 'trade_db' AND table_name = 'outbox_events' AND index_name = 'idx_outbox_processing_lease');
+SET @outbox_processing_lease_index_sql = IF(@outbox_processing_lease_index_exists = 0, 'ALTER TABLE outbox_events ADD KEY idx_outbox_processing_lease (status, lease_until, id)', 'SELECT 1');
+PREPARE outbox_processing_lease_index_statement FROM @outbox_processing_lease_index_sql;
+EXECUTE outbox_processing_lease_index_statement;
+DEALLOCATE PREPARE outbox_processing_lease_index_statement;

@@ -102,6 +102,9 @@ func TestTradeSchemaOwnsCartAndOrderSnapshots(t *testing.T) {
 		"UNIQUE KEY uq_wallet_ledger_business (biz_type, biz_id, direction)",
 		"UNIQUE KEY uq_outbox_event_id (event_id)",
 		"UNIQUE KEY uq_outbox_aggregate_event (aggregate_type, aggregate_id, event_type)",
+		"locked_at DATETIME(3) NULL",
+		"lease_until DATETIME(3) NULL",
+		"KEY idx_outbox_processing_lease (status, lease_until, id)",
 	} {
 		if !strings.Contains(schemaText, value) || !strings.Contains(string(paymentMigration), value) {
 			t.Fatalf("M2.2 payment settlement persistence must contain %q in both init schema and migration", value)

@@ -7,6 +7,7 @@ topics=(
   knowledge.chunk.embed
   behavior.events
   review.events
+  inventory.reservation.confirm
 )
 
 for topic in "${topics[@]}"; do

@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -81,7 +82,9 @@ func main() {
 	service := order.NewService(repository, orderclient.NewUserClient(userRPC.Conn(), timeout), orderclient.NewProductClient(productRPC.Conn(), timeout))
 	reservations := orderclient.NewReservationClient(productRPC.Conn(), runtimeConfig.InternalServiceToken, timeout)
 	payment := order.NewPaymentService(repository, reservations, order.IDGeneratorFunc(uuid.NewString), 5*time.Minute)
-	confirmationWorker := outbox.NewWorker(outbox.NewMySQLRepository(db), reservations, outbox.Config{BatchSize: 20})
+	publisher := outbox.NewKafkaPublisher(strings.Split(runtimeConfig.KafkaBrokers, ","))
+	defer publisher.Close()
+	confirmationWorker := outbox.NewWorker(outbox.NewMySQLRepository(db), publisher, outbox.Config{BatchSize: 20, LeaseDuration: 30 * time.Second})
 	zrpc.DontLogContentForMethod(orderpb.OrderService_CreateOrder_FullMethodName)
 	zrpc.DontLogContentForMethod(orderpb.OrderService_PayWallet_FullMethodName)
 	zrpc.DontLogContentForMethod(orderpb.OrderService_GetOrder_FullMethodName)

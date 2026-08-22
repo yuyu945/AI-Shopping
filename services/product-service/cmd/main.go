@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -105,6 +106,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("%s startup: invalid inventory reservation configuration", SERVICE_NAME)
 	}
+	confirmationConsumer := catalog.NewKafkaConfirmationConsumer(strings.Split(runtimeConfig.KafkaBrokers, ","), catalog.NewConfirmationConsumer(catalog.NewMySQLConsumptionStore(db), reservationService, ""))
+	defer confirmationConsumer.Close()
 	_, worker, err := buildCatalogMutationComponents(db, detailCache, config)
 	if err != nil {
 		log.Fatalf("%s startup: invalid cache invalidation configuration", SERVICE_NAME)
@@ -126,6 +129,13 @@ func main() {
 			}
 		}()
 	}
+	consumerCtx, cancelConsumer := context.WithCancel(context.Background())
+	defer cancelConsumer()
+	go func() {
+		if err := confirmationConsumer.Run(consumerCtx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("%s inventory confirmation consumer stopped", SERVICE_NAME)
+		}
+	}()
 	rpcServer.Start()
 }
 

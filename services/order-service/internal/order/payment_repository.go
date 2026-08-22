@@ -178,8 +178,12 @@ func (r *MySQLRepository) SettleWalletPayment(ctx context.Context, userID uint64
 		return Order{}, ErrPaymentInProgress
 	}
 	payload, err := json.Marshal(struct {
-		ReservationID string `json:"reservation_id"`
-	}{ReservationID: attempt.ReservationID})
+		EventID          string `json:"event_id"`
+		ReservationID    string `json:"reservation_id"`
+		OrderNo          string `json:"order_no"`
+		PaymentAttemptID string `json:"payment_attempt_id"`
+		Version          int    `json:"version"`
+	}{attempt.ReservationID, attempt.ReservationID, order.OrderNo, attempt.ID, 1})
 	if err != nil {
 		return Order{}, fmt.Errorf("marshal reservation confirmation: %w", err)
 	}

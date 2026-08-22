@@ -18,3 +18,10 @@ CREATE TABLE IF NOT EXISTS inventory_reservations (
     CONSTRAINT chk_inventory_reservation_status CHECK (status IN ('RESERVED', 'CONFIRMED', 'RELEASED')),
     CONSTRAINT fk_inventory_reservation_sku FOREIGN KEY (sku_id) REFERENCES product_skus(id)
 ) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS reservation_event_consumptions (
+    event_id CHAR(36) NOT NULL,
+    consumer_group VARCHAR(128) NOT NULL,
+    consumed_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (event_id, consumer_group)
+) ENGINE=InnoDB;

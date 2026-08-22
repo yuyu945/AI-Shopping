@@ -100,6 +100,13 @@ CREATE TABLE inventory_reservations (
     CONSTRAINT fk_inventory_reservation_sku FOREIGN KEY (sku_id) REFERENCES product_skus(id)
 ) ENGINE=InnoDB;
 
+CREATE TABLE reservation_event_consumptions (
+    event_id CHAR(36) NOT NULL,
+    consumer_group VARCHAR(128) NOT NULL,
+    consumed_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (event_id, consumer_group)
+) ENGINE=InnoDB;
+
 CREATE TABLE promotion_rules (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     product_id BIGINT UNSIGNED NOT NULL,

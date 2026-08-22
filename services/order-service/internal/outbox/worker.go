@@ -4,8 +4,12 @@ package outbox
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
+
+	"github.com/segmentio/kafka-go"
 )
 
 const confirmationTopic = "inventory.reservation.confirm"
@@ -20,27 +24,41 @@ const (
 
 // Event contains only the confirmation identity needed by product-service.
 type Event struct {
-	ID            uint64
-	EventID       string
-	ReservationID string
-	Status        Status
-	Attempts      int
+	ID               uint64
+	EventID          string
+	ReservationID    string
+	Status           Status
+	Attempts         int
+	OrderNo          string
+	PaymentAttemptID string
+	Version          int
+	LeaseUntil       time.Time
 }
 
 // Repository provides durable ownership and retry transitions for confirmation events.
 type Repository interface {
-	LeasePending(context.Context, int) ([]Event, error)
+	LeasePending(context.Context, int, time.Time, time.Duration) ([]Event, error)
 	MarkPublished(context.Context, uint64) error
 	Retry(context.Context, uint64, time.Time) error
 }
 
-// Publisher confirms a product-owned reservation. It intentionally has no release operation.
+// Message is the stable confirmation event sent to Kafka.
+type Message struct {
+	Topic string
+	Key   string
+	Value []byte
+}
+
+// Publisher publishes a Kafka message and returns only after the producer has acknowledged it.
 type Publisher interface {
-	ConfirmReservation(context.Context, string) error
+	Publish(context.Context, Message) error
 }
 
 // Config limits a single polling pass.
-type Config struct{ BatchSize int }
+type Config struct {
+	BatchSize     int
+	LeaseDuration time.Duration
+}
 
 // Worker confirms paid reservations from committed outbox rows.
 type Worker struct {
@@ -54,6 +72,9 @@ func NewWorker(repository Repository, publisher Publisher, config Config) *Worke
 	if config.BatchSize <= 0 {
 		config.BatchSize = 20
 	}
+	if config.LeaseDuration <= 0 {
+		config.LeaseDuration = 30 * time.Second
+	}
 	return &Worker{repository: repository, publisher: publisher, config: config}
 }
 
@@ -62,12 +83,22 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 	if w == nil || w.repository == nil || w.publisher == nil {
 		return errors.New("confirmation outbox worker is unavailable")
 	}
-	events, err := w.repository.LeasePending(ctx, w.config.BatchSize)
+	events, err := w.repository.LeasePending(ctx, w.config.BatchSize, time.Now(), w.config.LeaseDuration)
 	if err != nil {
 		return errors.New("lease confirmation outbox events failed")
 	}
 	for _, event := range events {
-		if err := w.publisher.ConfirmReservation(ctx, event.ReservationID); err != nil {
+		payload, err := json.Marshal(struct {
+			EventID          string `json:"event_id"`
+			ReservationID    string `json:"reservation_id"`
+			OrderNo          string `json:"order_no"`
+			PaymentAttemptID string `json:"payment_attempt_id"`
+			Version          int    `json:"version"`
+		}{event.EventID, event.ReservationID, event.OrderNo, event.PaymentAttemptID, event.Version})
+		if err != nil {
+			return errors.New("marshal reservation confirmation failed")
+		}
+		if err := w.publisher.Publish(ctx, Message{Topic: confirmationTopic, Key: event.ReservationID, Value: payload}); err != nil {
 			if retryErr := w.repository.Retry(ctx, event.ID, time.Now().Add(retryDelay(event.Attempts))); retryErr != nil {
 				return errors.New("persist confirmation retry failed")
 			}
@@ -87,7 +118,7 @@ type MySQLRepository struct{ db *sql.DB }
 func NewMySQLRepository(db *sql.DB) *MySQLRepository { return &MySQLRepository{db: db} }
 
 // LeasePending claims pending confirmation rows. Product confirmation is idempotent, so a duplicate after a process crash is safe.
-func (r *MySQLRepository) LeasePending(ctx context.Context, limit int) ([]Event, error) {
+func (r *MySQLRepository) LeasePending(ctx context.Context, limit int, now time.Time, leaseDuration time.Duration) ([]Event, error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("outbox database is required")
 	}
@@ -96,7 +127,7 @@ func (r *MySQLRepository) LeasePending(ctx context.Context, limit int) ([]Event,
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT id, event_id, event_key, attempts FROM outbox_events WHERE topic = ? AND status = 'PENDING' AND (next_retry_at IS NULL OR next_retry_at <= CURRENT_TIMESTAMP(3)) ORDER BY id ASC LIMIT ? FOR UPDATE SKIP LOCKED`, confirmationTopic, limit)
+	rows, err := tx.QueryContext(ctx, `SELECT id, event_id, event_key, payload, attempts FROM outbox_events WHERE topic = ? AND ((status = 'PENDING' AND (next_retry_at IS NULL OR next_retry_at <= ?)) OR (status = 'PROCESSING' AND lease_until <= ?)) ORDER BY id ASC LIMIT ? FOR UPDATE SKIP LOCKED`, confirmationTopic, now.UTC().Truncate(time.Millisecond), now.UTC().Truncate(time.Millisecond), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -104,19 +135,35 @@ func (r *MySQLRepository) LeasePending(ctx context.Context, limit int) ([]Event,
 	events := make([]Event, 0, limit)
 	for rows.Next() {
 		var event Event
-		if err := rows.Scan(&event.ID, &event.EventID, &event.ReservationID, &event.Attempts); err != nil {
+		var payload struct {
+			EventID          string `json:"event_id"`
+			ReservationID    string `json:"reservation_id"`
+			OrderNo          string `json:"order_no"`
+			PaymentAttemptID string `json:"payment_attempt_id"`
+			Version          int    `json:"version"`
+		}
+		var rawPayload []byte
+		if err := rows.Scan(&event.ID, &event.EventID, &event.ReservationID, &rawPayload, &event.Attempts); err != nil {
 			return nil, err
 		}
+		if err := json.Unmarshal(rawPayload, &payload); err != nil {
+			return nil, fmt.Errorf("decode confirmation outbox payload: %w", err)
+		}
+		if payload.EventID != event.EventID || payload.ReservationID != event.ReservationID || payload.OrderNo == "" || payload.PaymentAttemptID == "" || payload.Version <= 0 {
+			return nil, errors.New("invalid confirmation outbox payload")
+		}
+		event.OrderNo, event.PaymentAttemptID, event.Version = payload.OrderNo, payload.PaymentAttemptID, payload.Version
 		events = append(events, event)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	for i := range events {
-		if _, err := tx.ExecContext(ctx, `UPDATE outbox_events SET status = 'PROCESSING', attempts = attempts + 1 WHERE id = ? AND status = 'PENDING'`, events[i].ID); err != nil {
+		leaseUntil := now.UTC().Add(leaseDuration).Truncate(time.Millisecond)
+		if _, err := tx.ExecContext(ctx, `UPDATE outbox_events SET status = 'PROCESSING', attempts = attempts + 1, locked_at = ?, lease_until = ? WHERE id = ? AND (status = 'PENDING' OR (status = 'PROCESSING' AND lease_until <= ?))`, now.UTC().Truncate(time.Millisecond), leaseUntil, events[i].ID, now.UTC().Truncate(time.Millisecond)); err != nil {
 			return nil, err
 		}
-		events[i].Status, events[i].Attempts = Processing, events[i].Attempts+1
+		events[i].Status, events[i].Attempts, events[i].LeaseUntil = Processing, events[i].Attempts+1, leaseUntil
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
@@ -126,7 +173,7 @@ func (r *MySQLRepository) LeasePending(ctx context.Context, limit int) ([]Event,
 
 // MarkPublished records product acknowledgement before the event leaves the queue.
 func (r *MySQLRepository) MarkPublished(ctx context.Context, id uint64) error {
-	result, err := r.db.ExecContext(ctx, `UPDATE outbox_events SET status = 'PUBLISHED', published_at = CURRENT_TIMESTAMP(3), next_retry_at = NULL WHERE id = ? AND status = 'PROCESSING'`, id)
+	result, err := r.db.ExecContext(ctx, `UPDATE outbox_events SET status = 'PUBLISHED', published_at = CURRENT_TIMESTAMP(3), next_retry_at = NULL, locked_at = NULL, lease_until = NULL WHERE id = ? AND status = 'PROCESSING'`, id)
 	if err != nil {
 		return err
 	}
@@ -139,7 +186,7 @@ func (r *MySQLRepository) MarkPublished(ctx context.Context, id uint64) error {
 
 // Retry makes an unacknowledged confirmation eligible again with a small bounded delay.
 func (r *MySQLRepository) Retry(ctx context.Context, id uint64, nextRetryAt time.Time) error {
-	result, err := r.db.ExecContext(ctx, `UPDATE outbox_events SET status = 'PENDING', next_retry_at = ? WHERE id = ? AND status = 'PROCESSING'`, nextRetryAt.UTC().Truncate(time.Millisecond), id)
+	result, err := r.db.ExecContext(ctx, `UPDATE outbox_events SET status = 'PENDING', next_retry_at = ?, locked_at = NULL, lease_until = NULL WHERE id = ? AND status = 'PROCESSING'`, nextRetryAt.UTC().Truncate(time.Millisecond), id)
 	if err != nil {
 		return err
 	}
@@ -148,6 +195,30 @@ func (r *MySQLRepository) Retry(ctx context.Context, id uint64, nextRetryAt time
 		return errors.New("confirmation event lease lost")
 	}
 	return nil
+}
+
+// KafkaPublisher adapts kafka-go's synchronous writer to the outbox publisher contract.
+type KafkaPublisher struct{ writer *kafka.Writer }
+
+// NewKafkaPublisher creates a producer that acknowledges delivery before returning.
+func NewKafkaPublisher(brokers []string) *KafkaPublisher {
+	return &KafkaPublisher{writer: &kafka.Writer{Addr: kafka.TCP(brokers...), RequiredAcks: kafka.RequireAll, Async: false}}
+}
+
+// Close releases the underlying Kafka producer resources.
+func (p *KafkaPublisher) Close() error {
+	if p == nil || p.writer == nil {
+		return nil
+	}
+	return p.writer.Close()
+}
+
+// Publish waits for Kafka's producer acknowledgement.
+func (p *KafkaPublisher) Publish(ctx context.Context, message Message) error {
+	if p == nil || p.writer == nil {
+		return errors.New("kafka publisher is unavailable")
+	}
+	return p.writer.WriteMessages(ctx, kafka.Message{Topic: message.Topic, Key: []byte(message.Key), Value: message.Value})
 }
 
 func retryDelay(attempts int) time.Duration {

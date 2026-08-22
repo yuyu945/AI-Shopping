@@ -25,7 +25,7 @@ func TestMySQLPaymentRepositorySettleWritesLedgerAndOutboxInOneTransaction(t *te
 	mock.ExpectExec(regexp.QuoteMeta(updateWalletBalance)).WithArgs("8.00", uint64(7), uint64(3)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(insertWalletLedger)).WithArgs(uint64(7), "ORDER_PAYMENT", "order-1", "DEBIT", "12.00").WillReturnResult(sqlmock.NewResult(51, 1))
 	mock.ExpectExec(regexp.QuoteMeta(updateOrderPaid)).WithArgs("12.00", uint64(11), attempt.ID, attempt.ReservationID).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta(insertReservationConfirmationOutbox)).WithArgs(attempt.ReservationID, "INVENTORY_RESERVATION", attempt.ReservationID, "CONFIRM", "inventory.reservation.confirm", attempt.ReservationID, `{"reservation_id":"reservation-1"}`).WillReturnResult(sqlmock.NewResult(61, 1))
+	mock.ExpectExec(regexp.QuoteMeta(insertReservationConfirmationOutbox)).WithArgs(sqlmock.AnyArg(), "INVENTORY_RESERVATION", attempt.ReservationID, "CONFIRM", "inventory.reservation.confirm", attempt.ReservationID, `{"event_id":"reservation-1","reservation_id":"reservation-1","order_no":"order-1","payment_attempt_id":"attempt-1","version":1}`).WillReturnResult(sqlmock.NewResult(61, 1))
 	mock.ExpectCommit()
 	expectOrderByNumber(mock, order)
 
@@ -51,7 +51,7 @@ func TestMySQLPaymentRepositorySettlesFullyDiscountedOrderWithoutWalletDebit(t *
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(queryPaymentOrderForUpdate)).WithArgs(uint64(7), "order-1").WillReturnRows(sqlmock.NewRows(paymentOrderColumns()).AddRow(uint64(11), "order-1", uint64(7), PaymentProcessing, "0.00", "0.00", attempt.ID, attempt.ReservationID))
 	mock.ExpectExec(regexp.QuoteMeta(updateOrderPaid)).WithArgs("0.00", uint64(11), attempt.ID, attempt.ReservationID).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta(insertReservationConfirmationOutbox)).WithArgs(attempt.ReservationID, "INVENTORY_RESERVATION", attempt.ReservationID, "CONFIRM", "inventory.reservation.confirm", attempt.ReservationID, `{"reservation_id":"reservation-1"}`).WillReturnResult(sqlmock.NewResult(61, 1))
+	mock.ExpectExec(regexp.QuoteMeta(insertReservationConfirmationOutbox)).WithArgs(sqlmock.AnyArg(), "INVENTORY_RESERVATION", attempt.ReservationID, "CONFIRM", "inventory.reservation.confirm", attempt.ReservationID, `{"event_id":"reservation-1","reservation_id":"reservation-1","order_no":"order-1","payment_attempt_id":"attempt-1","version":1}`).WillReturnResult(sqlmock.NewResult(61, 1))
 	mock.ExpectCommit()
 	expectOrderByNumber(mock, order)
 
@@ -75,7 +75,7 @@ func TestMySQLPaymentRepositoryRollsBackFullyDiscountedOrderWhenOutboxWriteFails
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(queryPaymentOrderForUpdate)).WithArgs(uint64(7), "order-1").WillReturnRows(sqlmock.NewRows(paymentOrderColumns()).AddRow(uint64(11), "order-1", uint64(7), PaymentProcessing, "0.00", "0.00", attempt.ID, attempt.ReservationID))
 	mock.ExpectExec(regexp.QuoteMeta(updateOrderPaid)).WithArgs("0.00", uint64(11), attempt.ID, attempt.ReservationID).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta(insertReservationConfirmationOutbox)).WithArgs(attempt.ReservationID, "INVENTORY_RESERVATION", attempt.ReservationID, "CONFIRM", "inventory.reservation.confirm", attempt.ReservationID, `{"reservation_id":"reservation-1"}`).WillReturnError(errors.New("outbox unavailable"))
+	mock.ExpectExec(regexp.QuoteMeta(insertReservationConfirmationOutbox)).WithArgs(sqlmock.AnyArg(), "INVENTORY_RESERVATION", attempt.ReservationID, "CONFIRM", "inventory.reservation.confirm", attempt.ReservationID, `{"event_id":"reservation-1","reservation_id":"reservation-1","order_no":"order-1","payment_attempt_id":"attempt-1","version":1}`).WillReturnError(errors.New("outbox unavailable"))
 	mock.ExpectRollback()
 
 	if _, err := NewMySQLRepository(db).SettleWalletPayment(context.Background(), 7, "order-1", attempt); err == nil {
@@ -316,7 +316,7 @@ func TestMySQLPaymentRepositoryRollsBackWhenLedgerOrOutboxWriteFails(t *testing.
 			} else {
 				mock.ExpectExec(regexp.QuoteMeta(insertWalletLedger)).WithArgs(uint64(7), "ORDER_PAYMENT", "order-1", "DEBIT", "12.00").WillReturnResult(sqlmock.NewResult(51, 1))
 				mock.ExpectExec(regexp.QuoteMeta(updateOrderPaid)).WithArgs("12.00", uint64(11), attempt.ID, attempt.ReservationID).WillReturnResult(sqlmock.NewResult(0, 1))
-				mock.ExpectExec(regexp.QuoteMeta(insertReservationConfirmationOutbox)).WithArgs(attempt.ReservationID, "INVENTORY_RESERVATION", attempt.ReservationID, "CONFIRM", "inventory.reservation.confirm", attempt.ReservationID, `{"reservation_id":"reservation-1"}`).WillReturnError(errors.New("outbox unavailable"))
+				mock.ExpectExec(regexp.QuoteMeta(insertReservationConfirmationOutbox)).WithArgs(sqlmock.AnyArg(), "INVENTORY_RESERVATION", attempt.ReservationID, "CONFIRM", "inventory.reservation.confirm", attempt.ReservationID, `{"event_id":"reservation-1","reservation_id":"reservation-1","order_no":"order-1","payment_attempt_id":"attempt-1","version":1}`).WillReturnError(errors.New("outbox unavailable"))
 			}
 			mock.ExpectRollback()
 

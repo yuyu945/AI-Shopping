@@ -19,9 +19,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ProductService_ListProducts_FullMethodName    = "/product.v1.ProductService/ListProducts"
-	ProductService_GetProduct_FullMethodName      = "/product.v1.ProductService/GetProduct"
-	ProductService_GetCheckoutSKUs_FullMethodName = "/product.v1.ProductService/GetCheckoutSKUs"
+	ProductService_ListProducts_FullMethodName       = "/product.v1.ProductService/ListProducts"
+	ProductService_GetProduct_FullMethodName         = "/product.v1.ProductService/GetProduct"
+	ProductService_GetCheckoutSKUs_FullMethodName    = "/product.v1.ProductService/GetCheckoutSKUs"
+	ProductService_ReserveStock_FullMethodName       = "/product.v1.ProductService/ReserveStock"
+	ProductService_ConfirmReservation_FullMethodName = "/product.v1.ProductService/ConfirmReservation"
+	ProductService_ReleaseReservation_FullMethodName = "/product.v1.ProductService/ReleaseReservation"
+	ProductService_GetReservation_FullMethodName     = "/product.v1.ProductService/GetReservation"
 )
 
 // ProductServiceClient is the client API for ProductService service.
@@ -31,6 +35,10 @@ type ProductServiceClient interface {
 	ListProducts(ctx context.Context, in *ListProductsRequest, opts ...grpc.CallOption) (*ListProductsResponse, error)
 	GetProduct(ctx context.Context, in *GetProductRequest, opts ...grpc.CallOption) (*GetProductResponse, error)
 	GetCheckoutSKUs(ctx context.Context, in *CheckoutSKUsRequest, opts ...grpc.CallOption) (*CheckoutSKUsResponse, error)
+	ReserveStock(ctx context.Context, in *ReserveStockRequest, opts ...grpc.CallOption) (*ReservationResponse, error)
+	ConfirmReservation(ctx context.Context, in *ReservationActionRequest, opts ...grpc.CallOption) (*ReservationResponse, error)
+	ReleaseReservation(ctx context.Context, in *ReservationActionRequest, opts ...grpc.CallOption) (*ReservationResponse, error)
+	GetReservation(ctx context.Context, in *GetReservationRequest, opts ...grpc.CallOption) (*ReservationResponse, error)
 }
 
 type productServiceClient struct {
@@ -71,6 +79,46 @@ func (c *productServiceClient) GetCheckoutSKUs(ctx context.Context, in *Checkout
 	return out, nil
 }
 
+func (c *productServiceClient) ReserveStock(ctx context.Context, in *ReserveStockRequest, opts ...grpc.CallOption) (*ReservationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReservationResponse)
+	err := c.cc.Invoke(ctx, ProductService_ReserveStock_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *productServiceClient) ConfirmReservation(ctx context.Context, in *ReservationActionRequest, opts ...grpc.CallOption) (*ReservationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReservationResponse)
+	err := c.cc.Invoke(ctx, ProductService_ConfirmReservation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *productServiceClient) ReleaseReservation(ctx context.Context, in *ReservationActionRequest, opts ...grpc.CallOption) (*ReservationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReservationResponse)
+	err := c.cc.Invoke(ctx, ProductService_ReleaseReservation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *productServiceClient) GetReservation(ctx context.Context, in *GetReservationRequest, opts ...grpc.CallOption) (*ReservationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReservationResponse)
+	err := c.cc.Invoke(ctx, ProductService_GetReservation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ProductServiceServer is the server API for ProductService service.
 // All implementations must embed UnimplementedProductServiceServer
 // for forward compatibility.
@@ -78,6 +126,10 @@ type ProductServiceServer interface {
 	ListProducts(context.Context, *ListProductsRequest) (*ListProductsResponse, error)
 	GetProduct(context.Context, *GetProductRequest) (*GetProductResponse, error)
 	GetCheckoutSKUs(context.Context, *CheckoutSKUsRequest) (*CheckoutSKUsResponse, error)
+	ReserveStock(context.Context, *ReserveStockRequest) (*ReservationResponse, error)
+	ConfirmReservation(context.Context, *ReservationActionRequest) (*ReservationResponse, error)
+	ReleaseReservation(context.Context, *ReservationActionRequest) (*ReservationResponse, error)
+	GetReservation(context.Context, *GetReservationRequest) (*ReservationResponse, error)
 	mustEmbedUnimplementedProductServiceServer()
 }
 
@@ -96,6 +148,18 @@ func (UnimplementedProductServiceServer) GetProduct(context.Context, *GetProduct
 }
 func (UnimplementedProductServiceServer) GetCheckoutSKUs(context.Context, *CheckoutSKUsRequest) (*CheckoutSKUsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCheckoutSKUs not implemented")
+}
+func (UnimplementedProductServiceServer) ReserveStock(context.Context, *ReserveStockRequest) (*ReservationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReserveStock not implemented")
+}
+func (UnimplementedProductServiceServer) ConfirmReservation(context.Context, *ReservationActionRequest) (*ReservationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ConfirmReservation not implemented")
+}
+func (UnimplementedProductServiceServer) ReleaseReservation(context.Context, *ReservationActionRequest) (*ReservationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReleaseReservation not implemented")
+}
+func (UnimplementedProductServiceServer) GetReservation(context.Context, *GetReservationRequest) (*ReservationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetReservation not implemented")
 }
 func (UnimplementedProductServiceServer) mustEmbedUnimplementedProductServiceServer() {}
 func (UnimplementedProductServiceServer) testEmbeddedByValue()                        {}
@@ -172,6 +236,78 @@ func _ProductService_GetCheckoutSKUs_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProductService_ReserveStock_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReserveStockRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProductServiceServer).ReserveStock(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProductService_ReserveStock_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProductServiceServer).ReserveStock(ctx, req.(*ReserveStockRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProductService_ConfirmReservation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReservationActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProductServiceServer).ConfirmReservation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProductService_ConfirmReservation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProductServiceServer).ConfirmReservation(ctx, req.(*ReservationActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProductService_ReleaseReservation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReservationActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProductServiceServer).ReleaseReservation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProductService_ReleaseReservation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProductServiceServer).ReleaseReservation(ctx, req.(*ReservationActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProductService_GetReservation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetReservationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProductServiceServer).GetReservation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProductService_GetReservation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProductServiceServer).GetReservation(ctx, req.(*GetReservationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ProductService_ServiceDesc is the grpc.ServiceDesc for ProductService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -190,6 +326,22 @@ var ProductService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetCheckoutSKUs",
 			Handler:    _ProductService_GetCheckoutSKUs_Handler,
+		},
+		{
+			MethodName: "ReserveStock",
+			Handler:    _ProductService_ReserveStock_Handler,
+		},
+		{
+			MethodName: "ConfirmReservation",
+			Handler:    _ProductService_ConfirmReservation_Handler,
+		},
+		{
+			MethodName: "ReleaseReservation",
+			Handler:    _ProductService_ReleaseReservation_Handler,
+		},
+		{
+			MethodName: "GetReservation",
+			Handler:    _ProductService_GetReservation_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

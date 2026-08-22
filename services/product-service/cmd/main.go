@@ -98,13 +98,17 @@ func main() {
 
 	catalogRepository := catalog.NewRepository(db)
 	productService := catalog.NewProductService(catalogRepository, detailCache)
+	reservationService, err := buildReservationService(db, detailCache, config)
+	if err != nil {
+		log.Fatalf("%s startup: invalid inventory reservation configuration", SERVICE_NAME)
+	}
 	_, worker, err := buildCatalogMutationComponents(db, detailCache, config)
 	if err != nil {
 		log.Fatalf("%s startup: invalid cache invalidation configuration", SERVICE_NAME)
 	}
 
 	rpcServer, err := zrpc.NewServer(config.RpcServerConf, func(server *grpc.Server) {
-		productpb.RegisterProductServiceServer(server, productserver.NewGRPCServer(productService, time.Duration(config.Timeout)*time.Millisecond))
+		productpb.RegisterProductServiceServer(server, productserver.NewGRPCServerWithReservations(productService, reservationService, time.Duration(config.Timeout)*time.Millisecond))
 	})
 	if err != nil {
 		log.Fatalf("%s create rpc server: %v", SERVICE_NAME, err)
@@ -120,6 +124,14 @@ func main() {
 		}()
 	}
 	rpcServer.Start()
+}
+
+func buildReservationService(db *sql.DB, detailCache catalog.DetailCache, config productServiceConfig) (*catalog.ReservationService, error) {
+	workerConfig := config.cacheInvalidationWorkerConfig()
+	if err := validateCacheInvalidationConfig(config.CacheInvalidation.DelayedDeleteDelay, workerConfig); err != nil {
+		return nil, err
+	}
+	return catalog.NewReservationService(catalog.NewReservationRepository(db), detailCache, time.Now, config.CacheInvalidation.DelayedDeleteDelay, workerConfig.CallTimeout)
 }
 
 type redisOptions struct {

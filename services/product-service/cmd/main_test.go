@@ -88,6 +88,18 @@ func TestBuildCatalogMutationComponentsSkipsRedisDegradedStartup(t *testing.T) {
 	}
 }
 
+func TestBuildReservationServiceUsesPersistentCatalogStore(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	service, err := buildReservationService(db, &fakeDetailCache{}, testProductServiceConfig())
+	if err != nil || service == nil {
+		t.Fatalf("buildReservationService() = %#v, %v", service, err)
+	}
+}
+
 func TestBuildCatalogMutationComponentsRejectsInvalidConfig(t *testing.T) {
 	db, _, err := sqlmock.New()
 	if err != nil {

@@ -12,11 +12,19 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// GRPCServer exposes read-only catalog APIs over the generated product contract.
+// GRPCServer exposes catalog APIs over the generated product contract.
 type GRPCServer struct {
 	productpb.UnimplementedProductServiceServer
-	service *catalog.ProductService
-	timeout time.Duration
+	service      *catalog.ProductService
+	reservations *catalog.ReservationService
+	timeout      time.Duration
+}
+
+// NewGRPCServerWithReservations constructs a server with catalog-owned inventory reservation operations.
+func NewGRPCServerWithReservations(service *catalog.ProductService, reservations *catalog.ReservationService, timeout time.Duration) *GRPCServer {
+	server := NewGRPCServer(service, timeout)
+	server.reservations = reservations
+	return server
 }
 
 func NewGRPCServer(service *catalog.ProductService, timeout time.Duration) *GRPCServer {
@@ -221,6 +229,8 @@ func toStatusError(err error) error {
 		return status.Error(codes.InvalidArgument, appErr.Message)
 	case apperror.NotFound:
 		return status.Error(codes.NotFound, appErr.Message)
+	case apperror.OutOfStock, apperror.IdempotencyConflict:
+		return status.Error(codes.FailedPrecondition, appErr.Message)
 	case apperror.DependencyTimeout:
 		return status.Error(codes.DeadlineExceeded, "dependency timeout")
 	default:

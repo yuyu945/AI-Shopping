@@ -32,9 +32,29 @@ func TestUserServiceRejectsInvalidInputs(t *testing.T) {
 	}
 }
 
+func TestUserServiceGetMyAddressReturnsOnlyOwnedAddress(t *testing.T) {
+	address := Address{ID: 12, AddressInput: AddressInput{ReceiverName: "Ada", ReceiverPhone: "13800138000", Province: "Zhejiang", City: "Hangzhou", District: "Xihu", Detail: "No. 1"}}
+	repo := &fakeRepository{address: func(_ context.Context, userID, addressID uint64) (Address, error) {
+		if userID != 7 || addressID != 12 {
+			return Address{}, &NotFoundError{Resource: "address"}
+		}
+		return address, nil
+	}}
+	svc := NewUserService(repo, fakeHasher{}, newTestManager(t), time.Now)
+	got, err := svc.GetMyAddress(context.Background(), 7, 12)
+	if err != nil || got != address {
+		t.Fatalf("GetMyAddress() = %#v, %v", got, err)
+	}
+	_, err = svc.GetMyAddress(context.Background(), 8, 12)
+	if err == nil {
+		t.Fatal("GetMyAddress() foreign user error = nil")
+	}
+}
+
 type fakeRepository struct {
-	create func(context.Context, string, string) (User, error)
-	find   func(context.Context, string) (User, error)
+	create  func(context.Context, string, string) (User, error)
+	find    func(context.Context, string) (User, error)
+	address func(context.Context, uint64, uint64) (Address, error)
 }
 
 func (f *fakeRepository) CreateUserWithProfile(ctx context.Context, email, hash string) (User, error) {
@@ -57,6 +77,12 @@ func (*fakeRepository) UpdateProfile(context.Context, uint64, ProfileUpdate) (Pr
 	return Profile{}, nil
 }
 func (*fakeRepository) ListAddresses(context.Context, uint64) ([]Address, error) { return nil, nil }
+func (f *fakeRepository) GetAddress(ctx context.Context, userID, addressID uint64) (Address, error) {
+	if f.address == nil {
+		return Address{}, &NotFoundError{Resource: "address"}
+	}
+	return f.address(ctx, userID, addressID)
+}
 func (*fakeRepository) CreateAddress(context.Context, uint64, AddressInput) (Address, error) {
 	return Address{}, nil
 }

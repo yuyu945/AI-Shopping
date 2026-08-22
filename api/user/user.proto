@@ -10,6 +10,7 @@ service UserService {
   rpc GetMyProfile(GetMyProfileRequest) returns (GetMyProfileResponse);
   rpc UpdateMyProfile(UpdateMyProfileRequest) returns (GetMyProfileResponse);
   rpc ListMyAddresses(ListMyAddressesRequest) returns (ListMyAddressesResponse);
+  rpc GetMyAddress(GetMyAddressRequest) returns (AddressResponse);
   rpc CreateMyAddress(CreateMyAddressRequest) returns (AddressResponse);
   rpc UpdateMyAddress(UpdateMyAddressRequest) returns (AddressResponse);
   rpc DeleteMyAddress(DeleteMyAddressRequest) returns (Empty);
@@ -57,6 +58,10 @@ message UserProfile {
 }
 
 message ListMyAddressesRequest {}
+
+message GetMyAddressRequest {
+  uint64 address_id = 1;
+}
 
 message ListMyAddressesResponse {
   repeated Address addresses = 1;

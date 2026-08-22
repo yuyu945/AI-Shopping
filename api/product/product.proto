@@ -7,6 +7,7 @@ option go_package = "github.com/yuyu945/AI-Shopping/services/product-service/gen
 service ProductService {
   rpc ListProducts(ListProductsRequest) returns (ListProductsResponse);
   rpc GetProduct(GetProductRequest) returns (GetProductResponse);
+  rpc CheckoutSKUs(CheckoutSKUsRequest) returns (CheckoutSKUsResponse);
 }
 
 message ListProductsRequest {
@@ -27,6 +28,25 @@ message ListProductsResponse {
 
 message GetProductResponse {
   Product product = 1;
+}
+
+message CheckoutSKUsRequest {
+  repeated uint64 sku_ids = 1;
+}
+
+message CheckoutSKUsResponse {
+  repeated CheckoutSKU skus = 1;
+}
+
+message CheckoutSKU {
+  uint64 product_id = 1;
+  uint64 sku_id = 2;
+  string product_title = 3;
+  string sku_code = 4;
+  bytes spec_json = 5;
+  string sale_price = 6;
+  bool saleable = 7;
+  repeated PromotionSummary promotions = 8;
 }
 
 message ProductSummary {

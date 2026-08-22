@@ -146,3 +146,55 @@ func TestRepositoryGetProductMapsNoRowsToNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRepositoryCheckoutSKUsPreservesInputOrderAndUsesOnePromotionQuery(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT ps.id, ps.product_id, p.title, ps.sku_code, ps.spec_json, ps.sale_price, CASE WHEN p.status = 'ACTIVE' AND p.deleted_at IS NULL AND ps.status = 'ACTIVE' THEN 1 ELSE 0 END FROM product_skus ps JOIN products p ON p.id = ps.product_id WHERE ps.id IN (?,?)")).
+		WithArgs(uint64(8), uint64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "product_id", "title", "sku_code", "spec_json", "sale_price", "saleable"}).
+			AddRow(uint64(7), uint64(10), "Keyboard", "KB-1", `{"layout":"75%"}`, "99.90", true).
+			AddRow(uint64(8), uint64(11), "Mouse", "MS-1", `{"color":"black"}`, "19.00", false))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT product_id, id, rule_type, threshold_amount, discount_amount FROM promotion_rules WHERE product_id IN (?,?) AND status = 'ACTIVE' AND start_at <= NOW(3) AND end_at > NOW(3) ORDER BY product_id ASC, id ASC")).
+		WithArgs(uint64(10), uint64(11)).
+		WillReturnRows(sqlmock.NewRows([]string{"product_id", "id", "rule_type", "threshold_amount", "discount_amount"}).
+			AddRow(uint64(10), uint64(20), "THRESHOLD", "100.00", "10.00"))
+
+	got, err := NewRepository(db).CheckoutSKUs(context.Background(), []uint64{8, 7, 8})
+	if err != nil {
+		t.Fatalf("CheckoutSKUs() error = %v", err)
+	}
+	if len(got) != 3 || got[0].SKUID != 8 || got[1].SKUID != 7 || got[2].SKUID != 8 || got[0].Saleable || len(got[1].Promotions) != 1 {
+		t.Fatalf("unexpected checkout snapshots: %#v", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRepositoryCheckoutSKUsRejectsMissingOrInvalidDecimalPrice(t *testing.T) {
+	for name, rows := range map[string]*sqlmock.Rows{
+		"missing sku":     sqlmock.NewRows([]string{"id", "product_id", "title", "sku_code", "spec_json", "sale_price", "saleable"}),
+		"invalid decimal": sqlmock.NewRows([]string{"id", "product_id", "title", "sku_code", "spec_json", "sale_price", "saleable"}).AddRow(uint64(7), uint64(10), "Keyboard", "KB-1", `{}`, "99.9", true),
+	} {
+		t.Run(name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			mock.ExpectQuery(regexp.QuoteMeta("SELECT ps.id, ps.product_id, p.title, ps.sku_code, ps.spec_json, ps.sale_price, CASE WHEN p.status = 'ACTIVE' AND p.deleted_at IS NULL AND ps.status = 'ACTIVE' THEN 1 ELSE 0 END FROM product_skus ps JOIN products p ON p.id = ps.product_id WHERE ps.id IN (?)")).WithArgs(uint64(7)).WillReturnRows(rows)
+			_, err = NewRepository(db).CheckoutSKUs(context.Background(), []uint64{7})
+			if err == nil {
+				t.Fatal("CheckoutSKUs() error = nil")
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

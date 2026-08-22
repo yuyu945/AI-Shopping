@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"regexp"
+	"sort"
 	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -28,6 +30,8 @@ type queryer interface {
 type Repository struct {
 	db queryer
 }
+
+var decimal12_2Pattern = regexp.MustCompile(`^[0-9]{1,10}\.[0-9]{2}$`)
 
 // NewRepository constructs a catalog repository backed by database/sql.
 func NewRepository(db queryer) *Repository {
@@ -174,6 +178,127 @@ func (r *Repository) GetProduct(ctx context.Context, productID uint64, optionalS
 		return ProductDetail{}, fmt.Errorf("iterate product promotions: %w", err)
 	}
 	return detail, nil
+}
+
+// CheckoutSKUs reads current checkout facts directly from MySQL. It does not
+// use cache-aware ProductService.GetProduct and does not claim inventory.
+func (r *Repository) CheckoutSKUs(ctx context.Context, skuIDs []uint64) ([]CheckoutSKU, error) {
+	if len(skuIDs) == 0 {
+		return nil, nil
+	}
+	queryIDs := uniqueSKUIds(skuIDs)
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(queryIDs)), ",")
+	args := make([]any, len(queryIDs))
+	for i, skuID := range queryIDs {
+		args[i] = skuID
+	}
+	query := "SELECT ps.id, ps.product_id, p.title, ps.sku_code, ps.spec_json, ps.sale_price, " +
+		"CASE WHEN p.status = 'ACTIVE' AND p.deleted_at IS NULL AND ps.status = 'ACTIVE' THEN 1 ELSE 0 END " +
+		"FROM product_skus ps JOIN products p ON p.id = ps.product_id WHERE ps.id IN (" + placeholders + ")"
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("checkout skus: %w", err)
+	}
+	defer rows.Close()
+	bySKU := make(map[uint64]CheckoutSKU, len(queryIDs))
+	for rows.Next() {
+		var row CheckoutSKU
+		var spec string
+		if err := rows.Scan(&row.SKUID, &row.ProductID, &row.ProductTitle, &row.SKUCode, &spec, &row.SalePrice, &row.Saleable); err != nil {
+			return nil, fmt.Errorf("scan checkout sku: %w", err)
+		}
+		row.SpecJSON = []byte(spec)
+		if !decimal12_2Pattern.MatchString(row.SalePrice) {
+			return nil, fmt.Errorf("invalid checkout sku price")
+		}
+		bySKU[row.SKUID] = row
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate checkout skus: %w", err)
+	}
+	productIDs := make([]uint64, 0, len(queryIDs))
+	seenProducts := make(map[uint64]struct{}, len(queryIDs))
+	for _, skuID := range skuIDs {
+		row, ok := bySKU[skuID]
+		if !ok {
+			return nil, &NotFoundError{Resource: "sku", ID: skuID}
+		}
+		if _, seen := seenProducts[row.ProductID]; !seen {
+			seenProducts[row.ProductID] = struct{}{}
+			productIDs = append(productIDs, row.ProductID)
+		}
+	}
+	sort.Slice(productIDs, func(i, j int) bool { return productIDs[i] < productIDs[j] })
+	promotions, err := r.checkoutPromotions(ctx, productIDs)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]CheckoutSKU, 0, len(skuIDs))
+	for _, skuID := range skuIDs {
+		row := bySKU[skuID]
+		row.Promotions = clonePromotions(promotions[row.ProductID])
+		result = append(result, row)
+	}
+	return result, nil
+}
+
+func (r *Repository) checkoutPromotions(ctx context.Context, productIDs []uint64) (map[uint64][]PromotionSummary, error) {
+	if len(productIDs) == 0 {
+		return map[uint64][]PromotionSummary{}, nil
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(productIDs)), ",")
+	args := make([]any, len(productIDs))
+	for i, productID := range productIDs {
+		args[i] = productID
+	}
+	query := "SELECT product_id, id, rule_type, threshold_amount, discount_amount FROM promotion_rules WHERE product_id IN (" + placeholders + ") AND status = 'ACTIVE' AND start_at <= NOW(3) AND end_at > NOW(3) ORDER BY product_id ASC, id ASC"
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("checkout promotions: %w", err)
+	}
+	defer rows.Close()
+	result := make(map[uint64][]PromotionSummary, len(productIDs))
+	for rows.Next() {
+		var productID uint64
+		var row PromotionSummary
+		var threshold, discount sql.NullString
+		if err := rows.Scan(&productID, &row.ID, &row.RuleType, &threshold, &discount); err != nil {
+			return nil, fmt.Errorf("scan checkout promotion: %w", err)
+		}
+		if threshold.Valid {
+			row.ThresholdAmount = &threshold.String
+		}
+		if discount.Valid {
+			row.DiscountAmount = &discount.String
+		}
+		result[productID] = append(result[productID], row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate checkout promotions: %w", err)
+	}
+	return result, nil
+}
+
+func uniqueSKUIds(skuIDs []uint64) []uint64 {
+	seen := make(map[uint64]struct{}, len(skuIDs))
+	result := make([]uint64, 0, len(skuIDs))
+	for _, skuID := range skuIDs {
+		if _, ok := seen[skuID]; ok {
+			continue
+		}
+		seen[skuID] = struct{}{}
+		result = append(result, skuID)
+	}
+	return result
+}
+
+func clonePromotions(promotions []PromotionSummary) []PromotionSummary {
+	result := append([]PromotionSummary(nil), promotions...)
+	for i := range result {
+		result[i].ThresholdAmount = cloneStringPtr(promotions[i].ThresholdAmount)
+		result[i].DiscountAmount = cloneStringPtr(promotions[i].DiscountAmount)
+	}
+	return result
 }
 
 func normalizePage(page, pageSize int) (int, int) {

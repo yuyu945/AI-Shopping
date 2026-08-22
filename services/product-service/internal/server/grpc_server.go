@@ -67,6 +67,36 @@ func (s *GRPCServer) GetProduct(ctx context.Context, req *productpb.GetProductRe
 	return &productpb.GetProductResponse{Product: mapProductDetail(detail)}, nil
 }
 
+func (s *GRPCServer) CheckoutSKUs(ctx context.Context, req *productpb.CheckoutSKUsRequest) (*productpb.CheckoutSKUsResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	items, err := s.service.CheckoutSKUs(callCtx, req.GetSkuIds())
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	out := &productpb.CheckoutSKUsResponse{Skus: make([]*productpb.CheckoutSKU, 0, len(items))}
+	for _, item := range items {
+		mapped := &productpb.CheckoutSKU{ProductId: item.ProductID, SkuId: item.SKUID, ProductTitle: item.ProductTitle, SkuCode: item.SKUCode, SpecJson: append([]byte(nil), item.SpecJSON...), SalePrice: item.SalePrice, Saleable: item.Saleable}
+		for _, promotion := range item.Promotions {
+			value := &productpb.PromotionSummary{PromotionId: promotion.ID, RuleType: promotion.RuleType}
+			if promotion.ThresholdAmount != nil {
+				x := *promotion.ThresholdAmount
+				value.ThresholdAmount = &x
+			}
+			if promotion.DiscountAmount != nil {
+				x := *promotion.DiscountAmount
+				value.DiscountAmount = &x
+			}
+			mapped.Promotions = append(mapped.Promotions, value)
+		}
+		out.Skus = append(out.Skus, mapped)
+	}
+	return out, nil
+}
+
 func (s *GRPCServer) withTimeout(ctx context.Context, fn func(context.Context) (catalog.ProductDetailDTO, error)) (catalog.ProductDetailDTO, error) {
 	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()

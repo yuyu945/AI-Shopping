@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -12,10 +13,18 @@ import (
 )
 
 type fakeProductRepository struct {
-	listFn func(context.Context, ProductFilter) ([]ProductSummary, error)
-	getFn  func(context.Context, uint64, *uint64) (ProductDetail, error)
-	listN  int
-	getN   int
+	listFn     func(context.Context, ProductFilter) ([]ProductSummary, error)
+	getFn      func(context.Context, uint64, *uint64) (ProductDetail, error)
+	checkoutFn func(context.Context, []uint64) ([]CheckoutSKU, error)
+	listN      int
+	getN       int
+}
+
+func (f *fakeProductRepository) CheckoutSKUs(ctx context.Context, skuIDs []uint64) ([]CheckoutSKU, error) {
+	if f.checkoutFn == nil {
+		return nil, errors.New("checkout not configured")
+	}
+	return f.checkoutFn(ctx, skuIDs)
 }
 
 func (f *fakeProductRepository) ListProducts(ctx context.Context, filter ProductFilter) ([]ProductSummary, error) {
@@ -208,5 +217,52 @@ func TestProductServiceRepositoryFailureDoesNotWriteCache(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "password=secret") {
 		t.Fatalf("error leaked repository detail: %v", err)
+	}
+}
+
+func TestProductServiceCheckoutSKUsBypassesDetailCache(t *testing.T) {
+	cache := newFakeDetailCache()
+	repo := &fakeProductRepository{checkoutFn: func(_ context.Context, ids []uint64) ([]CheckoutSKU, error) {
+		if len(ids) != 1 || ids[0] != 7 {
+			t.Fatalf("sku ids = %v", ids)
+		}
+		return []CheckoutSKU{{ProductID: 10, SKUID: 7, ProductTitle: "Keyboard", SKUCode: "KB-1", SpecJSON: []byte(`{}`), SalePrice: "99.00", Saleable: true}}, nil
+	}}
+	got, err := NewProductService(repo, cache).CheckoutSKUs(context.Background(), []uint64{7})
+	if err != nil || len(got) != 1 || got[0].SalePrice != "99.00" {
+		t.Fatalf("CheckoutSKUs() = %#v, %v", got, err)
+	}
+	if len(cache.gets) != 0 || repo.getN != 0 {
+		t.Fatalf("checkout used detail cache or GetProduct: cache=%v getN=%d", cache.gets, repo.getN)
+	}
+}
+
+func TestProductServiceCheckoutSKUsPreservesCallerOrderAndClonesSnapshots(t *testing.T) {
+	threshold := "100.00"
+	repo := &fakeProductRepository{checkoutFn: func(_ context.Context, ids []uint64) ([]CheckoutSKU, error) {
+		if got, want := ids, []uint64{8, 7}; !slices.Equal(got, want) {
+			t.Fatalf("repository ids = %v, want %v", got, want)
+		}
+		return []CheckoutSKU{{SKUID: 8, SalePrice: "19.00"}, {SKUID: 7, SalePrice: "99.90", SpecJSON: []byte(`{}`), Promotions: []PromotionSummary{{ID: 20, ThresholdAmount: &threshold}}}}, nil
+	}}
+	got, err := NewProductService(repo, newFakeDetailCache()).CheckoutSKUs(context.Background(), []uint64{8, 7, 8})
+	if err != nil || len(got) != 3 || got[0].SKUID != 8 || got[1].SKUID != 7 || got[2].SKUID != 8 {
+		t.Fatalf("CheckoutSKUs() = %#v, %v", got, err)
+	}
+	got[1].SpecJSON[0] = '['
+	*got[1].Promotions[0].ThresholdAmount = "0.00"
+	if got[2].SKUID != 8 || threshold != "100.00" {
+		t.Fatalf("CheckoutSKUs() did not clone snapshot: %#v", got)
+	}
+}
+
+func TestProductServiceCheckoutSKUsMapsMissingSKUToStableNotFound(t *testing.T) {
+	repo := &fakeProductRepository{checkoutFn: func(context.Context, []uint64) ([]CheckoutSKU, error) {
+		return nil, &NotFoundError{Resource: "sku", ID: 404}
+	}}
+	_, err := NewProductService(repo, nil).CheckoutSKUs(context.Background(), []uint64{404})
+	var appErr *apperror.Error
+	if !errors.As(err, &appErr) || appErr.Code != apperror.NotFound || appErr.Message != "checkout sku not found" {
+		t.Fatalf("CheckoutSKUs() error = %v", err)
 	}
 }

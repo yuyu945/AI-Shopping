@@ -2,10 +2,10 @@
 
 ## 1. 使用方式
 
-- 当前阶段：M1 已完成；下一里程碑为 M2 交易闭环与一致性，M2-M6 尚未开始。
+- 当前阶段：M2.1 已完成；下一里程碑为 M2.2 余额支付与库存预留 Saga。
 - 任务按依赖顺序执行；每完成一个里程碑，先运行其验证命令、检查文档同步，再创建一个聚焦 commit。
 - 所有实现必须遵守 [AGENTS.md](../AGENTS.md)、[PRD.md](PRD.md)、[architecture.md](architecture.md)、[interaction.md](interaction.md) 和 [MVP 设计文档](智选购-ai导购-mvp-design.md)。设计与实现不一致时，先更新设计并说明取舍。
-- 状态标记：`[ ]` 未开始，`[-]` 进行中，`[x]` 已完成，`[!]` 受阻。M1.1、M1.2 已完成；M2-M6 尚未开始。
+- 状态标记：`[ ]` 未开始，`[-]` 进行中，`[x]` 已完成，`[!]` 受阻。M1.1、M1.2、M2.1 已完成；M2.2-M6 尚未开始。
 
 ## 2. 里程碑总览
 
@@ -41,18 +41,19 @@
 
 ## 4. M2：交易闭环与一致性
 
-### M2.1 购物车与订单快照
+### M2.1 购物车与订单快照（已完成）
 
-- [ ] 创建购物车、购物车项、订单、订单项、钱包账户、钱包流水和 Outbox 迁移，金额字段统一为 `DECIMAL(12,2)`。
-- [ ] 实现购物车增改删和用户隔离。
-- [ ] 为建单新增受保护的地址快照与 Checkout SKU Snapshot gRPC 契约：地址由 `user-service` 从 JWT 校验归属；商品由 `product-service` 直读 MySQL 返回 SKU 上架状态、价格、规格和优惠快照，禁止通过订单服务直连其他 schema 或复用 Redis 商品详情缓存。
-- [ ] 实现创建订单 API：校验地址和购物车，按 `(user_id, request_id)` 生成幂等的 `PENDING_PAYMENT` 订单，写商品、规格、价格、优惠和地址快照。
-- [ ] 对订单列表与详情只使用订单快照展示，不回填当前商品字段。
+- [x] 创建购物车、购物车项、订单和订单项迁移，金额字段统一为 `DECIMAL(12,2)`。
+- [x] 实现购物车增改删和用户隔离。
+- [x] 为建单新增受保护的地址快照与 Checkout SKU Snapshot gRPC 契约：地址由 `user-service` 从 JWT 校验归属；商品由 `product-service` 直读 MySQL 返回 SKU 上架状态、价格、规格和优惠快照，禁止通过订单服务直连其他 schema 或复用 Redis 商品详情缓存。
+- [x] 实现创建订单 API：校验地址和购物车，按 `(user_id, request_id)` 生成幂等的 `PENDING_PAYMENT` 订单，写商品、规格、价格、优惠和地址快照。
+- [x] 对订单列表与详情只使用订单快照展示，不回填当前商品字段。
 
-测试：空购物车、非本人地址、重复 `request_id`、商品下架、订单快照在商品变更后仍保持不变。
+测试：unit tests 覆盖空购物车、非本人地址、重复 `request_id`、商品下架和订单快照；真实 MySQL repository/service integration 覆盖购物车增改删、非本人地址、重复 `request_id` 重放和商品变更后的订单快照不变。
 
 ### M2.2 余额支付与库存预留 Saga
 
+- [ ] 创建钱包账户、钱包流水、支付尝试、库存预留、Outbox 和消费幂等迁移，金额字段统一为 `DECIMAL(12,2)`。
 - [ ] 在订单本地 transaction 中用 `PENDING_PAYMENT -> PAYMENT_PROCESSING` 原子认领支付，并持久化 `payment_attempt_id`、`reservation_id` 与开始时间；重复支付返回已支付结果或稳定的 `PAYMENT_IN_PROGRESS`。
 - [ ] 由 `product-service` 实现 `ReserveStock`、`ConfirmReservation`、`ReleaseReservation`：在 `catalog_db` transaction 内按 SKU 条件更新库存并写 `inventory_reservations`，任一 SKU 失败时全部回滚。`reservation_id + sku_id` 保障重试幂等。
 - [ ] 在 `trade_db` transaction 内锁定匹配支付尝试和钱包，校验余额、写钱包流水、更新订单为 `PAID`，并写 `inventory.reservation.confirm` Outbox；该 transaction 不得访问 `catalog_db`。

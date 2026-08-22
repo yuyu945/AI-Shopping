@@ -15,6 +15,19 @@ M1 已完成：Go-zero Gateway 与五个服务启动骨架、共享运行时基�
 
 可在 disposable Compose 环境验证 M1 到 M2.1 升级。设置本地临时 `MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD` 后运行：`$env:AI_SHOPPING_TRADE_MIGRATION_INTEGRATION='1'; pwsh -File scripts/test_trade_migration_integration.ps1 -MySQLPort 33306`。脚本使用 UUID project、清空仅 M1 的 `trade_db` 状态，连续升级两次并验证版本、表、FK、金额列和 CHECK；未设置 opt-in guard 时会显式跳过且不写入。
 
+## M2.1 购物车与订单快照集成验证
+
+订单快照 integration harness 只启动专用 MySQL Compose project，并在 repository/service 层验证购物车增改删、非本人地址拒绝、重复 `request_id` 重放，以及商品标题和价格变更后订单快照保持不变。它不启动 Gateway 或三服务 gRPC，因此不能作为 HTTP 端到端验证的替代。
+
+设置临时本地 `MYSQL_PASSWORD` 和 `MYSQL_ROOT_PASSWORD` 后显式运行：
+
+```powershell
+$env:AI_SHOPPING_ORDER_SNAPSHOT_INTEGRATION = '1'
+pwsh -File scripts/test_order_snapshot_integration.ps1 -MySQLPort 3310
+```
+
+未设置 `AI_SHOPPING_ORDER_SNAPSHOT_INTEGRATION=1` 时，harness 输出 `SKIP` 且不连接 Docker 或 MySQL。实际运行使用固定项目 `m21orderverify`、随机 UUID `run_id` 和 `trade_db.order_snapshot_integration_guards`；测试只接受 `trade_db` DSN、校验 guard 后才写入。脚本不会通过命令行传递凭证，运行结束会精确删除 Compose 容器、volume、network 及测试 fixture，并恢复其修改的 process environment。
+
 Compose 宿主端口默认只绑定 `127.0.0.1`。如果本机 `6379` 已被占用，可用 `REDIS_PORT=6380` 启动，并将应用连接地址同步为 `localhost:6380`；容器网络内仍使用 `redis:6379`。
 
 ## M1.2 商品与用户读链路

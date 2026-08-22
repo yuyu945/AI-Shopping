@@ -69,13 +69,17 @@ func (r *MySQLRepository) ClaimPayment(ctx context.Context, userID uint64, order
 	return order, nil
 }
 
-// ResetPaymentClaim clears only the exact durable claim after an explicit non-paid outcome.
-func (r *MySQLRepository) ResetPaymentClaim(ctx context.Context, userID uint64, orderNo string, attempt PaymentAttempt) error {
-	_, err := r.db.ExecContext(ctx, resetPaymentOrder, PendingPayment, userID, orderNo, PaymentProcessing, attempt.ID, attempt.ReservationID)
+// ResetPaymentClaim clears only the exact durable claim and reports whether its CAS applied.
+func (r *MySQLRepository) ResetPaymentClaim(ctx context.Context, userID uint64, orderNo string, attempt PaymentAttempt) (bool, error) {
+	result, err := r.db.ExecContext(ctx, resetPaymentOrder, PendingPayment, userID, orderNo, PaymentProcessing, attempt.ID, attempt.ReservationID)
 	if err != nil {
-		return fmt.Errorf("reset payment claim: %w", err)
+		return false, fmt.Errorf("reset payment claim: %w", err)
 	}
-	return nil
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("read reset payment claim rows: %w", err)
+	}
+	return rows == 1, nil
 }
 
 // SettleWalletPayment atomically debits the locked wallet, writes one ledger, marks PAID, and records confirmation.

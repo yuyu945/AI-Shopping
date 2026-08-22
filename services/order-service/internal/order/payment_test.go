@@ -11,14 +11,14 @@ import (
 
 type fakePaymentRepository struct {
 	claim  func(context.Context, uint64, string, PaymentAttempt) (Order, error)
-	reset  func(context.Context, uint64, string, PaymentAttempt) error
+	reset  func(context.Context, uint64, string, PaymentAttempt) (bool, error)
 	settle func(context.Context, uint64, string, PaymentAttempt) (Order, error)
 }
 
 func (r fakePaymentRepository) ClaimPayment(ctx context.Context, userID uint64, orderNo string, attempt PaymentAttempt) (Order, error) {
 	return r.claim(ctx, userID, orderNo, attempt)
 }
-func (r fakePaymentRepository) ResetPaymentClaim(ctx context.Context, userID uint64, orderNo string, attempt PaymentAttempt) error {
+func (r fakePaymentRepository) ResetPaymentClaim(ctx context.Context, userID uint64, orderNo string, attempt PaymentAttempt) (bool, error) {
 	return r.reset(ctx, userID, orderNo, attempt)
 }
 func (r fakePaymentRepository) SettleWalletPayment(ctx context.Context, userID uint64, orderNo string, attempt PaymentAttempt) (Order, error) {
@@ -28,6 +28,7 @@ func (r fakePaymentRepository) SettleWalletPayment(ctx context.Context, userID u
 type fakeReservations struct {
 	reserve func(context.Context, ReserveRequest) (Reservation, error)
 	release func(context.Context, string) error
+	get     func(context.Context, string) (Reservation, error)
 }
 
 func (r fakeReservations) ReserveStock(ctx context.Context, request ReserveRequest) (Reservation, error) {
@@ -36,15 +37,21 @@ func (r fakeReservations) ReserveStock(ctx context.Context, request ReserveReque
 func (r fakeReservations) ReleaseReservation(ctx context.Context, reservationID string) error {
 	return r.release(ctx, reservationID)
 }
+func (r fakeReservations) GetReservation(ctx context.Context, reservationID string) (Reservation, error) {
+	if r.get == nil {
+		return Reservation{}, errors.New("get reservation not configured")
+	}
+	return r.get(ctx, reservationID)
+}
 
 func TestPayWalletReturnsPreviouslyPaidOrderWithoutReservingAgain(t *testing.T) {
 	paid := Order{OrderNo: "order-1", Status: Paid, PaidAmount: "12.00"}
 	reservationsCalled := false
 	service := NewPaymentService(fakePaymentRepository{
 		claim: func(context.Context, uint64, string, PaymentAttempt) (Order, error) { return paid, nil },
-		reset: func(context.Context, uint64, string, PaymentAttempt) error {
+		reset: func(context.Context, uint64, string, PaymentAttempt) (bool, error) {
 			t.Fatal("ResetPaymentClaim must not be called")
-			return nil
+			return false, nil
 		},
 		settle: func(context.Context, uint64, string, PaymentAttempt) (Order, error) {
 			t.Fatal("SettleWalletPayment must not be called")
@@ -72,9 +79,9 @@ func TestPayWalletResetsMatchingClaimAfterOutOfStock(t *testing.T) {
 			}
 			return claimed, nil
 		},
-		reset: func(_ context.Context, _ uint64, _ string, got PaymentAttempt) error {
+		reset: func(_ context.Context, _ uint64, _ string, got PaymentAttempt) (bool, error) {
 			reset = got == attempt
-			return nil
+			return true, nil
 		},
 		settle: func(context.Context, uint64, string, PaymentAttempt) (Order, error) {
 			t.Fatal("SettleWalletPayment must not be called")
@@ -96,6 +103,32 @@ func TestPayWalletResetsMatchingClaimAfterOutOfStock(t *testing.T) {
 	}
 }
 
+func TestPayWalletPreservesConcurrentSettlementAfterOutOfStock(t *testing.T) {
+	attempt := PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}
+	service := NewPaymentService(fakePaymentRepository{
+		claim: func(context.Context, uint64, string, PaymentAttempt) (Order, error) {
+			return Order{OrderNo: "order-1", Status: PaymentProcessing, Payment: attempt, Items: []OrderItem{{SKUID: 101, Quantity: 2}}}, nil
+		},
+		reset: func(context.Context, uint64, string, PaymentAttempt) (bool, error) {
+			return false, nil // Another caller has already settled the matching claim.
+		},
+		settle: func(context.Context, uint64, string, PaymentAttempt) (Order, error) {
+			t.Fatal("SettleWalletPayment must not be called")
+			return Order{}, nil
+		},
+	}, fakeReservations{reserve: func(context.Context, ReserveRequest) (Reservation, error) {
+		return Reservation{}, apperror.New(apperror.OutOfStock, "requested inventory is unavailable")
+	}, release: func(context.Context, string) error {
+		t.Fatal("release must not be called when reserve failed atomically")
+		return nil
+	}}, fixedPaymentIDs(), time.Minute)
+
+	_, err := service.PayWallet(context.Background(), 7, "order-1")
+	if !IsCode(err, PaymentInProgress) {
+		t.Fatalf("PayWallet error = %v", err)
+	}
+}
+
 func TestPayWalletPreservesProcessingAttemptWhenReservationTimesOut(t *testing.T) {
 	attempt := PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}
 	reset := false
@@ -103,7 +136,7 @@ func TestPayWalletPreservesProcessingAttemptWhenReservationTimesOut(t *testing.T
 		claim: func(context.Context, uint64, string, PaymentAttempt) (Order, error) {
 			return Order{OrderNo: "order-1", Status: PaymentProcessing, Payment: attempt, Items: []OrderItem{{SKUID: 101, Quantity: 2}}}, nil
 		},
-		reset: func(context.Context, uint64, string, PaymentAttempt) error { reset = true; return nil },
+		reset: func(context.Context, uint64, string, PaymentAttempt) (bool, error) { reset = true; return true, nil },
 		settle: func(context.Context, uint64, string, PaymentAttempt) (Order, error) {
 			t.Fatal("SettleWalletPayment must not be called")
 			return Order{}, nil
@@ -125,9 +158,9 @@ func TestPayWalletReleasesReservationAfterInsufficientBalance(t *testing.T) {
 		claim: func(context.Context, uint64, string, PaymentAttempt) (Order, error) {
 			return Order{OrderNo: "order-1", Status: PaymentProcessing, Payment: attempt, Items: []OrderItem{{SKUID: 101, Quantity: 2}}}, nil
 		},
-		reset: func(_ context.Context, _ uint64, _ string, got PaymentAttempt) error {
+		reset: func(_ context.Context, _ uint64, _ string, got PaymentAttempt) (bool, error) {
 			reset = got == attempt
-			return nil
+			return true, nil
 		},
 		settle: func(context.Context, uint64, string, PaymentAttempt) (Order, error) {
 			return Order{}, ErrInsufficientBalance
@@ -145,6 +178,58 @@ func TestPayWalletReleasesReservationAfterInsufficientBalance(t *testing.T) {
 	}
 }
 
+func TestPayWalletDoesNotReleaseReservationWhenBalanceResetLosesClaim(t *testing.T) {
+	attempt := PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}
+	released := false
+	service := NewPaymentService(fakePaymentRepository{
+		claim: func(context.Context, uint64, string, PaymentAttempt) (Order, error) {
+			return Order{OrderNo: "order-1", Status: PaymentProcessing, Payment: attempt, Items: []OrderItem{{SKUID: 101, Quantity: 2}}}, nil
+		},
+		reset: func(context.Context, uint64, string, PaymentAttempt) (bool, error) {
+			return false, nil // A concurrent settlement has already moved this exact claim to PAID.
+		},
+		settle: func(context.Context, uint64, string, PaymentAttempt) (Order, error) {
+			return Order{}, ErrInsufficientBalance
+		},
+	}, fakeReservations{reserve: func(context.Context, ReserveRequest) (Reservation, error) {
+		return Reservation{ReservationID: attempt.ReservationID, Status: ReservationReserved}, nil
+	}, release: func(context.Context, string) error {
+		released = true
+		return nil
+	}}, fixedPaymentIDs(), time.Minute)
+
+	_, err := service.PayWallet(context.Background(), 7, "order-1")
+	if !IsCode(err, PaymentInProgress) || released {
+		t.Fatalf("PayWallet error = %v, released=%v", err, released)
+	}
+}
+
+func TestPayWalletDoesNotReleaseReservationWhenBalanceResetFails(t *testing.T) {
+	attempt := PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}
+	released := false
+	service := NewPaymentService(fakePaymentRepository{
+		claim: func(context.Context, uint64, string, PaymentAttempt) (Order, error) {
+			return Order{OrderNo: "order-1", Status: PaymentProcessing, Payment: attempt, Items: []OrderItem{{SKUID: 101, Quantity: 2}}}, nil
+		},
+		reset: func(context.Context, uint64, string, PaymentAttempt) (bool, error) {
+			return false, errors.New("database unavailable")
+		},
+		settle: func(context.Context, uint64, string, PaymentAttempt) (Order, error) {
+			return Order{}, ErrInsufficientBalance
+		},
+	}, fakeReservations{reserve: func(context.Context, ReserveRequest) (Reservation, error) {
+		return Reservation{ReservationID: attempt.ReservationID, Status: ReservationReserved}, nil
+	}, release: func(context.Context, string) error {
+		released = true
+		return nil
+	}}, fixedPaymentIDs(), time.Minute)
+
+	_, err := service.PayWallet(context.Background(), 7, "order-1")
+	if !IsCode(err, Internal) || released {
+		t.Fatalf("PayWallet error = %v, released=%v", err, released)
+	}
+}
+
 func TestPayWalletDoesNotSettleUnexpectedReservationResponse(t *testing.T) {
 	attempt := PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}
 	settled := false
@@ -152,9 +237,9 @@ func TestPayWalletDoesNotSettleUnexpectedReservationResponse(t *testing.T) {
 		claim: func(context.Context, uint64, string, PaymentAttempt) (Order, error) {
 			return Order{OrderNo: "order-1", Status: PaymentProcessing, Payment: attempt, Items: []OrderItem{{SKUID: 101, Quantity: 1}}}, nil
 		},
-		reset: func(context.Context, uint64, string, PaymentAttempt) error {
+		reset: func(context.Context, uint64, string, PaymentAttempt) (bool, error) {
 			t.Fatal("unexpected response must remain recoverable")
-			return nil
+			return false, nil
 		},
 		settle: func(context.Context, uint64, string, PaymentAttempt) (Order, error) {
 			settled = true

@@ -19,7 +19,11 @@ var (
 // ReservationStatus is the product-owned state returned for a reservation group.
 type ReservationStatus string
 
-const ReservationReserved ReservationStatus = "RESERVED"
+const (
+	ReservationReserved  ReservationStatus = "RESERVED"
+	ReservationConfirmed ReservationStatus = "CONFIRMED"
+	ReservationReleased  ReservationStatus = "RELEASED"
+)
 
 // ReservationItem is an immutable SKU quantity copied from an order snapshot.
 type ReservationItem struct {
@@ -38,20 +42,27 @@ type ReserveRequest struct {
 
 // Reservation is the minimal product-owned response required for local settlement.
 type Reservation struct {
-	ReservationID string
-	Status        ReservationStatus
+	ReservationID    string
+	OrderNo          string
+	PaymentAttemptID string
+	Status           ReservationStatus
+	ExpiresAt        time.Time
+	ConfirmedAt      *time.Time
+	ReleasedAt       *time.Time
+	Items            []ReservationItem
 }
 
 // ReservationClient is an adapter boundary; its gRPC implementation belongs to the transport task.
 type ReservationClient interface {
 	ReserveStock(context.Context, ReserveRequest) (Reservation, error)
 	ReleaseReservation(context.Context, string) error
+	GetReservation(context.Context, string) (Reservation, error)
 }
 
 // PaymentRepository owns all order-service database transitions used by wallet payment.
 type PaymentRepository interface {
 	ClaimPayment(context.Context, uint64, string, PaymentAttempt) (Order, error)
-	ResetPaymentClaim(context.Context, uint64, string, PaymentAttempt) error
+	ResetPaymentClaim(context.Context, uint64, string, PaymentAttempt) (bool, error)
 	SettleWalletPayment(context.Context, uint64, string, PaymentAttempt) (Order, error)
 }
 
@@ -112,8 +123,12 @@ func (s *PaymentService) PayWallet(ctx context.Context, userID uint64, orderNo s
 	reservation, err := s.reservations.ReserveStock(ctx, request)
 	if err != nil {
 		if isOutOfStock(err) {
-			if resetErr := s.repository.ResetPaymentClaim(ctx, userID, order.OrderNo, attempt); resetErr != nil {
+			reset, resetErr := s.repository.ResetPaymentClaim(ctx, userID, order.OrderNo, attempt)
+			if resetErr != nil {
 				return Order{}, paymentRepositoryError(resetErr)
+			}
+			if !reset {
+				return Order{}, &Error{Code: PaymentInProgress, Message: "payment is in progress"}
 			}
 			return Order{}, &Error{Code: OutOfStock, Message: "requested inventory is unavailable"}
 		}
@@ -127,11 +142,14 @@ func (s *PaymentService) PayWallet(ctx context.Context, userID uint64, orderNo s
 		return settled, nil
 	}
 	if errors.Is(err, ErrInsufficientBalance) {
-		resetErr := s.repository.ResetPaymentClaim(ctx, userID, order.OrderNo, attempt)
-		_ = s.reservations.ReleaseReservation(ctx, attempt.ReservationID)
+		reset, resetErr := s.repository.ResetPaymentClaim(ctx, userID, order.OrderNo, attempt)
 		if resetErr != nil {
 			return Order{}, paymentRepositoryError(resetErr)
 		}
+		if !reset {
+			return Order{}, &Error{Code: PaymentInProgress, Message: "payment is in progress"}
+		}
+		_ = s.reservations.ReleaseReservation(ctx, attempt.ReservationID)
 		return Order{}, &Error{Code: InsufficientBalance, Message: "wallet balance is insufficient"}
 	}
 	return Order{}, paymentRepositoryError(err)

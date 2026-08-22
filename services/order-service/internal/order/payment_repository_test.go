@@ -78,6 +78,44 @@ func TestMySQLPaymentRepositoryClaimRejectsConcurrentProcessingPayment(t *testin
 	}
 }
 
+func TestMySQLPaymentRepositoryResetPaymentClaimReportsWhetherExactClaimChanged(t *testing.T) {
+	cases := []struct {
+		name    string
+		rows    int64
+		err     error
+		reset   bool
+		wantErr bool
+	}{
+		{name: "exact claim reset", rows: 1, reset: true},
+		{name: "claim was settled concurrently", rows: 0, reset: false},
+		{name: "database failure", err: errors.New("database unavailable"), wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			attempt := PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}
+			expect := mock.ExpectExec(regexp.QuoteMeta(resetPaymentOrder)).WithArgs(PendingPayment, uint64(7), "order-1", PaymentProcessing, attempt.ID, attempt.ReservationID)
+			if tc.err != nil {
+				expect.WillReturnError(tc.err)
+			} else {
+				expect.WillReturnResult(sqlmock.NewResult(0, tc.rows))
+			}
+
+			reset, err := NewMySQLRepository(db).ResetPaymentClaim(context.Background(), 7, "order-1", attempt)
+			if (err != nil) != tc.wantErr || reset != tc.reset {
+				t.Fatalf("ResetPaymentClaim() = %v, %v; want %v, error=%v", reset, err, tc.reset, tc.wantErr)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestMySQLPaymentRepositoryRollsBackWhenLedgerOrOutboxWriteFails(t *testing.T) {
 	cases := []struct {
 		name      string

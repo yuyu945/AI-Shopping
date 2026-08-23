@@ -11,8 +11,16 @@ import (
 
 const queryNextDocumentVersion = `SELECT COALESCE(MAX(version), 0) + 1 FROM knowledge_documents WHERE product_id = ? AND doc_type = ?`
 const queryDocumentBySourceHash = `SELECT id, document_no, product_id, doc_type, version, object_key, source_hash, file_name, content_type, file_size_bytes, status, created_by_user_id, created_at, updated_at FROM knowledge_documents WHERE product_id = ? AND doc_type = ? AND source_hash = ?`
+const queryDocumentByNo = `SELECT id, document_no, product_id, doc_type, version, object_key, source_hash, file_name, content_type, file_size_bytes, status, created_by_user_id, created_at, updated_at FROM knowledge_documents WHERE document_no = ?`
 const insertKnowledgeDocument = `INSERT INTO knowledge_documents (document_no, product_id, doc_type, version, object_key, source_hash, file_name, content_type, file_size_bytes, status, created_by_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`
 const insertKnowledgeOutbox = `INSERT INTO outbox_events (event_id, aggregate_type, aggregate_id, event_type, topic, event_key, payload) VALUES (?, ?, ?, ?, ?, ?, CAST(? AS JSON))`
+const insertKnowledgeConsumption = `INSERT IGNORE INTO event_consumptions (event_id, consumer_group, status) VALUES (?, ?, 'PROCESSING')`
+const queryKnowledgeConsumptionStatus = `SELECT status FROM event_consumptions WHERE event_id = ? AND consumer_group = ?`
+const updateKnowledgeConsumptionSucceeded = `UPDATE event_consumptions SET status = 'SUCCEEDED', consumed_at = CURRENT_TIMESTAMP(3) WHERE event_id = ? AND consumer_group = ?`
+const updateKnowledgeDocumentProcessing = `UPDATE knowledge_documents SET status = 'PROCESSING', error_code = NULL, error_message = NULL WHERE id = ? AND status IN ('PENDING','PROCESSING')`
+const updateKnowledgeDocumentFailed = `UPDATE knowledge_documents SET status = 'FAILED', error_code = ?, error_message = ?, processed_at = CURRENT_TIMESTAMP(3), is_current_ready = 0 WHERE id = ?`
+const insertKnowledgeChunk = `INSERT INTO knowledge_chunks (document_id, product_id, doc_type, version, chunk_index, section, source_page, content, content_hash, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_EMBEDDING') ON DUPLICATE KEY UPDATE section = VALUES(section), source_page = VALUES(source_page), content = VALUES(content), content_hash = VALUES(content_hash), status = IF(status = 'EMBEDDED', status, VALUES(status))`
+const updateKnowledgeDocumentChunkCount = `UPDATE knowledge_documents SET chunk_count = ? WHERE id = ?`
 
 type MySQLRepository struct {
 	db *sql.DB
@@ -39,6 +47,54 @@ func (r *MySQLRepository) FindDocumentBySourceHash(ctx context.Context, productI
 		return Document{}, fmt.Errorf("read document by source hash: %w", err)
 	}
 	return document, nil
+}
+
+func (r *MySQLRepository) FindDocumentByNo(ctx context.Context, documentNo string) (Document, error) {
+	document, err := scanDocument(r.db.QueryRowContext(ctx, queryDocumentByNo, documentNo))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Document{}, ErrDocumentNotFound
+	}
+	if err != nil {
+		return Document{}, fmt.Errorf("read document by number: %w", err)
+	}
+	return document, nil
+}
+
+func (r *MySQLRepository) StartConsumption(ctx context.Context, eventID, consumerGroup string) (ConsumptionDecision, error) {
+	result, err := r.db.ExecContext(ctx, insertKnowledgeConsumption, eventID, consumerGroup)
+	if err != nil {
+		return ConsumptionDecision{}, fmt.Errorf("insert event consumption: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return ConsumptionDecision{}, fmt.Errorf("read event consumption insert count: %w", err)
+	}
+	if rows == 1 {
+		return ConsumptionDecision{}, nil
+	}
+	var status string
+	if err := r.db.QueryRowContext(ctx, queryKnowledgeConsumptionStatus, eventID, consumerGroup).Scan(&status); err != nil {
+		return ConsumptionDecision{}, fmt.Errorf("read event consumption status: %w", err)
+	}
+	if status == "SUCCEEDED" {
+		return ConsumptionDecision{AlreadySucceeded: true}, nil
+	}
+	return ConsumptionDecision{}, errors.New("event consumption is already processing")
+}
+
+func (r *MySQLRepository) MarkConsumptionSucceeded(ctx context.Context, eventID, consumerGroup string) error {
+	result, err := r.db.ExecContext(ctx, updateKnowledgeConsumptionSucceeded, eventID, consumerGroup)
+	return requireSingleRow(result, err, "mark event consumption succeeded")
+}
+
+func (r *MySQLRepository) MarkDocumentProcessing(ctx context.Context, documentID uint64) error {
+	result, err := r.db.ExecContext(ctx, updateKnowledgeDocumentProcessing, documentID)
+	return requireSingleRow(result, err, "mark document processing")
+}
+
+func (r *MySQLRepository) MarkDocumentFailed(ctx context.Context, documentID uint64, code, message string) error {
+	result, err := r.db.ExecContext(ctx, updateKnowledgeDocumentFailed, code, message, documentID)
+	return requireSingleRow(result, err, "mark document failed")
 }
 
 func (r *MySQLRepository) CreateDocumentWithEvent(ctx context.Context, command NewDocumentCommand, event OutboxEvent) (document Document, err error) {
@@ -78,6 +134,36 @@ func (r *MySQLRepository) CreateDocumentWithEvent(ctx context.Context, command N
 	}, nil
 }
 
+func (r *MySQLRepository) SaveChunksAndEmbedEvent(ctx context.Context, document Document, chunks []ChunkDraft, event OutboxEvent) (err error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin knowledge chunk transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	for _, chunk := range chunks {
+		if _, err = tx.ExecContext(ctx, insertKnowledgeChunk, document.ID, document.ProductID, document.DocType, document.Version, chunk.ChunkIndex, chunk.Section, sourcePageValue(chunk.SourcePage), chunk.Content, chunk.ContentHash); err != nil {
+			return fmt.Errorf("insert knowledge chunk: %w", err)
+		}
+	}
+	if _, err = tx.ExecContext(ctx, insertKnowledgeOutbox, event.EventID, event.AggregateType, event.AggregateID, event.EventType, event.Topic, event.EventKey, string(event.Payload)); err != nil {
+		if !isDuplicate(err) {
+			return fmt.Errorf("insert chunk embed outbox event: %w", err)
+		}
+	}
+	if _, err = tx.ExecContext(ctx, updateKnowledgeDocumentChunkCount, len(chunks), document.ID); err != nil {
+		return fmt.Errorf("update knowledge document chunk count: %w", err)
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit knowledge chunk transaction: %w", err)
+	}
+	return nil
+}
+
 type scanner interface {
 	Scan(...any) error
 }
@@ -96,6 +182,27 @@ func scanDocument(row scanner) (Document, error) {
 
 func documentColumns() []string {
 	return []string{"id", "document_no", "product_id", "doc_type", "version", "object_key", "source_hash", "file_name", "content_type", "file_size_bytes", "status", "created_by_user_id", "created_at", "updated_at"}
+}
+
+func sourcePageValue(value *uint32) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func requireSingleRow(result sql.Result, err error, operation string) error {
+	if err != nil {
+		return fmt.Errorf("%s: %w", operation, err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("%s rows affected: %w", operation, err)
+	}
+	if count != 1 {
+		return fmt.Errorf("%s: row not found", operation)
+	}
+	return nil
 }
 
 func isDuplicate(err error) bool {

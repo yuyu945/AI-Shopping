@@ -98,7 +98,7 @@ CREATE TABLE event_consumptions (
   consumed_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   PRIMARY KEY (id),
   UNIQUE KEY uq_knowledge_event_consumption (event_id, consumer_group),
-  CONSTRAINT chk_knowledge_event_consumption_status CHECK (status IN ('SUCCEEDED','FAILED'))
+  CONSTRAINT chk_knowledge_event_consumption_status CHECK (status IN ('PROCESSING','SUCCEEDED','FAILED'))
 ) ENGINE=InnoDB;
 
 CREATE TABLE embedding_tasks (

@@ -156,6 +156,10 @@ func (s *fakeStorage) PutObject(_ context.Context, bucket, key string, content [
 	return nil
 }
 
+func (s *fakeStorage) GetObject(context.Context, string, string) ([]byte, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (s *fakeStorage) DeleteObject(_ context.Context, bucket, key string) error {
 	s.deleted = bucket != "" && key != ""
 	return nil

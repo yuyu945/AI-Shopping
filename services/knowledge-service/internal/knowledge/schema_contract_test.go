@@ -16,6 +16,7 @@ func TestKnowledgeUploadSchemaContract(t *testing.T) {
 	assertContains(t, schema, "CREATE TABLE outbox_events")
 	assertContains(t, schema, "KEY idx_knowledge_outbox_status_retry (status, next_retry_at, id)")
 	assertContains(t, schema, "CREATE TABLE event_consumptions")
+	assertContains(t, schema, "CONSTRAINT chk_knowledge_event_consumption_status CHECK (status IN ('PROCESSING','SUCCEEDED','FAILED'))")
 	assertContains(t, schema, "CREATE TABLE embedding_tasks")
 	assertContains(t, schema, "is_current_ready TINYINT(1) NOT NULL DEFAULT 0")
 	assertContains(t, schema, "ready_at DATETIME(3) NULL")

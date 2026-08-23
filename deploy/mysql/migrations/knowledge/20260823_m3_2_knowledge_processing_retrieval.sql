@@ -3,6 +3,10 @@ ALTER TABLE knowledge_documents
   ADD COLUMN ready_at DATETIME(3) NULL AFTER is_current_ready,
   ADD KEY idx_knowledge_document_current (product_id, doc_type, is_current_ready, ready_at);
 
+ALTER TABLE event_consumptions
+  DROP CHECK chk_knowledge_event_consumption_status,
+  ADD CONSTRAINT chk_knowledge_event_consumption_status CHECK (status IN ('PROCESSING','SUCCEEDED','FAILED'));
+
 CREATE TABLE IF NOT EXISTS knowledge_chunks (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   document_id BIGINT UNSIGNED NOT NULL,

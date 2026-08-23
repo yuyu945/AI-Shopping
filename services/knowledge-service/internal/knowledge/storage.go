@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -34,6 +35,22 @@ func (s *MinIOStorage) PutObject(ctx context.Context, bucket, key string, conten
 		return fmt.Errorf("put minio object: %w", err)
 	}
 	return nil
+}
+
+func (s *MinIOStorage) GetObject(ctx context.Context, bucket, key string) ([]byte, error) {
+	if s == nil || s.client == nil {
+		return nil, errors.New("minio storage is unavailable")
+	}
+	object, err := s.client.GetObject(ctx, bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("get minio object: %w", err)
+	}
+	defer object.Close()
+	content, err := io.ReadAll(object)
+	if err != nil {
+		return nil, fmt.Errorf("read minio object: %w", err)
+	}
+	return content, nil
 }
 
 func (s *MinIOStorage) DeleteObject(ctx context.Context, bucket, key string) error {

@@ -7,6 +7,9 @@ import (
 )
 
 const documentIngestTopic = "knowledge.document.ingest"
+const chunkEmbedTopic = "knowledge.chunk.embed"
+
+const documentIngestConsumerGroup = "knowledge-document-ingest-v1"
 
 var ErrDocumentNotFound = errors.New("document not found")
 
@@ -94,6 +97,23 @@ type OutboxEvent struct {
 	Payload       []byte
 }
 
+type IngestEvent struct {
+	EventID        string `json:"event_id"`
+	EventType      string `json:"event_type"`
+	DocumentNo     string `json:"document_no"`
+	DocumentID     uint64 `json:"document_id"`
+	ProductID      uint64 `json:"product_id"`
+	DocType        string `json:"doc_type"`
+	Version        uint32 `json:"version"`
+	ObjectKey      string `json:"object_key"`
+	SourceHash     string `json:"source_hash"`
+	PayloadVersion int    `json:"payload_version"`
+}
+
+type ConsumptionDecision struct {
+	AlreadySucceeded bool
+}
+
 type Store interface {
 	FindDocumentBySourceHash(context.Context, uint64, DocType, string) (Document, error)
 	NextDocumentVersion(context.Context, uint64, DocType) (uint32, error)
@@ -102,6 +122,7 @@ type Store interface {
 
 type ObjectStorage interface {
 	PutObject(context.Context, string, string, []byte, string) error
+	GetObject(context.Context, string, string) ([]byte, error)
 	DeleteObject(context.Context, string, string) error
 }
 

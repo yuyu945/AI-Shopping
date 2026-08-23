@@ -1,12 +1,10 @@
-USE knowledge_db;
-
 CREATE TABLE IF NOT EXISTS schema_migrations (
   version VARCHAR(128) NOT NULL,
   applied_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   PRIMARY KEY (version)
 ) ENGINE=InnoDB;
 
-CREATE TABLE knowledge_documents (
+CREATE TABLE IF NOT EXISTS knowledge_documents (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   document_no VARCHAR(64) NOT NULL,
   product_id BIGINT UNSIGNED NOT NULL,
@@ -36,7 +34,7 @@ CREATE TABLE knowledge_documents (
   CONSTRAINT chk_knowledge_document_file_size CHECK (file_size_bytes > 0)
 ) ENGINE=InnoDB;
 
-CREATE TABLE outbox_events (
+CREATE TABLE IF NOT EXISTS outbox_events (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   event_id CHAR(36) NOT NULL,
   aggregate_type VARCHAR(64) NOT NULL,
@@ -61,7 +59,7 @@ CREATE TABLE outbox_events (
   CONSTRAINT chk_knowledge_outbox_status CHECK (status IN ('PENDING','PROCESSING','PUBLISHED','DEAD'))
 ) ENGINE=InnoDB;
 
-CREATE TABLE event_consumptions (
+CREATE TABLE IF NOT EXISTS event_consumptions (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   event_id CHAR(36) NOT NULL,
   consumer_group VARCHAR(128) NOT NULL,
@@ -72,7 +70,7 @@ CREATE TABLE event_consumptions (
   CONSTRAINT chk_knowledge_event_consumption_status CHECK (status IN ('SUCCEEDED','FAILED'))
 ) ENGINE=InnoDB;
 
-CREATE TABLE embedding_tasks (
+CREATE TABLE IF NOT EXISTS embedding_tasks (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   event_id CHAR(36) NOT NULL,
   document_id BIGINT UNSIGNED NOT NULL,

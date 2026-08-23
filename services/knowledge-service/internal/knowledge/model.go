@@ -28,6 +28,14 @@ const (
 	DocumentFailed     DocumentStatus = "FAILED"
 )
 
+type ChunkStatus string
+
+const (
+	ChunkPendingEmbedding ChunkStatus = "PENDING_EMBEDDING"
+	ChunkEmbedded         ChunkStatus = "EMBEDDED"
+	ChunkFailed           ChunkStatus = "FAILED"
+)
+
 type Document struct {
 	ID              uint64
 	DocumentNo      string
@@ -43,6 +51,14 @@ type Document struct {
 	CreatedByUserID uint64
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+}
+
+type ChunkDraft struct {
+	ChunkIndex  uint32
+	Section     string
+	SourcePage  *uint32
+	Content     string
+	ContentHash string
 }
 
 type UploadInput struct {

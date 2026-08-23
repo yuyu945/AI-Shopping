@@ -121,6 +121,9 @@ func (s *MySQLExpiryStore) ReleaseExpired(ctx context.Context, v ExpiredReservat
 	if e = rows.Err(); e != nil {
 		return e
 	}
+	if len(items) == 0 {
+		return errors.New("reservation expiry release lease lost")
+	}
 	for _, i := range items {
 		if _, e = tx.ExecContext(ctx, releaseInventoryQuery, i.q, i.id); e != nil {
 			return e

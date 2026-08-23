@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -114,6 +115,28 @@ func TestMySQLExpiryStoreReleaseExpiredCreatesInvalidationTasks(t *testing.T) {
 
 	if err := NewMySQLExpiryStore(db).ReleaseExpired(context.Background(), expired, now); err != nil {
 		t.Fatalf("ReleaseExpired() error = %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMySQLExpiryStoreReleaseExpiredRejectsLostLeaseWithNoRows(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Date(2026, time.August, 23, 10, 0, 0, 0, time.UTC)
+	expired := ExpiredReservation{ReservationID: "r-1", LeaseToken: "lease-1"}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(releaseExpiredReservationItemsQuery)).WithArgs("r-1", "lease-1").WillReturnRows(sqlmock.NewRows([]string{"sku_id", "quantity"}))
+	mock.ExpectRollback()
+
+	err = NewMySQLExpiryStore(db).ReleaseExpired(context.Background(), expired, now)
+	if err == nil || !strings.Contains(err.Error(), "reservation expiry release lease lost") {
+		t.Fatalf("ReleaseExpired() error = %v, want lost lease error", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

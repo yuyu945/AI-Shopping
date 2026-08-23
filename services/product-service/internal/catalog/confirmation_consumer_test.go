@@ -214,12 +214,33 @@ func TestReservationRepositoryConfirmConsumedRollsBackWhenConfirmationFails(t *t
 	mock.ExpectExec(regexp.QuoteMeta(confirmReservationRowsQuery)).WithArgs(ReservationConfirmed, now, "r-1", ReservationReserved).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	err = NewReservationRepository(db).ConfirmConsumed(context.Background(), "event-1", inventoryConfirmationConsumerGroup, "r-1", now)
+	err = NewReservationRepository(db).ConfirmConsumed(context.Background(), "event-1", inventoryConfirmationConsumerGroup, "r-1", "o-1", "p-1", now)
 	if err == nil {
 		t.Fatal("ConfirmConsumed() error = nil, want confirmation failure")
 	}
-	if err := NewReservationRepository(db).ConfirmConsumed(context.Background(), "event-1", inventoryConfirmationConsumerGroup, "r-1", now); err != nil {
+	if err := NewReservationRepository(db).ConfirmConsumed(context.Background(), "event-1", inventoryConfirmationConsumerGroup, "r-1", "o-1", "p-1", now); err != nil {
 		t.Fatalf("retry ConfirmConsumed() error = %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReservationRepositoryConfirmConsumedRollsBackWhenAttemptIdentityMismatches(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Date(2026, time.August, 22, 9, 0, 0, 0, time.UTC)
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(insertReservationConsumptionQuery)).WithArgs("event-1", inventoryConfirmationConsumerGroup).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery(regexp.QuoteMeta(reservationRowsForUpdateQuery)).WithArgs("r-1").WillReturnRows(reservationRows(now.Add(time.Minute), ReservationReserved, []ReservationItem{{SKUID: 7, Quantity: 1}}))
+	mock.ExpectRollback()
+
+	err = NewReservationRepository(db).ConfirmConsumed(context.Background(), "event-1", inventoryConfirmationConsumerGroup, "r-1", "wrong-order", "p-1", now)
+	if !errors.Is(err, ErrReservationConflict) {
+		t.Fatalf("ConfirmConsumed() error = %v, want ErrReservationConflict", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -243,7 +264,7 @@ func TestReservationRepositoryConfirmConsumedRollsBackWhenReservationIsUnknown(t
 	mock.ExpectQuery(regexp.QuoteMeta(reservationRowsForUpdateQuery)).WithArgs("missing").WillReturnRows(sqlmock.NewRows(reservationColumns))
 	mock.ExpectRollback()
 
-	err = NewReservationRepository(db).ConfirmConsumed(context.Background(), "event-1", inventoryConfirmationConsumerGroup, "missing", time.Now())
+	err = NewReservationRepository(db).ConfirmConsumed(context.Background(), "event-1", inventoryConfirmationConsumerGroup, "missing", "o-1", "p-1", time.Now())
 	if !errors.Is(err, ErrReservationNotFound) {
 		t.Fatalf("error = %v, want unknown reservation", err)
 	}
@@ -262,7 +283,7 @@ func TestReservationRepositoryConfirmConsumedDuplicateSkipsSecondConfirmation(t 
 	mock.ExpectExec(regexp.QuoteMeta(insertReservationConsumptionQuery)).WithArgs("event-1", inventoryConfirmationConsumerGroup).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 
-	if err := NewReservationRepository(db).ConfirmConsumed(context.Background(), "event-1", inventoryConfirmationConsumerGroup, "r-1", time.Now()); err != nil {
+	if err := NewReservationRepository(db).ConfirmConsumed(context.Background(), "event-1", inventoryConfirmationConsumerGroup, "r-1", "o-1", "p-1", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -277,7 +298,7 @@ type fakeConfirmationStore struct {
 
 type blockingConfirmationStore struct{ sawDeadline bool }
 
-func (s *blockingConfirmationStore) ConfirmConsumed(ctx context.Context, _ string, _ string, _ string, _ time.Time) error {
+func (s *blockingConfirmationStore) ConfirmConsumed(ctx context.Context, _ string, _ string, _ string, _ string, _ string, _ time.Time) error {
 	_, s.sawDeadline = ctx.Deadline()
 	<-ctx.Done()
 	return ctx.Err()
@@ -313,7 +334,7 @@ func (r *blockingCommitConfirmationReader) CommitMessages(ctx context.Context, _
 }
 func (*blockingCommitConfirmationReader) Close() error { return nil }
 
-func (s *fakeConfirmationStore) ConfirmConsumed(context.Context, string, string, string, time.Time) error {
+func (s *fakeConfirmationStore) ConfirmConsumed(context.Context, string, string, string, string, string, time.Time) error {
 	s.calls++
 	if s.failures > 0 {
 		s.failures--

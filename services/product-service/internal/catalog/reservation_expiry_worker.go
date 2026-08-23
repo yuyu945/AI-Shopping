@@ -61,7 +61,7 @@ func (s *MySQLExpiryStore) LeaseExpired(ctx context.Context, limit int, now time
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT reservation_id, order_no, payment_attempt_id FROM inventory_reservations WHERE status='RESERVED' AND expires_at<=? AND (next_retry_at IS NULL OR next_retry_at<=?) GROUP BY reservation_id,order_no,payment_attempt_id ORDER BY reservation_id LIMIT ? FOR UPDATE SKIP LOCKED`, now, now, limit)
+	rows, err := tx.QueryContext(ctx, `SELECT reservation_id, order_no, payment_attempt_id FROM inventory_reservations WHERE status='RESERVED' AND expires_at<=? AND (next_retry_at IS NULL OR next_retry_at<=?) AND (expiry_lease_until IS NULL OR expiry_lease_until<=?) GROUP BY reservation_id,order_no,payment_attempt_id ORDER BY reservation_id LIMIT ? FOR UPDATE SKIP LOCKED`, now, now, now, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -109,12 +109,17 @@ func (s *MySQLExpiryStore) ReleaseExpired(ctx context.Context, v ExpiredReservat
 		q  uint32
 	}
 	var items []item
+	var reservationItems []ReservationItem
 	for rows.Next() {
 		var i item
 		if e = rows.Scan(&i.id, &i.q); e != nil {
 			return e
 		}
 		items = append(items, i)
+		reservationItems = append(reservationItems, ReservationItem{SKUID: i.id, Quantity: i.q})
+	}
+	if e = rows.Err(); e != nil {
+		return e
 	}
 	for _, i := range items {
 		if _, e = tx.ExecContext(ctx, releaseInventoryQuery, i.q, i.id); e != nil {
@@ -128,6 +133,9 @@ func (s *MySQLExpiryStore) ReleaseExpired(ctx context.Context, v ExpiredReservat
 	n, e := r.RowsAffected()
 	if e != nil || n != int64(len(items)) {
 		return fmt.Errorf("reservation expiry release lease lost")
+	}
+	if _, e = createReservationInvalidationTasks(ctx, tx, reservationItems, now); e != nil {
+		return e
 	}
 	return tx.Commit()
 }

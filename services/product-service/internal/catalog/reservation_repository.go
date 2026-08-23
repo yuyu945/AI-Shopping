@@ -95,7 +95,7 @@ func (r *ReservationRepository) ConfirmReservation(ctx context.Context, reservat
 }
 
 // ConfirmConsumed confirms a reservation and records its Kafka event in the same catalog transaction.
-func (r *ReservationRepository) ConfirmConsumed(ctx context.Context, eventID, group, reservationID string, now time.Time) error {
+func (r *ReservationRepository) ConfirmConsumed(ctx context.Context, eventID, group, reservationID, orderNo, paymentAttemptID string, now time.Time) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return errors.New("begin consumed reservation confirmation failed")
@@ -115,7 +115,14 @@ func (r *ReservationRepository) ConfirmConsumed(ctx context.Context, eventID, gr
 		}
 		return nil
 	}
-	if _, err := confirmReservationTx(ctx, tx, reservationID, now); err != nil {
+	reservation, err := loadReservation(ctx, tx, reservationRowsForUpdateQuery, reservationID)
+	if err != nil {
+		return err
+	}
+	if reservation.ReservationID != reservationID || reservation.OrderNo != orderNo || reservation.PaymentAttemptID != paymentAttemptID {
+		return ErrReservationConflict
+	}
+	if _, err := confirmLoadedReservationTx(ctx, tx, reservation, now); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -129,11 +136,15 @@ func confirmReservationTx(ctx context.Context, tx *sql.Tx, reservationID string,
 	if err != nil {
 		return Reservation{}, err
 	}
+	return confirmLoadedReservationTx(ctx, tx, reservation, now)
+}
+
+func confirmLoadedReservationTx(ctx context.Context, tx *sql.Tx, reservation Reservation, now time.Time) (Reservation, error) {
 	switch reservation.Status {
 	case ReservationConfirmed:
 		return reservation, nil
 	case ReservationReserved:
-		result, err := tx.ExecContext(ctx, confirmReservationRowsQuery, ReservationConfirmed, now, reservationID, ReservationReserved)
+		result, err := tx.ExecContext(ctx, confirmReservationRowsQuery, ReservationConfirmed, now, reservation.ReservationID, ReservationReserved)
 		if err != nil {
 			return Reservation{}, errors.New("confirm inventory reservation failed")
 		}

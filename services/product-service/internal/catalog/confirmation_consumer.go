@@ -31,7 +31,7 @@ type ConfirmationEvent struct {
 
 // ConfirmationStore atomically confirms a local reservation and records the Kafka event.
 type ConfirmationStore interface {
-	ConfirmConsumed(context.Context, string, string, string, time.Time) error
+	ConfirmConsumed(context.Context, string, string, string, string, string, time.Time) error
 }
 
 // ConfirmationConsumer applies paid reservation events exactly once per consumer group.
@@ -56,7 +56,7 @@ func (c *ConfirmationConsumer) Handle(ctx context.Context, event ConfirmationEve
 	if strings.TrimSpace(event.EventID) == "" || strings.TrimSpace(event.ReservationID) == "" || strings.TrimSpace(event.OrderNo) == "" || strings.TrimSpace(event.PaymentAttemptID) == "" || event.Version != 1 {
 		return errors.New("invalid inventory confirmation event")
 	}
-	if err := c.store.ConfirmConsumed(ctx, event.EventID, c.group, event.ReservationID, time.Now().UTC().Truncate(time.Millisecond)); err != nil {
+	if err := c.store.ConfirmConsumed(ctx, event.EventID, c.group, event.ReservationID, event.OrderNo, event.PaymentAttemptID, time.Now().UTC().Truncate(time.Millisecond)); err != nil {
 		return errors.New("confirm consumed inventory reservation failed")
 	}
 	return nil

@@ -15,7 +15,7 @@ func TestSearchProductKnowledgeReturnsOnlyCurrentReadyChunks(t *testing.T) {
 	}
 	provider := &fakeEmbeddingProvider{vectors: [][]float32{{0.1, 0.2}}}
 	vectorStore := &fakeVectorStore{searchHits: []VectorSearchHit{{ChunkID: 11, Score: 0.91}, {ChunkID: 99, Score: 0.80}}}
-	service := NewRetrievalService(store, provider, vectorStore, RetrievalConfig{Model: "text-embedding-3-small", DefaultTopK: 5, MaxTopK: 10})
+	service := NewRetrievalService(store, provider, vectorStore, RetrievalConfig{Model: "text-embedding-v4", DefaultTopK: 5, MaxTopK: 10})
 
 	got, err := service.SearchProductKnowledge(context.Background(), SearchKnowledgeInput{ProductID: 1001, Query: "battery life", DocTypes: []DocType{DocFAQ}, TopK: 5})
 	if err != nil {
@@ -30,7 +30,7 @@ func TestSearchProductKnowledgeReturnsOnlyCurrentReadyChunks(t *testing.T) {
 }
 
 func TestSearchProductKnowledgeReturnsFallbackWhenNoReadyKnowledge(t *testing.T) {
-	service := NewRetrievalService(&fakeRetrievalStore{}, &fakeEmbeddingProvider{}, &fakeVectorStore{}, RetrievalConfig{Model: "text-embedding-3-small", DefaultTopK: 5, MaxTopK: 10})
+	service := NewRetrievalService(&fakeRetrievalStore{}, &fakeEmbeddingProvider{}, &fakeVectorStore{}, RetrievalConfig{Model: "text-embedding-v4", DefaultTopK: 5, MaxTopK: 10})
 
 	got, err := service.SearchProductKnowledge(context.Background(), SearchKnowledgeInput{ProductID: 1001, Query: "battery life"})
 	if err != nil {
@@ -45,7 +45,7 @@ func TestSearchProductKnowledgeCapsTopK(t *testing.T) {
 	store := &fakeRetrievalStore{current: []Document{{ID: 123, DocumentNo: "doc_1", ProductID: 1001, DocType: DocFAQ, Version: 2, Status: DocumentReady}}}
 	provider := &fakeEmbeddingProvider{vectors: [][]float32{{0.1}}}
 	vectorStore := &fakeVectorStore{}
-	service := NewRetrievalService(store, provider, vectorStore, RetrievalConfig{Model: "text-embedding-3-small", DefaultTopK: 5, MaxTopK: 10})
+	service := NewRetrievalService(store, provider, vectorStore, RetrievalConfig{Model: "text-embedding-v4", DefaultTopK: 5, MaxTopK: 10})
 
 	_, err := service.SearchProductKnowledge(context.Background(), SearchKnowledgeInput{ProductID: 1001, Query: "battery life", TopK: 50})
 	if err != nil {
@@ -57,7 +57,7 @@ func TestSearchProductKnowledgeCapsTopK(t *testing.T) {
 }
 
 func TestSearchProductKnowledgeRejectsEmptyQuery(t *testing.T) {
-	service := NewRetrievalService(&fakeRetrievalStore{}, &fakeEmbeddingProvider{}, &fakeVectorStore{}, RetrievalConfig{Model: "text-embedding-3-small", DefaultTopK: 5, MaxTopK: 10})
+	service := NewRetrievalService(&fakeRetrievalStore{}, &fakeEmbeddingProvider{}, &fakeVectorStore{}, RetrievalConfig{Model: "text-embedding-v4", DefaultTopK: 5, MaxTopK: 10})
 
 	if _, err := service.SearchProductKnowledge(context.Background(), SearchKnowledgeInput{ProductID: 1001, Query: " \n "}); !hasAppCode(err, apperror.InvalidArgument) {
 		t.Fatalf("err=%v", err)
@@ -68,7 +68,7 @@ func TestSearchProductKnowledgeMapsVectorTimeout(t *testing.T) {
 	store := &fakeRetrievalStore{current: []Document{{ID: 123, DocumentNo: "doc_1", ProductID: 1001, DocType: DocFAQ, Version: 2, Status: DocumentReady}}}
 	provider := &fakeEmbeddingProvider{vectors: [][]float32{{0.1}}}
 	vectorStore := &fakeVectorStore{searchErr: context.DeadlineExceeded}
-	service := NewRetrievalService(store, provider, vectorStore, RetrievalConfig{Model: "text-embedding-3-small", DefaultTopK: 5, MaxTopK: 10})
+	service := NewRetrievalService(store, provider, vectorStore, RetrievalConfig{Model: "text-embedding-v4", DefaultTopK: 5, MaxTopK: 10})
 
 	if _, err := service.SearchProductKnowledge(context.Background(), SearchKnowledgeInput{ProductID: 1001, Query: "battery life"}); !hasAppCode(err, apperror.DependencyTimeout) {
 		t.Fatalf("err=%v", err)

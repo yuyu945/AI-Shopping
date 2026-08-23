@@ -73,14 +73,15 @@
 
 测试：同一文档重复上传、同一事件重复投递、发布失败重试、超过阈值进入 dead-letter。
 
-### M3.2 解析、向量化和版本检索（进行中）
+### M3.2 解析、向量化和版本检索（已完成代码收口，待真实外部依赖集成验证）
 
 - [x] 创建 `knowledge_chunks` schema、current-ready 字段与迁移，使用 `(document_id, chunk_index)`、`(document_id, content_hash)` 保障 Chunk 幂等。
 - [x] 实现解析/规范化/切分 domain，支持 `text/plain`、`text/markdown`、`application/json` 文本资料。
 - [x] 实现 `knowledge.document.ingest` 处理服务：以 `document_no` 查回文档，读取 MinIO 原文件，写 Chunk，并创建 `knowledge.chunk.embed` Outbox event。
 - [x] 实现 `knowledge.chunk.embed` 处理服务：调用 EmbeddingProvider、VectorStore，并在向量写入成功后切换当前 `READY` 版本；失败不隐藏旧版本。
 - [x] 实现商品知识检索 domain、MySQL current-ready 二次过滤和 `SearchProductKnowledge` gRPC。
-- [ ] 实现真实 Kafka reader runtime wiring、OpenAI Embedding adapter、Milvus VectorStore adapter 和显式 gated integration tests。
+- [x] 实现真实 Kafka reader runtime wiring、阿里 DashScope `text-embedding-v4` Embedding adapter、Milvus REST VectorStore adapter。
+- [ ] 在本地 DashScope API Key、Milvus、Kafka、MinIO、MySQL 都可用时补显式 gated integration tests。
 
 测试：Chunk 重复消费、Embedding 失败后重试、旧版本过滤、资料无依据问答的受控降级。
 

@@ -12,8 +12,8 @@ func TestIngestDocumentPersistsChunksAndPublishesEmbedEvent(t *testing.T) {
 	storage := &fakeIngestStorage{content: []byte("# Battery\n\nLasts 10 hours.")}
 	service := NewIngestService(store, storage, fixedIDs("embed-event-1"), fixedNow, IngestConfig{
 		Bucket:             "knowledge",
-		EmbeddingModel:     "text-embedding-3-small",
-		EmbeddingDimension: 1536,
+		EmbeddingModel:     "text-embedding-v4",
+		EmbeddingDimension: 1024,
 		Chunker:            Chunker{TargetChars: 900, MaxChars: 1200},
 	})
 
@@ -34,14 +34,14 @@ func TestIngestDocumentPersistsChunksAndPublishesEmbedEvent(t *testing.T) {
 	if err := json.Unmarshal(store.event.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.EmbeddingModel != "text-embedding-3-small" || payload.EmbeddingDimension != 1536 || payload.ChunkCount != 1 {
+	if payload.EmbeddingModel != "text-embedding-v4" || payload.EmbeddingDimension != 1024 || payload.ChunkCount != 1 {
 		t.Fatalf("payload=%#v", payload)
 	}
 }
 
 func TestIngestDocumentDuplicateConsumptionSkipsWork(t *testing.T) {
 	store := &fakeIngestStore{decision: ConsumptionDecision{AlreadySucceeded: true}}
-	service := NewIngestService(store, &fakeIngestStorage{}, fixedIDs("embed-event-1"), fixedNow, IngestConfig{Bucket: "knowledge", EmbeddingModel: "text-embedding-3-small", EmbeddingDimension: 1536})
+	service := NewIngestService(store, &fakeIngestStorage{}, fixedIDs("embed-event-1"), fixedNow, IngestConfig{Bucket: "knowledge", EmbeddingModel: "text-embedding-v4", EmbeddingDimension: 1024})
 
 	err := service.HandleDocumentIngest(context.Background(), IngestEvent{EventID: "ingest-event-1", DocumentNo: "doc_1", PayloadVersion: 1})
 	if err != nil {
@@ -58,7 +58,7 @@ func TestIngestDocumentUnsupportedContentTypeMarksFailed(t *testing.T) {
 		document.ContentType = "application/pdf"
 		return document
 	}()}
-	service := NewIngestService(store, &fakeIngestStorage{}, fixedIDs("embed-event-1"), fixedNow, IngestConfig{Bucket: "knowledge", EmbeddingModel: "text-embedding-3-small", EmbeddingDimension: 1536})
+	service := NewIngestService(store, &fakeIngestStorage{}, fixedIDs("embed-event-1"), fixedNow, IngestConfig{Bucket: "knowledge", EmbeddingModel: "text-embedding-v4", EmbeddingDimension: 1024})
 
 	err := service.HandleDocumentIngest(context.Background(), IngestEvent{EventID: "ingest-event-1", DocumentNo: "doc_1", PayloadVersion: 1})
 	if err != nil {
@@ -74,8 +74,8 @@ func TestIngestDocumentReusesExistingChunksOnReplay(t *testing.T) {
 	storage := &fakeIngestStorage{content: []byte("# Battery\n\nLasts 10 hours.")}
 	service := NewIngestService(store, storage, fixedIDs("embed-event-1", "embed-event-2"), fixedNow, IngestConfig{
 		Bucket:             "knowledge",
-		EmbeddingModel:     "text-embedding-3-small",
-		EmbeddingDimension: 1536,
+		EmbeddingModel:     "text-embedding-v4",
+		EmbeddingDimension: 1024,
 		Chunker:            Chunker{TargetChars: 900, MaxChars: 1200},
 	})
 

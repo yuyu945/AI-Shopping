@@ -43,7 +43,7 @@ M3.1 只完成原文件写入 MinIO、`knowledge_documents(status=PENDING)` 和 
 
 M3.2 已建立 `knowledge_chunks` schema、文档解析/切分 domain、`knowledge.document.ingest` 处理服务、`knowledge.chunk.embed` 处理服务、当前 `READY` 版本切换事务，以及 `SearchProductKnowledge` gRPC 检索接口。检索会先读取 MySQL 当前可见版本，再调用向量检索，并在返回前重新用 MySQL 过滤 current-ready chunk，避免旧版本资料被召回。
 
-Embedding 默认配置为 `text-embedding-3-small` / `1536` 维，写在 `services/knowledge-service/etc/knowledge-service.yaml` 中；`.env.example` 只列出 `AI_SHOPPING_OPENAI_API_KEY` 等变量名，不包含真实值。当前 runtime wiring 使用明确不可用的 Embedding/VectorStore adapter，真实 OpenAI 和 Milvus adapter、Kafka reader 启动与端到端集成验证仍属于 M3.2 后续收口项。
+Embedding 默认配置为阿里 DashScope `text-embedding-v4` / `1024` 维，写在 `services/knowledge-service/etc/knowledge-service.yaml` 中；`.env.example` 只列出 `AI_SHOPPING_DASHSCOPE_API_KEY` 等变量名，不包含真实值。runtime wiring 已接入 DashScope HTTP Embedding adapter、Milvus REST VectorStore adapter，以及 `knowledge.document.ingest` / `knowledge.chunk.embed` Kafka reader。真实外部依赖的端到端集成验证仍需要显式环境变量和本地依赖 guard 后再运行。
 
 ## Trade schema upgrade
 

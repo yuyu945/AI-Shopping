@@ -46,7 +46,7 @@ M3.2 已完成的本地可验证部分：
 - 实现 `IngestService`：消费 `knowledge.document.ingest` payload，以 `document_no` 查回文档，读取 MinIO object，写 Chunk，并创建 `knowledge.chunk.embed` Outbox event。
 - 实现 `EmbedService`：调用 `EmbeddingProvider`、`VectorStore`，向量写入成功后在 MySQL transaction 内标记 Chunk `EMBEDDED`、embedding task `DONE`、新文档 `READY/current`，失败只记录 retry，不清理旧 current-ready。
 - 实现 `RetrievalService` 和 `SearchProductKnowledge` gRPC：检索前读取 current-ready 文档，向量检索后再用 MySQL 过滤 current-ready Chunk，返回 snippet、doc type、version、section、source page 和 score。
-- knowledge-service runtime config 已新增 Embedding/VectorStore 默认配置；当前 runtime adapter 明确返回未配置错误，真实 OpenAI/Milvus adapter 与 Kafka reader wiring 尚未收口。
+- knowledge-service runtime config 已切换为阿里 DashScope `text-embedding-v4` / `1024` 维，runtime wiring 已接入 DashScope HTTP Embedding adapter、Milvus REST VectorStore adapter，以及 `knowledge.document.ingest` / `knowledge.chunk.embed` Kafka readers。真实外部依赖 integration tests 尚未添加。
 
 Key endpoints:
 
@@ -88,7 +88,7 @@ The `m12verify` and `m12cacheverify` Docker projects, their volumes, temporary p
 
 ## Next Milestone
 
-M3.2 后续收口。下一步应实现真实 Kafka reader runtime wiring、OpenAI `text-embedding-3-small` adapter、Milvus `VectorStore` adapter，以及显式 gated integration tests。保持边界：上传接口仍不等待解析或 Embedding；只有当前 `READY` 版本参与检索；重复事件必须由 `event_consumptions` 和业务唯一键幂等。
+M3.2 后续收口。下一步应在可用的本地 DashScope API Key、Milvus、Kafka、MinIO、MySQL 环境下补显式 gated integration tests。保持边界：上传接口仍不等待解析或 Embedding；只有当前 `READY` 版本参与检索；重复事件必须由 `event_consumptions` 和业务唯一键幂等。
 
 ## Integration
 

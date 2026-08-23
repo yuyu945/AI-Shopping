@@ -221,11 +221,11 @@ func TestMarkDocumentReadyWithVectorsCommitsVersionSwitchTogether(t *testing.T) 
 		WithArgs(document.ProductID, document.DocType, document.ID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(markKnowledgeDocumentReady)).
-		WithArgs("text-embedding-3-small", len(refs), document.ID).
+		WithArgs("text-embedding-v4", len(refs), document.ID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	if err := NewMySQLRepository(db).MarkDocumentReadyWithVectors(context.Background(), "embed-event-1", document, refs, "text-embedding-3-small"); err != nil {
+	if err := NewMySQLRepository(db).MarkDocumentReadyWithVectors(context.Background(), "embed-event-1", document, refs, "text-embedding-v4"); err != nil {
 		t.Fatal(err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {

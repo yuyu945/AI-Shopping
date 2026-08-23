@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -48,6 +49,7 @@ type outboxConfig struct {
 }
 
 type embeddingConfig struct {
+	Provider  string
 	Model     string
 	Dimension int
 	Timeout   time.Duration
@@ -72,7 +74,7 @@ func (c knowledgeServiceConfig) validate() error {
 	if c.Outbox.PollInterval <= 0 {
 		return errors.New("outbox poll interval must be positive")
 	}
-	if strings.TrimSpace(c.Embedding.Model) == "" || c.Embedding.Dimension <= 0 || c.Embedding.Timeout <= 0 {
+	if strings.TrimSpace(c.Embedding.Provider) == "" || strings.TrimSpace(c.Embedding.Model) == "" || c.Embedding.Dimension <= 0 || c.Embedding.Timeout <= 0 {
 		return errors.New("embedding config is invalid")
 	}
 	if strings.TrimSpace(c.VectorStore.Backend) == "" || strings.TrimSpace(c.VectorStore.Collection) == "" || c.VectorStore.Timeout <= 0 {
@@ -96,6 +98,10 @@ func (c knowledgeServiceConfig) outboxWorkerConfig() outbox.Config {
 
 func (c knowledgeServiceConfig) retrievalConfig() knowledge.RetrievalConfig {
 	return knowledge.RetrievalConfig{Model: c.Embedding.Model, DefaultTopK: 5, MaxTopK: 10}
+}
+
+func (c knowledgeServiceConfig) embedConfig() knowledge.EmbedConfig {
+	return knowledge.EmbedConfig{Model: c.Embedding.Model, Dimension: c.Embedding.Dimension, MaxBatchSize: 10}
 }
 
 func main() {
@@ -139,10 +145,29 @@ func main() {
 	}
 	repository := knowledge.NewMySQLRepository(db)
 	service := knowledge.NewService(repository, storage, knowledge.IDGeneratorFunc(uuid.NewString), time.Now, config.uploadServiceConfig())
-	retrieval := knowledge.NewRetrievalService(repository, disabledEmbeddingProvider{}, disabledVectorStore{}, config.retrievalConfig())
+	embeddingProvider, err := buildEmbeddingProvider(config.Embedding, runtimeConfig)
+	if err != nil {
+		log.Fatalf("%s embedding configuration: invalid", SERVICE_NAME)
+	}
+	vectorStore, err := buildVectorStore(context.Background(), config.VectorStore, runtimeConfig, config.Embedding.Dimension)
+	if err != nil {
+		log.Fatalf("%s vector store configuration: invalid", SERVICE_NAME)
+	}
+	ingestService := knowledge.NewIngestService(repository, storage, knowledge.IDGeneratorFunc(uuid.NewString), time.Now, knowledge.IngestConfig{
+		Bucket:             config.Upload.Bucket,
+		EmbeddingModel:     config.Embedding.Model,
+		EmbeddingDimension: config.Embedding.Dimension,
+		Chunker:            knowledge.Chunker{TargetChars: 900, MaxChars: 1200},
+	})
+	embedService := knowledge.NewEmbedService(repository, embeddingProvider, vectorStore, config.embedConfig())
+	retrieval := knowledge.NewRetrievalService(repository, embeddingProvider, vectorStore, config.retrievalConfig())
 	publisher := outbox.NewKafkaPublisher(strings.Split(runtimeConfig.KafkaBrokers, ","))
 	defer publisher.Close()
 	worker := outbox.NewWorker(outbox.NewMySQLRepository(db), publisher, config.outboxWorkerConfig())
+	ingestConsumer := knowledge.NewKafkaDocumentIngestConsumer(strings.Split(runtimeConfig.KafkaBrokers, ","), ingestService, config.Outbox.CallTimeout)
+	defer ingestConsumer.Close()
+	embedConsumer := knowledge.NewKafkaChunkEmbedConsumer(strings.Split(runtimeConfig.KafkaBrokers, ","), embedService, config.Outbox.CallTimeout)
+	defer embedConsumer.Close()
 	zrpc.DontLogContentForMethod(knowledgepb.KnowledgeService_UploadDocument_FullMethodName)
 	server, err := zrpc.NewServer(config.RpcServerConf, func(g *grpc.Server) {
 		knowledgepb.RegisterKnowledgeServiceServer(g, knowledgeserver.NewGRPCServerWithSearch(service, retrieval, manager, time.Duration(config.Timeout)*time.Millisecond))
@@ -158,23 +183,47 @@ func main() {
 			log.Printf("%s knowledge outbox worker stopped", SERVICE_NAME)
 		}
 	}()
+	go func() {
+		if err := ingestConsumer.Run(workerCtx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("%s knowledge ingest consumer stopped", SERVICE_NAME)
+		}
+	}()
+	go func() {
+		if err := embedConsumer.Run(workerCtx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("%s knowledge embed consumer stopped", SERVICE_NAME)
+		}
+	}()
 	server.Start()
 }
 
-type disabledEmbeddingProvider struct{}
-
-func (disabledEmbeddingProvider) EmbedDocuments(context.Context, knowledge.EmbeddingInput) (knowledge.EmbeddingOutput, error) {
-	return knowledge.EmbeddingOutput{}, errors.New("embedding provider is not configured")
+func buildEmbeddingProvider(config embeddingConfig, runtimeConfig platformconfig.Config) (knowledge.EmbeddingProvider, error) {
+	switch strings.ToLower(strings.TrimSpace(config.Provider)) {
+	case "dashscope":
+		if strings.TrimSpace(runtimeConfig.DashScopeAPIKey) == "" {
+			return nil, errors.New("dashscope api key is required")
+		}
+		client := &http.Client{Timeout: config.Timeout}
+		return knowledge.NewDashScopeEmbeddingProvider(knowledge.DashScopeConfig{
+			Endpoint: "https://dashscope.aliyuncs.com", APIKey: runtimeConfig.DashScopeAPIKey,
+			Model: config.Model, Dimension: config.Dimension, HTTPClient: client,
+		})
+	default:
+		return nil, errors.New("unsupported embedding provider")
+	}
 }
 
-type disabledVectorStore struct{}
-
-func (disabledVectorStore) UpsertChunks(context.Context, knowledge.VectorUpsertInput) error {
-	return errors.New("vector store is not configured")
-}
-
-func (disabledVectorStore) Search(context.Context, knowledge.VectorSearchInput) ([]knowledge.VectorSearchHit, error) {
-	return nil, errors.New("vector store is not configured")
+func buildVectorStore(ctx context.Context, config vectorStoreConfig, runtimeConfig platformconfig.Config, dimension int) (knowledge.VectorStore, error) {
+	switch strings.ToLower(strings.TrimSpace(config.Backend)) {
+	case "milvus":
+		client := &http.Client{Timeout: config.Timeout}
+		address := runtimeConfig.MilvusAddress
+		if !strings.HasPrefix(address, "http://") && !strings.HasPrefix(address, "https://") {
+			address = "http://" + address
+		}
+		return knowledge.NewMilvusRESTVectorStore(knowledge.MilvusConfig{Address: address, Collection: config.Collection, Dimension: dimension}, client)
+	default:
+		return nil, errors.New("unsupported vector store backend")
+	}
 }
 
 func knowledgeDSN(dsn string) (string, error) {

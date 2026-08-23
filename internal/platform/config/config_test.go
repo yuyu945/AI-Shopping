@@ -98,15 +98,16 @@ func TestLoadReadsInternalServiceTokenWithoutMakingItGlobalRequirement(t *testin
 
 func TestLoadReadsOptionalEmbeddingEnvironment(t *testing.T) {
 	setRequiredEnvironment(t)
-	t.Setenv("AI_SHOPPING_EMBEDDING_MODEL", "text-embedding-3-small")
-	t.Setenv("AI_SHOPPING_EMBEDDING_DIMENSION", "1536")
-	t.Setenv("AI_SHOPPING_OPENAI_API_KEY", "local-openai-key")
+	t.Setenv("AI_SHOPPING_EMBEDDING_PROVIDER", "dashscope")
+	t.Setenv("AI_SHOPPING_EMBEDDING_MODEL", "text-embedding-v4")
+	t.Setenv("AI_SHOPPING_EMBEDDING_DIMENSION", "1024")
+	t.Setenv("AI_SHOPPING_DASHSCOPE_API_KEY", "local-dashscope-key")
 
 	got, err := config.Load()
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if got.EmbeddingModel != "text-embedding-3-small" || got.EmbeddingDimension != 1536 || got.OpenAIAPIKey != "local-openai-key" {
+	if got.EmbeddingProvider != "dashscope" || got.EmbeddingModel != "text-embedding-v4" || got.EmbeddingDimension != 1024 || got.DashScopeAPIKey != "local-dashscope-key" {
 		t.Fatalf("embedding config = %#v", got)
 	}
 }
@@ -157,7 +158,7 @@ func TestExampleEnvironmentSatisfiesLoadRequirements(t *testing.T) {
 	}
 	for name := range example {
 		if strings.HasPrefix(name, "AI_SHOPPING_") {
-			if _, ok := requiredEnvironment[name]; !ok && name != "AI_SHOPPING_INTERNAL_SERVICE_TOKEN" && name != "AI_SHOPPING_EMBEDDING_MODEL" && name != "AI_SHOPPING_EMBEDDING_DIMENSION" && name != "AI_SHOPPING_OPENAI_API_KEY" {
+			if _, ok := requiredEnvironment[name]; !ok && name != "AI_SHOPPING_INTERNAL_SERVICE_TOKEN" && name != "AI_SHOPPING_EMBEDDING_PROVIDER" && name != "AI_SHOPPING_EMBEDDING_MODEL" && name != "AI_SHOPPING_EMBEDDING_DIMENSION" && name != "AI_SHOPPING_DASHSCOPE_API_KEY" {
 				t.Fatalf(".env.example contains unsupported runtime variable %s", name)
 			}
 		}

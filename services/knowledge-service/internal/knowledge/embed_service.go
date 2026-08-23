@@ -9,8 +9,9 @@ import (
 )
 
 type EmbedConfig struct {
-	Model     string
-	Dimension int
+	Model        string
+	Dimension    int
+	MaxBatchSize int
 }
 
 type EmbedStore interface {
@@ -62,7 +63,7 @@ func (s *EmbedService) HandleChunkEmbed(ctx context.Context, event ChunkEmbedEve
 	for _, chunk := range chunks {
 		texts = append(texts, chunk.Content)
 	}
-	output, err := s.embedding.EmbedDocuments(ctx, EmbeddingInput{Model: strings.TrimSpace(s.config.Model), Texts: texts})
+	output, err := s.embedTexts(ctx, texts)
 	if err != nil {
 		_ = s.store.MarkEmbeddingTaskRetry(ctx, event.EventID, document.ID, document.Version, "EMBEDDING_FAILED", "embedding provider failed")
 		return apperror.Wrap(apperror.Internal, "knowledge embedding failed", err)
@@ -86,4 +87,24 @@ func (s *EmbedService) HandleChunkEmbed(ctx context.Context, event ChunkEmbedEve
 		return apperror.Wrap(apperror.Internal, "knowledge document ready state could not be saved", err)
 	}
 	return s.store.MarkConsumptionSucceeded(ctx, event.EventID, chunkEmbedConsumerGroup)
+}
+
+func (s *EmbedService) embedTexts(ctx context.Context, texts []string) (EmbeddingOutput, error) {
+	batchSize := s.config.MaxBatchSize
+	if batchSize <= 0 {
+		batchSize = len(texts)
+	}
+	vectors := make([][]float32, 0, len(texts))
+	for start := 0; start < len(texts); start += batchSize {
+		end := start + batchSize
+		if end > len(texts) {
+			end = len(texts)
+		}
+		output, err := s.embedding.EmbedDocuments(ctx, EmbeddingInput{Model: strings.TrimSpace(s.config.Model), Texts: texts[start:end]})
+		if err != nil {
+			return EmbeddingOutput{}, err
+		}
+		vectors = append(vectors, output.Vectors...)
+	}
+	return EmbeddingOutput{Vectors: vectors}, nil
 }

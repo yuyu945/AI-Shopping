@@ -10,13 +10,13 @@ func TestEmbedChunksMarksDocumentReadyAndCurrent(t *testing.T) {
 	store := &fakeEmbedStore{document: embedDocument(), chunks: embedChunks()}
 	provider := &fakeEmbeddingProvider{vectors: [][]float32{{0.1, 0.2}, {0.3, 0.4}}}
 	vectorStore := &fakeVectorStore{}
-	service := NewEmbedService(store, provider, vectorStore, EmbedConfig{Model: "text-embedding-3-small", Dimension: 1536})
+	service := NewEmbedService(store, provider, vectorStore, EmbedConfig{Model: "text-embedding-v4", Dimension: 1024})
 
 	err := service.HandleChunkEmbed(context.Background(), ChunkEmbedEvent{EventID: "embed-event-1", DocumentNo: "doc_1", PayloadVersion: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if provider.input.Model != "text-embedding-3-small" || len(provider.input.Texts) != 2 {
+	if provider.input.Model != "text-embedding-v4" || len(provider.input.Texts) != 2 {
 		t.Fatalf("embedding input=%#v", provider.input)
 	}
 	if len(vectorStore.input.Chunks) != 2 {
@@ -27,9 +27,28 @@ func TestEmbedChunksMarksDocumentReadyAndCurrent(t *testing.T) {
 	}
 }
 
+func TestEmbedChunksBatchesProviderCalls(t *testing.T) {
+	chunks := make([]Chunk, 0, 11)
+	vectors := make([][]float32, 0, 11)
+	for i := 0; i < 11; i++ {
+		chunks = append(chunks, Chunk{ID: uint64(100 + i), DocumentID: 123, ProductID: 1001, DocType: DocFAQ, Version: 2, ChunkIndex: uint32(i), Content: "Chunk"})
+		vectors = append(vectors, []float32{float32(i)})
+	}
+	store := &fakeEmbedStore{document: embedDocument(), chunks: chunks}
+	provider := &fakeEmbeddingProvider{vectors: vectors}
+	service := NewEmbedService(store, provider, &fakeVectorStore{}, EmbedConfig{Model: "text-embedding-v4", Dimension: 1024, MaxBatchSize: 10})
+
+	if err := service.HandleChunkEmbed(context.Background(), ChunkEmbedEvent{EventID: "embed-event-1", DocumentNo: "doc_1", PayloadVersion: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 2 {
+		t.Fatalf("provider calls = %d, want 2", provider.calls)
+	}
+}
+
 func TestEmbedChunksDuplicateConsumptionSkipsWork(t *testing.T) {
 	store := &fakeEmbedStore{decision: ConsumptionDecision{AlreadySucceeded: true}}
-	service := NewEmbedService(store, &fakeEmbeddingProvider{}, &fakeVectorStore{}, EmbedConfig{Model: "text-embedding-3-small", Dimension: 1536})
+	service := NewEmbedService(store, &fakeEmbeddingProvider{}, &fakeVectorStore{}, EmbedConfig{Model: "text-embedding-v4", Dimension: 1024})
 
 	err := service.HandleChunkEmbed(context.Background(), ChunkEmbedEvent{EventID: "embed-event-1", DocumentNo: "doc_1", PayloadVersion: 1})
 	if err != nil {
@@ -42,7 +61,7 @@ func TestEmbedChunksDuplicateConsumptionSkipsWork(t *testing.T) {
 
 func TestEmbedChunksEmbeddingFailureSchedulesRetry(t *testing.T) {
 	store := &fakeEmbedStore{document: embedDocument(), chunks: embedChunks()}
-	service := NewEmbedService(store, &fakeEmbeddingProvider{err: errors.New("provider down")}, &fakeVectorStore{}, EmbedConfig{Model: "text-embedding-3-small", Dimension: 1536})
+	service := NewEmbedService(store, &fakeEmbeddingProvider{err: errors.New("provider down")}, &fakeVectorStore{}, EmbedConfig{Model: "text-embedding-v4", Dimension: 1024})
 
 	err := service.HandleChunkEmbed(context.Background(), ChunkEmbedEvent{EventID: "embed-event-1", DocumentNo: "doc_1", PayloadVersion: 1})
 	if err == nil {
@@ -55,7 +74,7 @@ func TestEmbedChunksEmbeddingFailureSchedulesRetry(t *testing.T) {
 
 func TestEmbedChunksVectorFailureDoesNotMarkReady(t *testing.T) {
 	store := &fakeEmbedStore{document: embedDocument(), chunks: embedChunks()}
-	service := NewEmbedService(store, &fakeEmbeddingProvider{vectors: [][]float32{{0.1}, {0.2}}}, &fakeVectorStore{err: errors.New("milvus down")}, EmbedConfig{Model: "text-embedding-3-small", Dimension: 1536})
+	service := NewEmbedService(store, &fakeEmbeddingProvider{vectors: [][]float32{{0.1}, {0.2}}}, &fakeVectorStore{err: errors.New("milvus down")}, EmbedConfig{Model: "text-embedding-v4", Dimension: 1024})
 
 	err := service.HandleChunkEmbed(context.Background(), ChunkEmbedEvent{EventID: "embed-event-1", DocumentNo: "doc_1", PayloadVersion: 1})
 	if err == nil {
@@ -68,7 +87,7 @@ func TestEmbedChunksVectorFailureDoesNotMarkReady(t *testing.T) {
 
 func TestFailedNewVersionLeavesPreviousReadyVersionCurrent(t *testing.T) {
 	store := &fakeEmbedStore{document: embedDocument(), chunks: embedChunks(), previousCurrent: true}
-	service := NewEmbedService(store, &fakeEmbeddingProvider{err: errors.New("provider down")}, &fakeVectorStore{}, EmbedConfig{Model: "text-embedding-3-small", Dimension: 1536})
+	service := NewEmbedService(store, &fakeEmbeddingProvider{err: errors.New("provider down")}, &fakeVectorStore{}, EmbedConfig{Model: "text-embedding-v4", Dimension: 1024})
 
 	err := service.HandleChunkEmbed(context.Background(), ChunkEmbedEvent{EventID: "embed-event-1", DocumentNo: "doc_1", PayloadVersion: 1})
 	if err == nil {
@@ -140,12 +159,19 @@ type fakeEmbeddingProvider struct {
 	input   EmbeddingInput
 	vectors [][]float32
 	err     error
+	calls   int
 }
 
 func (p *fakeEmbeddingProvider) EmbedDocuments(_ context.Context, input EmbeddingInput) (EmbeddingOutput, error) {
+	p.calls++
 	p.input = input
 	if p.err != nil {
 		return EmbeddingOutput{}, p.err
+	}
+	if len(p.vectors) >= len(input.Texts) {
+		out := p.vectors[:len(input.Texts)]
+		p.vectors = p.vectors[len(input.Texts):]
+		return EmbeddingOutput{Vectors: out}, nil
 	}
 	return EmbeddingOutput{Vectors: p.vectors}, nil
 }

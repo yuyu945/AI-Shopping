@@ -12,8 +12,9 @@ Outbox:
   CallTimeout: 250ms
   MaxAttempts: 5
 Embedding:
-  Model: text-embedding-3-small
-  Dimension: 1536
+  Provider: dashscope
+  Model: text-embedding-v4
+  Dimension: 1024
   Timeout: 5s
 VectorStore:
   Backend: milvus

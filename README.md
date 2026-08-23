@@ -57,6 +57,14 @@ pwsh -File scripts/test_knowledge_m32_integration.ps1
 
 未设置 `AI_SHOPPING_KNOWLEDGE_M32_INTEGRATION=1` 时，harness 输出 `SKIP` 且不启动 Docker、不连接 MySQL/MinIO/Kafka/Milvus/DashScope。实际运行使用专用 Compose project `m32knowledge`、随机 UUID `run_id` 和 `knowledge_db.knowledge_integration_guards`，测试只接受 loopback 且非默认 `3306` 的 `knowledge_db` DSN；通过 guard 后才验证 MinIO put/get/delete、Kafka topic 可见、Milvus REST list collections 以及 DashScope 返回 `1024` 维 embedding。
 
+## M4.1 Agent 运行模型与受控 Tool
+
+M4.1 已建立 `agent-service` gRPC 契约、`agent_sessions` / `agent_messages` / `agent_runs` / `agent_steps` schema、MySQL persistence、Tool registry、Tool executor 和 bounded run loop。服务暴露 `StartRun` 与 `GetRun` RPC；JWT 从 gRPC metadata 的 `authorization` 读取，`GetRun` 会按当前用户 ID 查询，非本人 run 返回稳定 `NOT_FOUND`。
+
+M4.1 Tool 白名单为 `search_products`、`get_user_profile`、`get_price_stock`、`get_discount`、`search_product_knowledge`。每个 Tool 都有输入 schema、timeout、max result 和权限来源；`get_user_profile` / `get_discount` 拒绝模型提供的 `user_id`，当前用户 ID 只由服务端注入。Tool adapters 通过窄接口调用 product/user/knowledge gRPC；模型不能写订单、库存、余额或执行 SQL。
+
+当前 M4.1 runtime 使用 disabled model provider：真实 LLM/Eino provider 与最终推荐 SKU schema 留到 M4.2。M4.1 可以创建并回放 run/step 时间线，但还不能把模型最终推荐写入可信 `recommendations` 快照。
+
 ## Trade schema upgrade
 
 已有 M1 MySQL volume 不会重新执行 `deploy/mysql/init`。设置指向 `trade_db` 的 `AI_SHOPPING_MYSQL_DSN` 后，运行 `pwsh -File scripts/apply_migrations.ps1` 升级订单 schema；设置指向 `catalog_db` 的 DSN 后，运行 `pwsh -File scripts/apply_catalog_migrations.ps1` 升级商品 schema。两个 runner 都只从环境变量读取 DSN metadata（app user、host、port），不接受命令行 DSN；MySQL client authentication 使用 Compose container 内的 `MYSQL_PASSWORD`，二者均不会被记录或输出。它们分别记录 `trade_db.schema_migrations` 与 `catalog_db.schema_migrations`，已应用版本会安全跳过。trade runner 不执行 catalog DDL；catalog runner 不执行 trade DDL。

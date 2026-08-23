@@ -7,7 +7,7 @@
 - 目标：用 Go 重建一条可运行、可解释、可面试追问的 AI 导购主链路
 - 参考原型：视频中的用户商城、商品详情问答、商品知识库、Agent 执行记录页面
 - 预计周期：个人开发 4-6 周，每天 3-4 小时
-- 当前状态：设计稿，尚未进入实现
+- 当前状态：M1-M3 与 M4.1 已实现；M4.2-M6 待实现
 
 本 MVP 不是原项目全部功能的等价复制，而是围绕 AI 导购完成最小业务闭环：
 
@@ -167,6 +167,7 @@ sequenceDiagram
 | `get_user_profile` | 当前用户 ID | 收藏、订单摘要、偏好标签 | 强制绑定登录用户 |
 | `get_price_stock` | 商品 ID 列表 | 实时价格、库存、可售状态 | 不接受模型提供的价格 |
 | `get_discount` | 用户 ID、商品 ID | 当前可用优惠 | 服务端校验用户资格 |
+| `search_product_knowledge` | 商品 ID、问题、资料类型 | RAG snippet 或受控 fallback reason | 只检索当前 READY 版本 |
 
 ### 7.2 Agent 防护边界
 
@@ -371,7 +372,7 @@ recommendations(
 )
 ```
 
-`AgentRun` 表示一次完整导购任务，`AgentStep` 表示其中一轮模型决策或 Tool 调用。推荐表只保存后端二次校验后的价格、库存和优惠快照，不能直接使用模型输出的交易字段。
+`AgentRun` 表示一次完整导购任务，`AgentStep` 表示其中一轮模型决策或 Tool 调用。M4.1 已实现 Agent 会话、Run、Step、受控 Tool 和 `StartRun` / `GetRun` gRPC；`recommendations` 属于 M4.2，推荐表只保存后端二次校验后的价格、库存和优惠快照，不能直接使用模型输出的交易字段。
 
 关键索引：
 
@@ -474,6 +475,10 @@ products 1--N knowledge_documents 1--N knowledge_chunks
 ## 10. API 草案
 
 ### 10.1 创建 Agent Run
+
+M4.1 已先提供 agent-service gRPC：`StartRun(StartRunRequest)` 和 `GetRun(GetRunRequest)`。Gateway HTTP、SSE 和可信推荐快照留到 M4.2/M5。
+
+计划中的 Gateway HTTP：
 
 `POST /api/v1/agent/runs`
 

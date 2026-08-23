@@ -5,7 +5,7 @@
 - Repository: `D:\简历\AI-Shopping`
 - Repository branch: `main`
 - M2.1 购物车与不可变订单快照已完成；M2.2 余额支付与库存预留 Saga 已合入主线并通过 baseline 验证。
-- M3.1 文档上传与事件可靠投递已完成；M3.2 解析、向量化和版本检索已完成。下一阶段是 M4.1 Agent 运行模型与受控 Tool。
+- M3.1 文档上传与事件可靠投递已完成；M3.2 解析、向量化和版本检索已完成；M4.1 Agent 运行模型与受控 Tool 已完成。下一阶段是 M4.2 推荐二次校验与可回放记录。
 
 ## Completed
 
@@ -49,6 +49,16 @@ M3.2 完成内容：
 - knowledge-service runtime config 已切换为阿里 DashScope `text-embedding-v4` / `1024` 维，runtime wiring 已接入 DashScope HTTP Embedding adapter、Milvus REST VectorStore adapter，以及 `knowledge.document.ingest` / `knowledge.chunk.embed` Kafka readers。
 - 新增 M3.2 gated integration harness：`services/knowledge-service/internal/knowledge/knowledge_integration_test.go`、`integration_config_test.go`、`integration_support_test.go`、`scripts/prepare_knowledge_integration.ps1`、`scripts/test_knowledge_m32_integration.ps1`。普通测试默认跳过；只有 `AI_SHOPPING_KNOWLEDGE_M32_INTEGRATION=1` 运行脚本、且 `AI_SHOPPING_INTEGRATION=1` / `AI_SHOPPING_INTEGRATION_ISOLATED=m32knowledge` / UUID guard 匹配时才连接真实 MySQL、MinIO、Kafka、Milvus 和 DashScope。
 
+M4.1 完成内容：
+
+- 新增 Agent runtime schema 和 migration：`agent_sessions`、`agent_messages`、`agent_runs`、`agent_steps`，状态固定为 `RUNNING` / `SUCCEEDED` / `FAILED` / `TIMEOUT`。
+- 新增 `api/agent/agent.proto` 与 generated gRPC contract，`agent-service` 暴露 `StartRun` 和 `GetRun`。
+- 实现 MySQL repository、bounded `RunService`、`ChatModel` provider boundary、disabled model adapter、Run/Step terminal persistence 和 stable error taxonomy。
+- 实现受控 Tool registry 与 executor：`search_products`、`get_user_profile`、`get_price_stock`、`get_discount`、`search_product_knowledge`。Tool 有 schema、timeout、max result 和权限来源；当前用户 ID 从服务端 JWT 注入，模型提供 `user_id` 会被拒绝。
+- 实现 product/user/knowledge gRPC Tool adapters；`search_product_knowledge` 对 `NO_READY_KNOWLEDGE` 等 fallback reason 只做受控返回，不生成资料外断言。
+- `services/agent-service/etc/agent-service.yaml` 已补 runtime、ProductRPC、UserRPC、KnowledgeRPC 配置。M4.1 不新增 secret；复用 `AI_SHOPPING_MYSQL_DSN` 和 `AI_SHOPPING_JWT_SECRET`。
+- M4.1 不写 `recommendations` 快照；真实 Eino/LLM provider、最终推荐 SKU schema、后端二次校验和可信推荐快照留到 M4.2。
+
 Key endpoints:
 
 - `POST /api/v1/auth/register`
@@ -74,6 +84,14 @@ Latest baseline re-run on 2026-08-23 from `main`:
 - `go vet ./...` passed.
 - `git diff --check` passed.
 
+M4.1 targeted validation on 2026-08-23:
+
+- `go test ./services/agent-service/internal/agent -run 'TestToolRegistry|TestGetUserProfile|TestRepository|TestAgentRuntimeSchemaContract' -count=1` passed.
+- `go test ./services/agent-service/internal/agent -run 'Test.*Tool' -count=1` passed.
+- `go test ./services/agent-service/internal/agent -run 'TestRunService' -count=1` passed.
+- `go test ./services/agent-service/... -run 'TestAgentServer|TestAgentServiceConfig' -count=1` passed.
+- `go test ./services/agent-service/... -count=1` passed.
+
 M3.1 targeted validation on 2026-08-23:
 
 - `go test ./services/knowledge-service/... ./apps/gateway/... ./internal/platform/... -count=1` passed.
@@ -89,8 +107,8 @@ The `m12verify` and `m12cacheverify` Docker projects, their volumes, temporary p
 
 ## Next Milestone
 
-M4.1 后续开发。保持边界：Agent 只能在 `agent-service` 中使用 Eino 和模型 Provider；Tool 必须 typed、受控、有 schema/timeout/max result/权限来源；模型不能直接写订单、库存、余额或执行 SQL。`search_product_knowledge` Tool 应调用 M3.2 的 `SearchProductKnowledge` gRPC，RAG 不可用时只做受控降级。
+M4.2 后续开发。保持边界：Agent 只能在 `agent-service` 中使用 Eino 和模型 Provider；Tool 必须 typed、受控、有 schema/timeout/max result/权限来源；模型不能直接写订单、库存、余额或执行 SQL。M4.2 应定义模型最终推荐 SKU schema，并在写 `recommendations` 前通过后端 Tool 二次校验价格、库存、优惠和可售状态。
 
 ## Integration
 
-Before starting M4.1 implementation, create or update the M4 Agent design/plan, then keep changes directly on `main` per the latest user instruction. Do not rewrite history; push only when explicitly requested or when continuing the already approved mainline push workflow.
+Continue directly on `main` per the latest user instruction. Do not rewrite history; push verified milestones as part of the already approved mainline push workflow.

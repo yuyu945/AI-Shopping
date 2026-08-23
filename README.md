@@ -39,6 +39,12 @@ POST /api/v1/knowledge/documents
 
 M3.1 只完成原文件写入 MinIO、`knowledge_documents(status=PENDING)` 和 `knowledge.document.ingest` Outbox 原子登记。接口立即返回文档号、版本和 `PENDING` 状态；解析、Chunk、Embedding 和 Milvus 写入属于 M3.2。Outbox worker 同步等待 Kafka ack，失败会保留记录并退避重试，达到阈值后进入 `DEAD`，不会在上传 transaction 内发布 Kafka。
 
+## M3.2 知识库处理与检索进展
+
+M3.2 已建立 `knowledge_chunks` schema、文档解析/切分 domain、`knowledge.document.ingest` 处理服务、`knowledge.chunk.embed` 处理服务、当前 `READY` 版本切换事务，以及 `SearchProductKnowledge` gRPC 检索接口。检索会先读取 MySQL 当前可见版本，再调用向量检索，并在返回前重新用 MySQL 过滤 current-ready chunk，避免旧版本资料被召回。
+
+Embedding 默认配置为 `text-embedding-3-small` / `1536` 维，写在 `services/knowledge-service/etc/knowledge-service.yaml` 中；`.env.example` 只列出 `AI_SHOPPING_OPENAI_API_KEY` 等变量名，不包含真实值。当前 runtime wiring 使用明确不可用的 Embedding/VectorStore adapter，真实 OpenAI 和 Milvus adapter、Kafka reader 启动与端到端集成验证仍属于 M3.2 后续收口项。
+
 ## Trade schema upgrade
 
 已有 M1 MySQL volume 不会重新执行 `deploy/mysql/init`。设置指向 `trade_db` 的 `AI_SHOPPING_MYSQL_DSN` 后，运行 `pwsh -File scripts/apply_migrations.ps1` 升级订单 schema；设置指向 `catalog_db` 的 DSN 后，运行 `pwsh -File scripts/apply_catalog_migrations.ps1` 升级商品 schema。两个 runner 都只从环境变量读取 DSN metadata（app user、host、port），不接受命令行 DSN；MySQL client authentication 使用 Compose container 内的 `MYSQL_PASSWORD`，二者均不会被记录或输出。它们分别记录 `trade_db.schema_migrations` 与 `catalog_db.schema_migrations`，已应用版本会安全跳过。trade runner 不执行 catalog DDL；catalog runner 不执行 trade DDL。

@@ -11,3 +11,11 @@ Outbox:
   LeaseDuration: 30s
   CallTimeout: 250ms
   MaxAttempts: 5
+Embedding:
+  Model: text-embedding-3-small
+  Dimension: 1536
+  Timeout: 5s
+VectorStore:
+  Backend: milvus
+  Collection: knowledge_chunks
+  Timeout: 5s

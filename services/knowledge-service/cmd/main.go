@@ -27,8 +27,10 @@ const SERVICE_NAME = "knowledge-service"
 
 type knowledgeServiceConfig struct {
 	zrpc.RpcServerConf
-	Upload uploadConfig
-	Outbox outboxConfig
+	Upload      uploadConfig
+	Outbox      outboxConfig
+	Embedding   embeddingConfig
+	VectorStore vectorStoreConfig
 }
 
 type uploadConfig struct {
@@ -45,6 +47,18 @@ type outboxConfig struct {
 	MaxAttempts   int
 }
 
+type embeddingConfig struct {
+	Model     string
+	Dimension int
+	Timeout   time.Duration
+}
+
+type vectorStoreConfig struct {
+	Backend    string
+	Collection string
+	Timeout    time.Duration
+}
+
 func (c knowledgeServiceConfig) validate() error {
 	if c.Name != SERVICE_NAME || c.ListenOn == "" {
 		return errors.New("invalid Name or ListenOn")
@@ -57,6 +71,12 @@ func (c knowledgeServiceConfig) validate() error {
 	}
 	if c.Outbox.PollInterval <= 0 {
 		return errors.New("outbox poll interval must be positive")
+	}
+	if strings.TrimSpace(c.Embedding.Model) == "" || c.Embedding.Dimension <= 0 || c.Embedding.Timeout <= 0 {
+		return errors.New("embedding config is invalid")
+	}
+	if strings.TrimSpace(c.VectorStore.Backend) == "" || strings.TrimSpace(c.VectorStore.Collection) == "" || c.VectorStore.Timeout <= 0 {
+		return errors.New("vector store config is invalid")
 	}
 	return c.outboxWorkerConfig().Validate()
 }
@@ -72,6 +92,10 @@ func (c knowledgeServiceConfig) outboxWorkerConfig() outbox.Config {
 		CallTimeout:   c.Outbox.CallTimeout,
 		MaxAttempts:   c.Outbox.MaxAttempts,
 	}
+}
+
+func (c knowledgeServiceConfig) retrievalConfig() knowledge.RetrievalConfig {
+	return knowledge.RetrievalConfig{Model: c.Embedding.Model, DefaultTopK: 5, MaxTopK: 10}
 }
 
 func main() {
@@ -115,12 +139,13 @@ func main() {
 	}
 	repository := knowledge.NewMySQLRepository(db)
 	service := knowledge.NewService(repository, storage, knowledge.IDGeneratorFunc(uuid.NewString), time.Now, config.uploadServiceConfig())
+	retrieval := knowledge.NewRetrievalService(repository, disabledEmbeddingProvider{}, disabledVectorStore{}, config.retrievalConfig())
 	publisher := outbox.NewKafkaPublisher(strings.Split(runtimeConfig.KafkaBrokers, ","))
 	defer publisher.Close()
 	worker := outbox.NewWorker(outbox.NewMySQLRepository(db), publisher, config.outboxWorkerConfig())
 	zrpc.DontLogContentForMethod(knowledgepb.KnowledgeService_UploadDocument_FullMethodName)
 	server, err := zrpc.NewServer(config.RpcServerConf, func(g *grpc.Server) {
-		knowledgepb.RegisterKnowledgeServiceServer(g, knowledgeserver.NewGRPCServer(service, manager, time.Duration(config.Timeout)*time.Millisecond))
+		knowledgepb.RegisterKnowledgeServiceServer(g, knowledgeserver.NewGRPCServerWithSearch(service, retrieval, manager, time.Duration(config.Timeout)*time.Millisecond))
 	})
 	if err != nil {
 		log.Fatalf("%s create rpc server: %v", SERVICE_NAME, err)
@@ -134,6 +159,22 @@ func main() {
 		}
 	}()
 	server.Start()
+}
+
+type disabledEmbeddingProvider struct{}
+
+func (disabledEmbeddingProvider) EmbedDocuments(context.Context, knowledge.EmbeddingInput) (knowledge.EmbeddingOutput, error) {
+	return knowledge.EmbeddingOutput{}, errors.New("embedding provider is not configured")
+}
+
+type disabledVectorStore struct{}
+
+func (disabledVectorStore) UpsertChunks(context.Context, knowledge.VectorUpsertInput) error {
+	return errors.New("vector store is not configured")
+}
+
+func (disabledVectorStore) Search(context.Context, knowledge.VectorSearchInput) ([]knowledge.VectorSearchHit, error) {
+	return nil, errors.New("vector store is not configured")
 }
 
 func knowledgeDSN(dsn string) (string, error) {

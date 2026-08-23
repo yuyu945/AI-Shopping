@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 )
 
 const (
@@ -15,6 +16,9 @@ const (
 	minIOAccessKeyEnv                = "AI_SHOPPING_MINIO_ACCESS_KEY"
 	minIOSecretKeyEnv                = "AI_SHOPPING_MINIO_SECRET_KEY"
 	milvusAddressEnv                 = "AI_SHOPPING_MILVUS_ADDRESS"
+	embeddingModelEnv                = "AI_SHOPPING_EMBEDDING_MODEL"
+	embeddingDimensionEnv            = "AI_SHOPPING_EMBEDDING_DIMENSION"
+	openAIAPIKeyEnv                  = "AI_SHOPPING_OPENAI_API_KEY"
 	jwtSecretEnv                     = "AI_SHOPPING_JWT_SECRET"
 	internalServiceTokenEnv          = "AI_SHOPPING_INTERNAL_SERVICE_TOKEN"
 	minimumInternalServiceTokenBytes = 32
@@ -36,6 +40,9 @@ type Config struct {
 	MinIOAccessKey       string
 	MinIOSecretKey       string
 	MilvusAddress        string
+	EmbeddingModel       string
+	EmbeddingDimension   int
+	OpenAIAPIKey         string
 	JWTSecret            string
 	InternalServiceToken string
 }
@@ -61,6 +68,11 @@ func Load() (Config, error) {
 		values[name] = value
 	}
 
+	embeddingDimension, err := optionalPositiveInt(embeddingDimensionEnv)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		MySQLDSN:             values[mysqlDSNEnv],
 		RedisAddr:            values[redisAddrEnv],
@@ -69,9 +81,24 @@ func Load() (Config, error) {
 		MinIOAccessKey:       values[minIOAccessKeyEnv],
 		MinIOSecretKey:       values[minIOSecretKeyEnv],
 		MilvusAddress:        values[milvusAddressEnv],
+		EmbeddingModel:       os.Getenv(embeddingModelEnv),
+		EmbeddingDimension:   embeddingDimension,
+		OpenAIAPIKey:         os.Getenv(openAIAPIKeyEnv),
 		JWTSecret:            values[jwtSecretEnv],
 		InternalServiceToken: os.Getenv(internalServiceTokenEnv),
 	}, nil
+}
+
+func optionalPositiveInt(name string) (int, error) {
+	value := os.Getenv(name)
+	if value == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return 0, fmt.Errorf("environment variable %s must be a positive integer", name)
+	}
+	return parsed, nil
 }
 
 // ValidateInternalServiceToken verifies that an internal service token is a

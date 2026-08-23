@@ -29,6 +29,12 @@ func TestKnowledgeServiceConfigLoadsDefaults(t *testing.T) {
 	if config.Outbox.PollInterval != time.Second || config.Outbox.MaxAttempts != 5 {
 		t.Fatalf("outbox config = %#v", config.Outbox)
 	}
+	if config.Embedding.Model != "text-embedding-3-small" || config.Embedding.Dimension != 1536 || config.Embedding.Timeout != 5*time.Second {
+		t.Fatalf("embedding config = %#v", config.Embedding)
+	}
+	if config.VectorStore.Backend != "milvus" || config.VectorStore.Collection != "knowledge_chunks" || config.VectorStore.Timeout != 5*time.Second {
+		t.Fatalf("vector store config = %#v", config.VectorStore)
+	}
 }
 
 func TestKnowledgeDSNUsesKnowledgeDatabase(t *testing.T) {

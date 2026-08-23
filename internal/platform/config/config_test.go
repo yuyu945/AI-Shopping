@@ -96,6 +96,21 @@ func TestLoadReadsInternalServiceTokenWithoutMakingItGlobalRequirement(t *testin
 	}
 }
 
+func TestLoadReadsOptionalEmbeddingEnvironment(t *testing.T) {
+	setRequiredEnvironment(t)
+	t.Setenv("AI_SHOPPING_EMBEDDING_MODEL", "text-embedding-3-small")
+	t.Setenv("AI_SHOPPING_EMBEDDING_DIMENSION", "1536")
+	t.Setenv("AI_SHOPPING_OPENAI_API_KEY", "local-openai-key")
+
+	got, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.EmbeddingModel != "text-embedding-3-small" || got.EmbeddingDimension != 1536 || got.OpenAIAPIKey != "local-openai-key" {
+		t.Fatalf("embedding config = %#v", got)
+	}
+}
+
 func TestValidateInternalServiceToken(t *testing.T) {
 	validToken := "szF1wQ8oXn7uK4mV2rC9yT5pL6dE3aB0"
 	tests := []struct {
@@ -142,7 +157,7 @@ func TestExampleEnvironmentSatisfiesLoadRequirements(t *testing.T) {
 	}
 	for name := range example {
 		if strings.HasPrefix(name, "AI_SHOPPING_") {
-			if _, ok := requiredEnvironment[name]; !ok && name != "AI_SHOPPING_INTERNAL_SERVICE_TOKEN" {
+			if _, ok := requiredEnvironment[name]; !ok && name != "AI_SHOPPING_INTERNAL_SERVICE_TOKEN" && name != "AI_SHOPPING_EMBEDDING_MODEL" && name != "AI_SHOPPING_EMBEDDING_DIMENSION" && name != "AI_SHOPPING_OPENAI_API_KEY" {
 				t.Fatalf(".env.example contains unsupported runtime variable %s", name)
 			}
 		}

@@ -3,9 +3,9 @@
 ## Current State
 
 - Repository: `D:\简历\AI-Shopping`
-- Repository branch: `codex/m3-knowledge-upload`
+- Repository branch: `main`
 - M2.1 购物车与不可变订单快照已完成；M2.2 余额支付与库存预留 Saga 已合入主线并通过 baseline 验证。
-- M3.1 文档上传与事件可靠投递已完成；下一阶段从 M3.2 解析、向量化和版本检索开始。
+- M3.1 文档上传与事件可靠投递已完成；M3.2 解析、向量化和版本检索正在进行。
 
 ## Completed
 
@@ -37,6 +37,16 @@ M3.1 知识库上传与 Outbox 已完成：
 - 原文件写入 MinIO，`knowledge_documents(status=PENDING)` 与 `knowledge.document.ingest` Outbox 在 `knowledge_db` transaction 内原子写入；重复 `(product_id, doc_type, source_hash)` 返回既有文档。
 - knowledge Outbox worker 使用 lease、同步 Kafka ack、退避 retry 和 `DEAD` 终态；未发布成功的事件保留在 `knowledge_db.outbox_events`。
 - 新增 `knowledge_db` 的 `knowledge_documents`、`outbox_events`、`event_consumptions`、`embedding_tasks` schema 和 `scripts/apply_knowledge_migrations.ps1`。
+
+M3.2 已完成的本地可验证部分：
+
+- 新增 M3.2 设计与实施计划：`docs/superpowers/specs/2026-08-23-m3.2-knowledge-processing-retrieval-design.md`、`docs/superpowers/plans/2026-08-23-m3.2-knowledge-processing-retrieval.md`。
+- 新增 `knowledge_chunks` schema、`knowledge_documents.is_current_ready`、`knowledge_documents.ready_at` 和知识库迁移 `20260823_m3_2_knowledge_processing_retrieval.sql`。
+- 实现 Chunker：规范化 CRLF/NUL/空行，按 Markdown heading/段落切分，超长段落硬切，保存 section 与 content hash。
+- 实现 `IngestService`：消费 `knowledge.document.ingest` payload，以 `document_no` 查回文档，读取 MinIO object，写 Chunk，并创建 `knowledge.chunk.embed` Outbox event。
+- 实现 `EmbedService`：调用 `EmbeddingProvider`、`VectorStore`，向量写入成功后在 MySQL transaction 内标记 Chunk `EMBEDDED`、embedding task `DONE`、新文档 `READY/current`，失败只记录 retry，不清理旧 current-ready。
+- 实现 `RetrievalService` 和 `SearchProductKnowledge` gRPC：检索前读取 current-ready 文档，向量检索后再用 MySQL 过滤 current-ready Chunk，返回 snippet、doc type、version、section、source page 和 score。
+- knowledge-service runtime config 已新增 Embedding/VectorStore 默认配置；当前 runtime adapter 明确返回未配置错误，真实 OpenAI/Milvus adapter 与 Kafka reader wiring 尚未收口。
 
 Key endpoints:
 
@@ -78,7 +88,7 @@ The `m12verify` and `m12cacheverify` Docker projects, their volumes, temporary p
 
 ## Next Milestone
 
-M3.2 解析、向量化和版本检索。下一步应实现 `knowledge.document.ingest` consumer，解析文件、规范化文本、切分 chunk，发布 `knowledge.chunk.embed`，再由 embedding consumer 写 Milvus 并更新文档状态。保持边界：上传接口仍不等待解析或 Embedding；只有当前 `READY` 版本参与检索；重复事件必须由 `event_consumptions` 和业务唯一键幂等。
+M3.2 后续收口。下一步应实现真实 Kafka reader runtime wiring、OpenAI `text-embedding-3-small` adapter、Milvus `VectorStore` adapter，以及显式 gated integration tests。保持边界：上传接口仍不等待解析或 Embedding；只有当前 `READY` 版本参与检索；重复事件必须由 `event_consumptions` 和业务唯一键幂等。
 
 ## Integration
 

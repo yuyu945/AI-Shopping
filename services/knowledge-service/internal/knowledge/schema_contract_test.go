@@ -17,6 +17,13 @@ func TestKnowledgeUploadSchemaContract(t *testing.T) {
 	assertContains(t, schema, "KEY idx_knowledge_outbox_status_retry (status, next_retry_at, id)")
 	assertContains(t, schema, "CREATE TABLE event_consumptions")
 	assertContains(t, schema, "CREATE TABLE embedding_tasks")
+	assertContains(t, schema, "is_current_ready TINYINT(1) NOT NULL DEFAULT 0")
+	assertContains(t, schema, "ready_at DATETIME(3) NULL")
+	assertContains(t, schema, "CREATE TABLE knowledge_chunks")
+	assertContains(t, schema, "UNIQUE KEY uq_knowledge_chunk_index (document_id, chunk_index)")
+	assertContains(t, schema, "UNIQUE KEY uq_knowledge_chunk_content (document_id, content_hash)")
+	assertContains(t, schema, "KEY idx_knowledge_chunk_visible (product_id, doc_type, version, status, chunk_index)")
+	assertContains(t, schema, "CONSTRAINT chk_knowledge_chunk_status CHECK (status IN ('PENDING_EMBEDDING','EMBEDDED','FAILED'))")
 }
 
 func repoRoot(t *testing.T) string {

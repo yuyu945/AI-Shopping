@@ -178,6 +178,80 @@ func TestSaveChunksAndEmbedEventCommitsTogether(t *testing.T) {
 	}
 }
 
+func TestListDocumentChunksReturnsChunksInIndexOrder(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(regexp.QuoteMeta(queryDocumentChunks)).
+		WithArgs(uint64(123)).
+		WillReturnRows(sqlmock.NewRows(chunkColumns()).AddRow(uint64(11), uint64(123), uint64(1001), DocFAQ, uint32(2), uint32(0), "Battery", nil, "First", strings.Repeat("b", 64), nil, ChunkPendingEmbedding))
+
+	got, err := NewMySQLRepository(db).ListDocumentChunks(context.Background(), 123)
+	if err != nil || len(got) != 1 || got[0].ID != 11 || got[0].Content != "First" {
+		t.Fatalf("ListDocumentChunks() = %#v, %v", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMarkDocumentReadyWithVectorsCommitsVersionSwitchTogether(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	document := embedDocument()
+	refs := []ChunkVectorRef{{ChunkID: 11, VectorRef: "knowledge_chunk_11"}, {ChunkID: 12, VectorRef: "knowledge_chunk_12"}}
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(updateKnowledgeChunkEmbedded)).
+		WithArgs(refs[0].VectorRef, refs[0].ChunkID, document.ID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(updateKnowledgeChunkEmbedded)).
+		WithArgs(refs[1].VectorRef, refs[1].ChunkID, document.ID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(upsertEmbeddingTaskDone)).
+		WithArgs("embed-event-1", document.ID, document.Version).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(clearCurrentReadyDocuments)).
+		WithArgs(document.ProductID, document.DocType, document.ID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(markKnowledgeDocumentReady)).
+		WithArgs("text-embedding-3-small", len(refs), document.ID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	if err := NewMySQLRepository(db).MarkDocumentReadyWithVectors(context.Background(), "embed-event-1", document, refs, "text-embedding-3-small"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMarkEmbeddingTaskRetryUpsertsFailure(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	mock.ExpectExec(regexp.QuoteMeta(upsertEmbeddingTaskRetry)).
+		WithArgs("embed-event-1", uint64(123), uint32(2), "EMBEDDING_FAILED").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	if err := NewMySQLRepository(db).MarkEmbeddingTaskRetry(context.Background(), "embed-event-1", 123, 2, "EMBEDDING_FAILED", "provider failed"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func newDocumentCommand() NewDocumentCommand {
 	return NewDocumentCommand{
 		DocumentNo: "doc_1", ProductID: 1001, DocType: DocFAQ, Version: 2,

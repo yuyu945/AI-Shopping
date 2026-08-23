@@ -21,6 +21,12 @@ const updateKnowledgeDocumentProcessing = `UPDATE knowledge_documents SET status
 const updateKnowledgeDocumentFailed = `UPDATE knowledge_documents SET status = 'FAILED', error_code = ?, error_message = ?, processed_at = CURRENT_TIMESTAMP(3), is_current_ready = 0 WHERE id = ?`
 const insertKnowledgeChunk = `INSERT INTO knowledge_chunks (document_id, product_id, doc_type, version, chunk_index, section, source_page, content, content_hash, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_EMBEDDING') ON DUPLICATE KEY UPDATE section = VALUES(section), source_page = VALUES(source_page), content = VALUES(content), content_hash = VALUES(content_hash), status = IF(status = 'EMBEDDED', status, VALUES(status))`
 const updateKnowledgeDocumentChunkCount = `UPDATE knowledge_documents SET chunk_count = ? WHERE id = ?`
+const queryDocumentChunks = `SELECT id, document_id, product_id, doc_type, version, chunk_index, section, source_page, content, content_hash, vector_ref, status FROM knowledge_chunks WHERE document_id = ? ORDER BY chunk_index ASC`
+const upsertEmbeddingTaskRetry = `INSERT INTO embedding_tasks (event_id, document_id, version, status, retry_count, last_error) VALUES (?, ?, ?, 'FAILED', 1, ?) ON DUPLICATE KEY UPDATE status = 'FAILED', retry_count = retry_count + 1, last_error = VALUES(last_error), updated_at = CURRENT_TIMESTAMP(3)`
+const updateKnowledgeChunkEmbedded = `UPDATE knowledge_chunks SET status = 'EMBEDDED', vector_ref = ? WHERE id = ? AND document_id = ?`
+const upsertEmbeddingTaskDone = `INSERT INTO embedding_tasks (event_id, document_id, version, status) VALUES (?, ?, ?, 'DONE') ON DUPLICATE KEY UPDATE status = 'DONE', last_error = NULL, updated_at = CURRENT_TIMESTAMP(3)`
+const clearCurrentReadyDocuments = `UPDATE knowledge_documents SET is_current_ready = 0 WHERE product_id = ? AND doc_type = ? AND id <> ? AND is_current_ready = 1`
+const markKnowledgeDocumentReady = `UPDATE knowledge_documents SET status = 'READY', is_current_ready = 1, ready_at = CURRENT_TIMESTAMP(3), embedding_model = ?, chunk_count = ?, processed_at = CURRENT_TIMESTAMP(3), error_code = NULL, error_message = NULL WHERE id = ?`
 
 type MySQLRepository struct {
 	db *sql.DB
@@ -164,6 +170,78 @@ func (r *MySQLRepository) SaveChunksAndEmbedEvent(ctx context.Context, document 
 	return nil
 }
 
+func (r *MySQLRepository) ListDocumentChunks(ctx context.Context, documentID uint64) ([]Chunk, error) {
+	rows, err := r.db.QueryContext(ctx, queryDocumentChunks, documentID)
+	if err != nil {
+		return nil, fmt.Errorf("read document chunks: %w", err)
+	}
+	defer rows.Close()
+
+	chunks := make([]Chunk, 0)
+	for rows.Next() {
+		chunk, err := scanChunk(rows)
+		if err != nil {
+			return nil, err
+		}
+		chunks = append(chunks, chunk)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read document chunks rows: %w", err)
+	}
+	return chunks, nil
+}
+
+func (r *MySQLRepository) MarkEmbeddingTaskRetry(ctx context.Context, eventID string, documentID uint64, version uint32, code, message string) error {
+	lastError := code
+	if message != "" {
+		lastError = code
+	}
+	_, err := r.db.ExecContext(ctx, upsertEmbeddingTaskRetry, eventID, documentID, version, lastError)
+	if err != nil {
+		return fmt.Errorf("upsert embedding task retry: %w", err)
+	}
+	return nil
+}
+
+func (r *MySQLRepository) MarkDocumentReadyWithVectors(ctx context.Context, eventID string, document Document, refs []ChunkVectorRef, model string) (err error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin knowledge ready transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	for _, ref := range refs {
+		result, execErr := tx.ExecContext(ctx, updateKnowledgeChunkEmbedded, ref.VectorRef, ref.ChunkID, document.ID)
+		if execErr != nil {
+			return fmt.Errorf("mark knowledge chunk embedded: %w", execErr)
+		}
+		if execErr = requireSingleRow(result, nil, "mark knowledge chunk embedded"); execErr != nil {
+			return execErr
+		}
+	}
+	if _, err = tx.ExecContext(ctx, upsertEmbeddingTaskDone, eventID, document.ID, document.Version); err != nil {
+		return fmt.Errorf("upsert embedding task done: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, clearCurrentReadyDocuments, document.ProductID, document.DocType, document.ID); err != nil {
+		return fmt.Errorf("clear current knowledge documents: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, markKnowledgeDocumentReady, model, len(refs), document.ID)
+	if err != nil {
+		return fmt.Errorf("mark knowledge document ready: %w", err)
+	}
+	if err = requireSingleRow(result, nil, "mark knowledge document ready"); err != nil {
+		return err
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit knowledge ready transaction: %w", err)
+	}
+	return nil
+}
+
 type scanner interface {
 	Scan(...any) error
 }
@@ -182,6 +260,34 @@ func scanDocument(row scanner) (Document, error) {
 
 func documentColumns() []string {
 	return []string{"id", "document_no", "product_id", "doc_type", "version", "object_key", "source_hash", "file_name", "content_type", "file_size_bytes", "status", "created_by_user_id", "created_at", "updated_at"}
+}
+
+func chunkColumns() []string {
+	return []string{"id", "document_id", "product_id", "doc_type", "version", "chunk_index", "section", "source_page", "content", "content_hash", "vector_ref", "status"}
+}
+
+func scanChunk(row scanner) (Chunk, error) {
+	var chunk Chunk
+	var section sql.NullString
+	var sourcePage sql.NullInt64
+	var vectorRef sql.NullString
+	if err := row.Scan(
+		&chunk.ID, &chunk.DocumentID, &chunk.ProductID, &chunk.DocType, &chunk.Version, &chunk.ChunkIndex,
+		&section, &sourcePage, &chunk.Content, &chunk.ContentHash, &vectorRef, &chunk.Status,
+	); err != nil {
+		return Chunk{}, fmt.Errorf("scan knowledge chunk: %w", err)
+	}
+	if section.Valid {
+		chunk.Section = section.String
+	}
+	if sourcePage.Valid {
+		page := uint32(sourcePage.Int64)
+		chunk.SourcePage = &page
+	}
+	if vectorRef.Valid {
+		chunk.VectorRef = vectorRef.String
+	}
+	return chunk, nil
 }
 
 func sourcePageValue(value *uint32) any {

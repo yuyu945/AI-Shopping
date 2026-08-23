@@ -10,6 +10,7 @@ const documentIngestTopic = "knowledge.document.ingest"
 const chunkEmbedTopic = "knowledge.chunk.embed"
 
 const documentIngestConsumerGroup = "knowledge-document-ingest-v1"
+const chunkEmbedConsumerGroup = "knowledge-chunk-embed-v1"
 
 var ErrDocumentNotFound = errors.New("document not found")
 
@@ -64,6 +65,26 @@ type ChunkDraft struct {
 	ContentHash string
 }
 
+type Chunk struct {
+	ID          uint64
+	DocumentID  uint64
+	ProductID   uint64
+	DocType     DocType
+	Version     uint32
+	ChunkIndex  uint32
+	Section     string
+	SourcePage  *uint32
+	Content     string
+	ContentHash string
+	VectorRef   string
+	Status      ChunkStatus
+}
+
+type ChunkVectorRef struct {
+	ChunkID   uint64
+	VectorRef string
+}
+
 type UploadInput struct {
 	UserID      uint64
 	ProductID   uint64
@@ -110,8 +131,62 @@ type IngestEvent struct {
 	PayloadVersion int    `json:"payload_version"`
 }
 
+type ChunkEmbedEvent struct {
+	EventID            string `json:"event_id"`
+	EventType          string `json:"event_type"`
+	DocumentNo         string `json:"document_no"`
+	DocumentID         uint64 `json:"document_id"`
+	ProductID          uint64 `json:"product_id"`
+	DocType            string `json:"doc_type"`
+	Version            uint32 `json:"version"`
+	ChunkCount         int    `json:"chunk_count"`
+	EmbeddingModel     string `json:"embedding_model"`
+	EmbeddingDimension int    `json:"embedding_dimension"`
+	PayloadVersion     int    `json:"payload_version"`
+}
+
 type ConsumptionDecision struct {
 	AlreadySucceeded bool
+}
+
+type EmbeddingInput struct {
+	Model string
+	Texts []string
+}
+
+type EmbeddingOutput struct {
+	Vectors [][]float32
+}
+
+type VectorUpsertInput struct {
+	Model  string
+	Chunks []VectorChunk
+}
+
+type VectorChunk struct {
+	Chunk    Chunk
+	Vector   []float32
+	VectorID string
+}
+
+type VectorSearchInput struct {
+	ProductID uint64
+	Query     []float32
+	TopK      int
+}
+
+type VectorSearchHit struct {
+	ChunkID uint64
+	Score   float64
+}
+
+type EmbeddingProvider interface {
+	EmbedDocuments(context.Context, EmbeddingInput) (EmbeddingOutput, error)
+}
+
+type VectorStore interface {
+	UpsertChunks(context.Context, VectorUpsertInput) error
+	Search(context.Context, VectorSearchInput) ([]VectorSearchHit, error)
 }
 
 type Store interface {

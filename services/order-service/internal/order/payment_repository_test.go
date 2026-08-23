@@ -271,6 +271,27 @@ func TestMySQLPaymentRepositoryResetPaymentClaimRecordsTerminalAttempt(t *testin
 	}
 }
 
+func TestMySQLPaymentRepositoryResetPaymentClaimRollsBackWhenHistoryInsertFails(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	attempt := PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(resetPaymentOrder)).WithArgs(PendingPayment, uint64(7), "order-1", PaymentProcessing, attempt.ID, attempt.ReservationID).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(insertPaymentAttemptHistory)).WithArgs("order-1", attempt.ID, attempt.ReservationID, PendingPayment).WillReturnError(errors.New("history unavailable"))
+	mock.ExpectRollback()
+
+	reset, err := NewMySQLRepository(db).ResetPaymentClaim(context.Background(), 7, "order-1", attempt)
+	if err == nil || reset {
+		t.Fatalf("ResetPaymentClaim() = %v, %v; want false, error", reset, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestMySQLPaymentRepositoryPaymentSettlementStatusReadsResetAttempt(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

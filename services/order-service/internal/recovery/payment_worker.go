@@ -41,6 +41,32 @@ type Config struct {
 	LeaseDuration, CallTimeout time.Duration
 }
 
+const worstCaseCallsPerAttempt int64 = 4
+
+// Validate checks that one leased batch has enough time budget for serial reconciliation.
+func (c Config) Validate() error {
+	if c.BatchSize <= 0 {
+		return errors.New("batch size must be positive")
+	}
+	if c.LeaseDuration <= 0 {
+		return errors.New("lease duration must be positive")
+	}
+	if c.CallTimeout <= 0 {
+		return errors.New("call timeout must be positive")
+	}
+	if int64(c.BatchSize) > (1<<63-1)/worstCaseCallsPerAttempt {
+		return errors.New("batch call timeout budget exceeds duration limit")
+	}
+	calls := time.Duration(int64(c.BatchSize) * worstCaseCallsPerAttempt)
+	if c.CallTimeout > time.Duration(1<<63-1)/calls {
+		return errors.New("batch call timeout budget exceeds duration limit")
+	}
+	if c.LeaseDuration < c.CallTimeout*calls {
+		return errors.New("lease duration must cover the batch call timeout budget")
+	}
+	return nil
+}
+
 // Worker resolves stale claims without sharing transactions with product-service.
 type Worker struct {
 	store        Store
@@ -56,8 +82,8 @@ func NewWorker(store Store, reservations Reservations, settler Settler, config C
 
 // RunOnce processes a bounded, fenced batch. A dependency failure leaves the claim recoverable.
 func (w *Worker) RunOnce(ctx context.Context) error {
-	if w == nil || w.store == nil || w.reservations == nil || w.settler == nil || w.config.BatchSize <= 0 || w.config.LeaseDuration <= 0 || w.config.CallTimeout <= 0 {
-		return errors.New("payment recovery worker is unavailable")
+	if err := w.validate(); err != nil {
+		return err
 	}
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	leaseCtx, cancel := context.WithTimeout(ctx, w.config.CallTimeout)
@@ -76,6 +102,9 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 
 // Run polls recovery until cancellation.
 func (w *Worker) Run(ctx context.Context, interval time.Duration) error {
+	if err := w.validate(); err != nil {
+		return err
+	}
 	if interval <= 0 {
 		interval = time.Second
 	}
@@ -91,6 +120,13 @@ func (w *Worker) Run(ctx context.Context, interval time.Duration) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+func (w *Worker) validate() error {
+	if w == nil || w.store == nil || w.reservations == nil || w.settler == nil {
+		return errors.New("payment recovery worker is unavailable")
+	}
+	return w.config.Validate()
 }
 
 func (w *Worker) reconcile(ctx context.Context, attempt Attempt) error {

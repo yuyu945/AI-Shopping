@@ -18,5 +18,5 @@ ConfirmationOutbox:
 PaymentRecovery:
   PollInterval: 1s
   BatchSize: 20
-  LeaseDuration: 30s
+  LeaseDuration: 3m
   CallTimeout: 2s

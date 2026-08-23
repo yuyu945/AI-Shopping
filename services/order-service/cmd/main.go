@@ -65,6 +65,13 @@ func (c orderServiceConfig) paymentRecoveryWorkerConfig() recovery.Config {
 	}
 }
 
+func (c orderServiceConfig) validatePaymentRecoveryStartupConfig() error {
+	if c.PaymentRecovery.PollInterval <= 0 {
+		return errors.New("poll interval must be positive")
+	}
+	return c.paymentRecoveryWorkerConfig().Validate()
+}
+
 func main() {
 	var configFile string
 	flag.StringVar(&configFile, "f", "services/order-service/etc/order-service.yaml", "Service configuration file")
@@ -79,6 +86,9 @@ func main() {
 		log.Fatalf("%s startup: invalid confirmation outbox configuration", SERVICE_NAME)
 	}
 	recoveryConfig := config.paymentRecoveryWorkerConfig()
+	if err := config.validatePaymentRecoveryStartupConfig(); err != nil {
+		log.Fatalf("%s startup: invalid payment recovery configuration", SERVICE_NAME)
+	}
 	runtimeConfig, err := platformconfig.Load()
 	if err != nil {
 		log.Fatalf("%s load runtime configuration: %v", SERVICE_NAME, err)

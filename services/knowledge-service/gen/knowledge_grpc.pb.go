@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	KnowledgeService_UploadDocument_FullMethodName = "/knowledge.v1.KnowledgeService/UploadDocument"
+	KnowledgeService_UploadDocument_FullMethodName         = "/knowledge.v1.KnowledgeService/UploadDocument"
+	KnowledgeService_SearchProductKnowledge_FullMethodName = "/knowledge.v1.KnowledgeService/SearchProductKnowledge"
 )
 
 // KnowledgeServiceClient is the client API for KnowledgeService service.
@@ -29,6 +30,7 @@ const (
 // KnowledgeService owns product document metadata and asynchronous ingest events.
 type KnowledgeServiceClient interface {
 	UploadDocument(ctx context.Context, in *UploadDocumentRequest, opts ...grpc.CallOption) (*UploadDocumentResponse, error)
+	SearchProductKnowledge(ctx context.Context, in *SearchProductKnowledgeRequest, opts ...grpc.CallOption) (*SearchProductKnowledgeResponse, error)
 }
 
 type knowledgeServiceClient struct {
@@ -49,6 +51,16 @@ func (c *knowledgeServiceClient) UploadDocument(ctx context.Context, in *UploadD
 	return out, nil
 }
 
+func (c *knowledgeServiceClient) SearchProductKnowledge(ctx context.Context, in *SearchProductKnowledgeRequest, opts ...grpc.CallOption) (*SearchProductKnowledgeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SearchProductKnowledgeResponse)
+	err := c.cc.Invoke(ctx, KnowledgeService_SearchProductKnowledge_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // KnowledgeServiceServer is the server API for KnowledgeService service.
 // All implementations must embed UnimplementedKnowledgeServiceServer
 // for forward compatibility.
@@ -56,6 +68,7 @@ func (c *knowledgeServiceClient) UploadDocument(ctx context.Context, in *UploadD
 // KnowledgeService owns product document metadata and asynchronous ingest events.
 type KnowledgeServiceServer interface {
 	UploadDocument(context.Context, *UploadDocumentRequest) (*UploadDocumentResponse, error)
+	SearchProductKnowledge(context.Context, *SearchProductKnowledgeRequest) (*SearchProductKnowledgeResponse, error)
 	mustEmbedUnimplementedKnowledgeServiceServer()
 }
 
@@ -68,6 +81,9 @@ type UnimplementedKnowledgeServiceServer struct{}
 
 func (UnimplementedKnowledgeServiceServer) UploadDocument(context.Context, *UploadDocumentRequest) (*UploadDocumentResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UploadDocument not implemented")
+}
+func (UnimplementedKnowledgeServiceServer) SearchProductKnowledge(context.Context, *SearchProductKnowledgeRequest) (*SearchProductKnowledgeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SearchProductKnowledge not implemented")
 }
 func (UnimplementedKnowledgeServiceServer) mustEmbedUnimplementedKnowledgeServiceServer() {}
 func (UnimplementedKnowledgeServiceServer) testEmbeddedByValue()                          {}
@@ -108,6 +124,24 @@ func _KnowledgeService_UploadDocument_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _KnowledgeService_SearchProductKnowledge_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SearchProductKnowledgeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KnowledgeServiceServer).SearchProductKnowledge(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KnowledgeService_SearchProductKnowledge_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KnowledgeServiceServer).SearchProductKnowledge(ctx, req.(*SearchProductKnowledgeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // KnowledgeService_ServiceDesc is the grpc.ServiceDesc for KnowledgeService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -118,6 +152,10 @@ var KnowledgeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UploadDocument",
 			Handler:    _KnowledgeService_UploadDocument_Handler,
+		},
+		{
+			MethodName: "SearchProductKnowledge",
+			Handler:    _KnowledgeService_SearchProductKnowledge_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

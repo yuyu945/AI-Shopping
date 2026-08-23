@@ -173,11 +173,42 @@ type VectorSearchInput struct {
 	ProductID uint64
 	Query     []float32
 	TopK      int
+	Filters   []VectorDocumentFilter
+}
+
+type VectorDocumentFilter struct {
+	DocumentID uint64
+	DocType    DocType
+	Version    uint32
 }
 
 type VectorSearchHit struct {
 	ChunkID uint64
 	Score   float64
+}
+
+type SearchKnowledgeInput struct {
+	ProductID uint64
+	Query     string
+	DocTypes  []DocType
+	TopK      int
+}
+
+type SearchKnowledgeResult struct {
+	Snippets       []KnowledgeSnippet
+	FallbackReason string
+}
+
+type KnowledgeSnippet struct {
+	ChunkID    uint64
+	DocumentNo string
+	ProductID  uint64
+	DocType    DocType
+	Version    uint32
+	Section    string
+	SourcePage *uint32
+	Content    string
+	Score      float64
 }
 
 type EmbeddingProvider interface {

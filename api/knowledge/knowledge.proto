@@ -7,6 +7,7 @@ option go_package = "github.com/yuyu945/AI-Shopping/services/knowledge-service/g
 // KnowledgeService owns product document metadata and asynchronous ingest events.
 service KnowledgeService {
   rpc UploadDocument(UploadDocumentRequest) returns (UploadDocumentResponse);
+  rpc SearchProductKnowledge(SearchProductKnowledgeRequest) returns (SearchProductKnowledgeResponse);
 }
 
 message UploadDocumentRequest {
@@ -27,4 +28,28 @@ message Document {
   string doc_type = 3;
   uint32 version = 4;
   string status = 5;
+}
+
+message SearchProductKnowledgeRequest {
+  uint64 product_id = 1;
+  string query = 2;
+  repeated string doc_types = 3;
+  uint32 top_k = 4;
+}
+
+message SearchProductKnowledgeResponse {
+  repeated KnowledgeSnippet snippets = 1;
+  string fallback_reason = 2;
+}
+
+message KnowledgeSnippet {
+  uint64 chunk_id = 1;
+  string document_no = 2;
+  uint64 product_id = 3;
+  string doc_type = 4;
+  uint32 version = 5;
+  string section = 6;
+  uint32 source_page = 7;
+  string content = 8;
+  double score = 9;
 }

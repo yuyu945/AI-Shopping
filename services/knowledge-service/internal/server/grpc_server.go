@@ -19,18 +19,27 @@ type Uploader interface {
 	UploadDocument(context.Context, knowledge.UploadInput) (knowledge.Document, error)
 }
 
+type Searcher interface {
+	SearchProductKnowledge(context.Context, knowledge.SearchKnowledgeInput) (knowledge.SearchKnowledgeResult, error)
+}
+
 type GRPCServer struct {
 	knowledgepb.UnimplementedKnowledgeServiceServer
 	uploader Uploader
+	searcher Searcher
 	auth     *platformauth.Manager
 	timeout  time.Duration
 }
 
 func NewGRPCServer(uploader Uploader, auth *platformauth.Manager, timeout time.Duration) *GRPCServer {
+	return NewGRPCServerWithSearch(uploader, nil, auth, timeout)
+}
+
+func NewGRPCServerWithSearch(uploader Uploader, searcher Searcher, auth *platformauth.Manager, timeout time.Duration) *GRPCServer {
 	if timeout <= 0 {
 		timeout = 2 * time.Second
 	}
-	return &GRPCServer{uploader: uploader, auth: auth, timeout: timeout}
+	return &GRPCServer{uploader: uploader, searcher: searcher, auth: auth, timeout: timeout}
 }
 
 func (s *GRPCServer) UploadDocument(ctx context.Context, req *knowledgepb.UploadDocumentRequest) (*knowledgepb.UploadDocumentResponse, error) {
@@ -61,6 +70,30 @@ func (s *GRPCServer) UploadDocument(ctx context.Context, req *knowledgepb.Upload
 		return nil, toStatus(err)
 	}
 	return &knowledgepb.UploadDocumentResponse{Document: documentWire(document)}, nil
+}
+
+func (s *GRPCServer) SearchProductKnowledge(ctx context.Context, req *knowledgepb.SearchProductKnowledgeRequest) (*knowledgepb.SearchProductKnowledgeResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	if s.searcher == nil {
+		return nil, status.Error(codes.Internal, "internal server error")
+	}
+	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	result, err := s.searcher.SearchProductKnowledge(callCtx, knowledge.SearchKnowledgeInput{
+		ProductID: req.GetProductId(),
+		Query:     req.GetQuery(),
+		DocTypes:  docTypes(req.GetDocTypes()),
+		TopK:      int(req.GetTopK()),
+	})
+	if err != nil {
+		if errors.Is(callCtx.Err(), context.DeadlineExceeded) {
+			return nil, status.Error(codes.DeadlineExceeded, "dependency timeout")
+		}
+		return nil, toStatus(err)
+	}
+	return &knowledgepb.SearchProductKnowledgeResponse{Snippets: snippetWire(result.Snippets), FallbackReason: result.FallbackReason}, nil
 }
 
 func (s *GRPCServer) userID(ctx context.Context) (uint64, error) {
@@ -94,6 +127,14 @@ func toStatus(err error) error {
 	}
 }
 
+func docTypes(values []string) []knowledge.DocType {
+	out := make([]knowledge.DocType, 0, len(values))
+	for _, value := range values {
+		out = append(out, knowledge.DocType(value))
+	}
+	return out
+}
+
 func documentWire(document knowledge.Document) *knowledgepb.Document {
 	return &knowledgepb.Document{
 		DocumentNo: document.DocumentNo,
@@ -102,4 +143,26 @@ func documentWire(document knowledge.Document) *knowledgepb.Document {
 		Version:    document.Version,
 		Status:     string(document.Status),
 	}
+}
+
+func snippetWire(snippets []knowledge.KnowledgeSnippet) []*knowledgepb.KnowledgeSnippet {
+	out := make([]*knowledgepb.KnowledgeSnippet, 0, len(snippets))
+	for _, snippet := range snippets {
+		var sourcePage uint32
+		if snippet.SourcePage != nil {
+			sourcePage = *snippet.SourcePage
+		}
+		out = append(out, &knowledgepb.KnowledgeSnippet{
+			ChunkId:    snippet.ChunkID,
+			DocumentNo: snippet.DocumentNo,
+			ProductId:  snippet.ProductID,
+			DocType:    string(snippet.DocType),
+			Version:    snippet.Version,
+			Section:    snippet.Section,
+			SourcePage: sourcePage,
+			Content:    snippet.Content,
+			Score:      snippet.Score,
+		})
+	}
+	return out
 }

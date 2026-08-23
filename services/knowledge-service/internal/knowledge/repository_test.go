@@ -252,6 +252,49 @@ func TestMarkEmbeddingTaskRetryUpsertsFailure(t *testing.T) {
 	}
 }
 
+func TestListCurrentReadyDocumentsFiltersProductAndDocTypes(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(regexp.QuoteMeta(queryCurrentReadyDocuments(2))).
+		WithArgs(uint64(1001), DocFAQ, DocSpec).
+		WillReturnRows(sqlmock.NewRows(documentColumns()).AddRow(uint64(123), "doc_1", uint64(1001), DocFAQ, uint32(2), "object", "hash", "faq.md", "text/markdown", uint64(5), DocumentReady, uint64(7), fixedNow(), fixedNow()))
+
+	got, err := NewMySQLRepository(db).ListCurrentReadyDocuments(context.Background(), 1001, []DocType{DocFAQ, DocSpec})
+	if err != nil || len(got) != 1 || got[0].Status != DocumentReady {
+		t.Fatalf("ListCurrentReadyDocuments() = %#v, %v", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHydrateKnowledgeSnippetsKeepsHitScoresAndFiltersCurrentReady(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	hits := []VectorSearchHit{{ChunkID: 12, Score: 0.91}, {ChunkID: 11, Score: 0.82}}
+	mock.ExpectQuery(regexp.QuoteMeta(queryKnowledgeSnippetsByChunkIDs(2))).
+		WithArgs(uint64(1001), uint64(12), uint64(11)).
+		WillReturnRows(sqlmock.NewRows([]string{"chunk_id", "document_no", "product_id", "doc_type", "version", "section", "source_page", "content"}).
+			AddRow(uint64(11), "doc_1", uint64(1001), DocFAQ, uint32(2), "Battery", nil, "Second").
+			AddRow(uint64(12), "doc_1", uint64(1001), DocFAQ, uint32(2), "Battery", nil, "First"))
+
+	got, err := NewMySQLRepository(db).HydrateKnowledgeSnippets(context.Background(), 1001, hits)
+	if err != nil || len(got) != 2 || got[0].ChunkID != 12 || got[0].Score != 0.91 || got[1].ChunkID != 11 {
+		t.Fatalf("HydrateKnowledgeSnippets() = %#v, %v", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func newDocumentCommand() NewDocumentCommand {
 	return NewDocumentCommand{
 		DocumentNo: "doc_1", ProductID: 1001, DocType: DocFAQ, Version: 2,

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/go-sql-driver/mysql"
 )
@@ -242,6 +243,75 @@ func (r *MySQLRepository) MarkDocumentReadyWithVectors(ctx context.Context, even
 	return nil
 }
 
+func (r *MySQLRepository) ListCurrentReadyDocuments(ctx context.Context, productID uint64, docTypes []DocType) ([]Document, error) {
+	if len(docTypes) == 0 {
+		docTypes = []DocType{DocDetail, DocSpec, DocFAQ, DocAfterSale}
+	}
+	args := make([]any, 0, 1+len(docTypes))
+	args = append(args, productID)
+	for _, docType := range docTypes {
+		args = append(args, docType)
+	}
+	rows, err := r.db.QueryContext(ctx, queryCurrentReadyDocuments(len(docTypes)), args...)
+	if err != nil {
+		return nil, fmt.Errorf("read current ready documents: %w", err)
+	}
+	defer rows.Close()
+
+	documents := make([]Document, 0)
+	for rows.Next() {
+		document, err := scanDocument(rows)
+		if err != nil {
+			return nil, err
+		}
+		documents = append(documents, document)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read current ready document rows: %w", err)
+	}
+	return documents, nil
+}
+
+func (r *MySQLRepository) HydrateKnowledgeSnippets(ctx context.Context, productID uint64, hits []VectorSearchHit) ([]KnowledgeSnippet, error) {
+	if len(hits) == 0 {
+		return nil, nil
+	}
+	args := make([]any, 0, 1+len(hits))
+	args = append(args, productID)
+	scores := make(map[uint64]float64, len(hits))
+	order := make([]uint64, 0, len(hits))
+	for _, hit := range hits {
+		args = append(args, hit.ChunkID)
+		scores[hit.ChunkID] = hit.Score
+		order = append(order, hit.ChunkID)
+	}
+	rows, err := r.db.QueryContext(ctx, queryKnowledgeSnippetsByChunkIDs(len(hits)), args...)
+	if err != nil {
+		return nil, fmt.Errorf("read knowledge snippets: %w", err)
+	}
+	defer rows.Close()
+
+	byChunkID := make(map[uint64]KnowledgeSnippet, len(hits))
+	for rows.Next() {
+		snippet, err := scanKnowledgeSnippet(rows)
+		if err != nil {
+			return nil, err
+		}
+		snippet.Score = scores[snippet.ChunkID]
+		byChunkID[snippet.ChunkID] = snippet
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read knowledge snippet rows: %w", err)
+	}
+	snippets := make([]KnowledgeSnippet, 0, len(byChunkID))
+	for _, chunkID := range order {
+		if snippet, ok := byChunkID[chunkID]; ok {
+			snippets = append(snippets, snippet)
+		}
+	}
+	return snippets, nil
+}
+
 type scanner interface {
 	Scan(...any) error
 }
@@ -266,6 +336,21 @@ func chunkColumns() []string {
 	return []string{"id", "document_id", "product_id", "doc_type", "version", "chunk_index", "section", "source_page", "content", "content_hash", "vector_ref", "status"}
 }
 
+func queryCurrentReadyDocuments(docTypeCount int) string {
+	return `SELECT id, document_no, product_id, doc_type, version, object_key, source_hash, file_name, content_type, file_size_bytes, status, created_by_user_id, created_at, updated_at FROM knowledge_documents WHERE product_id = ? AND doc_type IN (` + placeholders(docTypeCount) + `) AND status = 'READY' AND is_current_ready = 1 ORDER BY doc_type ASC, version DESC`
+}
+
+func queryKnowledgeSnippetsByChunkIDs(chunkCount int) string {
+	return `SELECT c.id AS chunk_id, d.document_no, c.product_id, c.doc_type, c.version, c.section, c.source_page, c.content FROM knowledge_chunks c JOIN knowledge_documents d ON d.id = c.document_id WHERE c.product_id = ? AND c.id IN (` + placeholders(chunkCount) + `) AND c.status = 'EMBEDDED' AND d.status = 'READY' AND d.is_current_ready = 1`
+}
+
+func placeholders(count int) string {
+	if count <= 0 {
+		return "?"
+	}
+	return strings.TrimRight(strings.Repeat("?,", count), ",")
+}
+
 func scanChunk(row scanner) (Chunk, error) {
 	var chunk Chunk
 	var section sql.NullString
@@ -288,6 +373,23 @@ func scanChunk(row scanner) (Chunk, error) {
 		chunk.VectorRef = vectorRef.String
 	}
 	return chunk, nil
+}
+
+func scanKnowledgeSnippet(row scanner) (KnowledgeSnippet, error) {
+	var snippet KnowledgeSnippet
+	var section sql.NullString
+	var sourcePage sql.NullInt64
+	if err := row.Scan(&snippet.ChunkID, &snippet.DocumentNo, &snippet.ProductID, &snippet.DocType, &snippet.Version, &section, &sourcePage, &snippet.Content); err != nil {
+		return KnowledgeSnippet{}, fmt.Errorf("scan knowledge snippet: %w", err)
+	}
+	if section.Valid {
+		snippet.Section = section.String
+	}
+	if sourcePage.Valid {
+		page := uint32(sourcePage.Int64)
+		snippet.SourcePage = &page
+	}
+	return snippet, nil
 }
 
 func sourcePageValue(value *uint32) any {

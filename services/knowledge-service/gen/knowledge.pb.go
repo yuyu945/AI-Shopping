@@ -217,6 +217,234 @@ func (x *Document) GetStatus() string {
 	return ""
 }
 
+type SearchProductKnowledgeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ProductId     uint64                 `protobuf:"varint,1,opt,name=product_id,json=productId,proto3" json:"product_id,omitempty"`
+	Query         string                 `protobuf:"bytes,2,opt,name=query,proto3" json:"query,omitempty"`
+	DocTypes      []string               `protobuf:"bytes,3,rep,name=doc_types,json=docTypes,proto3" json:"doc_types,omitempty"`
+	TopK          uint32                 `protobuf:"varint,4,opt,name=top_k,json=topK,proto3" json:"top_k,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchProductKnowledgeRequest) Reset() {
+	*x = SearchProductKnowledgeRequest{}
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchProductKnowledgeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchProductKnowledgeRequest) ProtoMessage() {}
+
+func (x *SearchProductKnowledgeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchProductKnowledgeRequest.ProtoReflect.Descriptor instead.
+func (*SearchProductKnowledgeRequest) Descriptor() ([]byte, []int) {
+	return file_api_knowledge_knowledge_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *SearchProductKnowledgeRequest) GetProductId() uint64 {
+	if x != nil {
+		return x.ProductId
+	}
+	return 0
+}
+
+func (x *SearchProductKnowledgeRequest) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+func (x *SearchProductKnowledgeRequest) GetDocTypes() []string {
+	if x != nil {
+		return x.DocTypes
+	}
+	return nil
+}
+
+func (x *SearchProductKnowledgeRequest) GetTopK() uint32 {
+	if x != nil {
+		return x.TopK
+	}
+	return 0
+}
+
+type SearchProductKnowledgeResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Snippets       []*KnowledgeSnippet    `protobuf:"bytes,1,rep,name=snippets,proto3" json:"snippets,omitempty"`
+	FallbackReason string                 `protobuf:"bytes,2,opt,name=fallback_reason,json=fallbackReason,proto3" json:"fallback_reason,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *SearchProductKnowledgeResponse) Reset() {
+	*x = SearchProductKnowledgeResponse{}
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchProductKnowledgeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchProductKnowledgeResponse) ProtoMessage() {}
+
+func (x *SearchProductKnowledgeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchProductKnowledgeResponse.ProtoReflect.Descriptor instead.
+func (*SearchProductKnowledgeResponse) Descriptor() ([]byte, []int) {
+	return file_api_knowledge_knowledge_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *SearchProductKnowledgeResponse) GetSnippets() []*KnowledgeSnippet {
+	if x != nil {
+		return x.Snippets
+	}
+	return nil
+}
+
+func (x *SearchProductKnowledgeResponse) GetFallbackReason() string {
+	if x != nil {
+		return x.FallbackReason
+	}
+	return ""
+}
+
+type KnowledgeSnippet struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ChunkId       uint64                 `protobuf:"varint,1,opt,name=chunk_id,json=chunkId,proto3" json:"chunk_id,omitempty"`
+	DocumentNo    string                 `protobuf:"bytes,2,opt,name=document_no,json=documentNo,proto3" json:"document_no,omitempty"`
+	ProductId     uint64                 `protobuf:"varint,3,opt,name=product_id,json=productId,proto3" json:"product_id,omitempty"`
+	DocType       string                 `protobuf:"bytes,4,opt,name=doc_type,json=docType,proto3" json:"doc_type,omitempty"`
+	Version       uint32                 `protobuf:"varint,5,opt,name=version,proto3" json:"version,omitempty"`
+	Section       string                 `protobuf:"bytes,6,opt,name=section,proto3" json:"section,omitempty"`
+	SourcePage    uint32                 `protobuf:"varint,7,opt,name=source_page,json=sourcePage,proto3" json:"source_page,omitempty"`
+	Content       string                 `protobuf:"bytes,8,opt,name=content,proto3" json:"content,omitempty"`
+	Score         float64                `protobuf:"fixed64,9,opt,name=score,proto3" json:"score,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *KnowledgeSnippet) Reset() {
+	*x = KnowledgeSnippet{}
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *KnowledgeSnippet) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*KnowledgeSnippet) ProtoMessage() {}
+
+func (x *KnowledgeSnippet) ProtoReflect() protoreflect.Message {
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use KnowledgeSnippet.ProtoReflect.Descriptor instead.
+func (*KnowledgeSnippet) Descriptor() ([]byte, []int) {
+	return file_api_knowledge_knowledge_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *KnowledgeSnippet) GetChunkId() uint64 {
+	if x != nil {
+		return x.ChunkId
+	}
+	return 0
+}
+
+func (x *KnowledgeSnippet) GetDocumentNo() string {
+	if x != nil {
+		return x.DocumentNo
+	}
+	return ""
+}
+
+func (x *KnowledgeSnippet) GetProductId() uint64 {
+	if x != nil {
+		return x.ProductId
+	}
+	return 0
+}
+
+func (x *KnowledgeSnippet) GetDocType() string {
+	if x != nil {
+		return x.DocType
+	}
+	return ""
+}
+
+func (x *KnowledgeSnippet) GetVersion() uint32 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *KnowledgeSnippet) GetSection() string {
+	if x != nil {
+		return x.Section
+	}
+	return ""
+}
+
+func (x *KnowledgeSnippet) GetSourcePage() uint32 {
+	if x != nil {
+		return x.SourcePage
+	}
+	return 0
+}
+
+func (x *KnowledgeSnippet) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
+func (x *KnowledgeSnippet) GetScore() float64 {
+	if x != nil {
+		return x.Score
+	}
+	return 0
+}
+
 var File_api_knowledge_knowledge_proto protoreflect.FileDescriptor
 
 const file_api_knowledge_knowledge_proto_rawDesc = "" +
@@ -238,9 +466,32 @@ const file_api_knowledge_knowledge_proto_rawDesc = "" +
 	"product_id\x18\x02 \x01(\x04R\tproductId\x12\x19\n" +
 	"\bdoc_type\x18\x03 \x01(\tR\adocType\x12\x18\n" +
 	"\aversion\x18\x04 \x01(\rR\aversion\x12\x16\n" +
-	"\x06status\x18\x05 \x01(\tR\x06status2o\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\"\x86\x01\n" +
+	"\x1dSearchProductKnowledgeRequest\x12\x1d\n" +
+	"\n" +
+	"product_id\x18\x01 \x01(\x04R\tproductId\x12\x14\n" +
+	"\x05query\x18\x02 \x01(\tR\x05query\x12\x1b\n" +
+	"\tdoc_types\x18\x03 \x03(\tR\bdocTypes\x12\x13\n" +
+	"\x05top_k\x18\x04 \x01(\rR\x04topK\"\x85\x01\n" +
+	"\x1eSearchProductKnowledgeResponse\x12:\n" +
+	"\bsnippets\x18\x01 \x03(\v2\x1e.knowledge.v1.KnowledgeSnippetR\bsnippets\x12'\n" +
+	"\x0ffallback_reason\x18\x02 \x01(\tR\x0efallbackReason\"\x8d\x02\n" +
+	"\x10KnowledgeSnippet\x12\x19\n" +
+	"\bchunk_id\x18\x01 \x01(\x04R\achunkId\x12\x1f\n" +
+	"\vdocument_no\x18\x02 \x01(\tR\n" +
+	"documentNo\x12\x1d\n" +
+	"\n" +
+	"product_id\x18\x03 \x01(\x04R\tproductId\x12\x19\n" +
+	"\bdoc_type\x18\x04 \x01(\tR\adocType\x12\x18\n" +
+	"\aversion\x18\x05 \x01(\rR\aversion\x12\x18\n" +
+	"\asection\x18\x06 \x01(\tR\asection\x12\x1f\n" +
+	"\vsource_page\x18\a \x01(\rR\n" +
+	"sourcePage\x12\x18\n" +
+	"\acontent\x18\b \x01(\tR\acontent\x12\x14\n" +
+	"\x05score\x18\t \x01(\x01R\x05score2\xe4\x01\n" +
 	"\x10KnowledgeService\x12[\n" +
-	"\x0eUploadDocument\x12#.knowledge.v1.UploadDocumentRequest\x1a$.knowledge.v1.UploadDocumentResponseBKZIgithub.com/yuyu945/AI-Shopping/services/knowledge-service/gen;knowledgepbb\x06proto3"
+	"\x0eUploadDocument\x12#.knowledge.v1.UploadDocumentRequest\x1a$.knowledge.v1.UploadDocumentResponse\x12s\n" +
+	"\x16SearchProductKnowledge\x12+.knowledge.v1.SearchProductKnowledgeRequest\x1a,.knowledge.v1.SearchProductKnowledgeResponseBKZIgithub.com/yuyu945/AI-Shopping/services/knowledge-service/gen;knowledgepbb\x06proto3"
 
 var (
 	file_api_knowledge_knowledge_proto_rawDescOnce sync.Once
@@ -254,21 +505,27 @@ func file_api_knowledge_knowledge_proto_rawDescGZIP() []byte {
 	return file_api_knowledge_knowledge_proto_rawDescData
 }
 
-var file_api_knowledge_knowledge_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_api_knowledge_knowledge_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_api_knowledge_knowledge_proto_goTypes = []any{
-	(*UploadDocumentRequest)(nil),  // 0: knowledge.v1.UploadDocumentRequest
-	(*UploadDocumentResponse)(nil), // 1: knowledge.v1.UploadDocumentResponse
-	(*Document)(nil),               // 2: knowledge.v1.Document
+	(*UploadDocumentRequest)(nil),          // 0: knowledge.v1.UploadDocumentRequest
+	(*UploadDocumentResponse)(nil),         // 1: knowledge.v1.UploadDocumentResponse
+	(*Document)(nil),                       // 2: knowledge.v1.Document
+	(*SearchProductKnowledgeRequest)(nil),  // 3: knowledge.v1.SearchProductKnowledgeRequest
+	(*SearchProductKnowledgeResponse)(nil), // 4: knowledge.v1.SearchProductKnowledgeResponse
+	(*KnowledgeSnippet)(nil),               // 5: knowledge.v1.KnowledgeSnippet
 }
 var file_api_knowledge_knowledge_proto_depIdxs = []int32{
 	2, // 0: knowledge.v1.UploadDocumentResponse.document:type_name -> knowledge.v1.Document
-	0, // 1: knowledge.v1.KnowledgeService.UploadDocument:input_type -> knowledge.v1.UploadDocumentRequest
-	1, // 2: knowledge.v1.KnowledgeService.UploadDocument:output_type -> knowledge.v1.UploadDocumentResponse
-	2, // [2:3] is the sub-list for method output_type
-	1, // [1:2] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	5, // 1: knowledge.v1.SearchProductKnowledgeResponse.snippets:type_name -> knowledge.v1.KnowledgeSnippet
+	0, // 2: knowledge.v1.KnowledgeService.UploadDocument:input_type -> knowledge.v1.UploadDocumentRequest
+	3, // 3: knowledge.v1.KnowledgeService.SearchProductKnowledge:input_type -> knowledge.v1.SearchProductKnowledgeRequest
+	1, // 4: knowledge.v1.KnowledgeService.UploadDocument:output_type -> knowledge.v1.UploadDocumentResponse
+	4, // 5: knowledge.v1.KnowledgeService.SearchProductKnowledge:output_type -> knowledge.v1.SearchProductKnowledgeResponse
+	4, // [4:6] is the sub-list for method output_type
+	2, // [2:4] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_api_knowledge_knowledge_proto_init() }
@@ -282,7 +539,7 @@ func file_api_knowledge_knowledge_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_knowledge_knowledge_proto_rawDesc), len(file_api_knowledge_knowledge_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

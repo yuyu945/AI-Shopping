@@ -151,8 +151,11 @@ func (p *fakeEmbeddingProvider) EmbedDocuments(_ context.Context, input Embeddin
 }
 
 type fakeVectorStore struct {
-	input VectorUpsertInput
-	err   error
+	input       VectorUpsertInput
+	searchInput VectorSearchInput
+	searchHits  []VectorSearchHit
+	err         error
+	searchErr   error
 }
 
 func (s *fakeVectorStore) UpsertChunks(_ context.Context, input VectorUpsertInput) error {
@@ -160,6 +163,10 @@ func (s *fakeVectorStore) UpsertChunks(_ context.Context, input VectorUpsertInpu
 	return s.err
 }
 
-func (s *fakeVectorStore) Search(context.Context, VectorSearchInput) ([]VectorSearchHit, error) {
-	return nil, errors.New("not implemented")
+func (s *fakeVectorStore) Search(_ context.Context, input VectorSearchInput) ([]VectorSearchHit, error) {
+	s.searchInput = input
+	if s.searchErr != nil {
+		return nil, s.searchErr
+	}
+	return append([]VectorSearchHit(nil), s.searchHits...), nil
 }

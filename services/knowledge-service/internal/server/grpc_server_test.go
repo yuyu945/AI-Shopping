@@ -50,6 +50,21 @@ func TestGRPCServerUploadDocumentRequiresBearer(t *testing.T) {
 	}
 }
 
+func TestGRPCServerSearchProductKnowledgeReturnsSnippets(t *testing.T) {
+	searcher := &fakeKnowledgeSearcher{result: knowledge.SearchKnowledgeResult{Snippets: []knowledge.KnowledgeSnippet{{
+		ChunkID: 11, DocumentNo: "doc_1", ProductID: 1001, DocType: knowledge.DocFAQ, Version: 2, Section: "Battery", Content: "Lasts 10 hours.", Score: 0.91,
+	}}}}
+	server := NewGRPCServerWithSearch(&fakeUploader{}, searcher, testAuthManager(t), time.Second)
+
+	out, err := server.SearchProductKnowledge(context.Background(), &knowledgepb.SearchProductKnowledgeRequest{ProductId: 1001, Query: "battery", DocTypes: []string{"FAQ"}, TopK: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.GetSnippets()) != 1 || out.GetSnippets()[0].GetChunkId() != 11 || searcher.input.DocTypes[0] != knowledge.DocFAQ {
+		t.Fatalf("out=%#v input=%#v", out, searcher.input)
+	}
+}
+
 type fakeUploader struct {
 	input knowledge.UploadInput
 	err   error
@@ -61,6 +76,20 @@ func (f *fakeUploader) UploadDocument(_ context.Context, input knowledge.UploadI
 		return knowledge.Document{}, f.err
 	}
 	return knowledge.Document{DocumentNo: "doc_1", ProductID: input.ProductID, DocType: input.DocType, Version: 1, Status: knowledge.DocumentPending}, nil
+}
+
+type fakeKnowledgeSearcher struct {
+	input  knowledge.SearchKnowledgeInput
+	result knowledge.SearchKnowledgeResult
+	err    error
+}
+
+func (f *fakeKnowledgeSearcher) SearchProductKnowledge(_ context.Context, input knowledge.SearchKnowledgeInput) (knowledge.SearchKnowledgeResult, error) {
+	f.input = input
+	if f.err != nil {
+		return knowledge.SearchKnowledgeResult{}, f.err
+	}
+	return f.result, nil
 }
 
 func testAuthManager(t *testing.T) *platformauth.Manager {

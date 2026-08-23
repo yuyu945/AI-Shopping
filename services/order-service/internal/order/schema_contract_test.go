@@ -90,6 +90,8 @@ func TestTradeSchemaOwnsCartAndOrderSnapshots(t *testing.T) {
 		"UNIQUE KEY uq_orders_payment_attempt (payment_attempt_id)",
 		"UNIQUE KEY uq_orders_reservation (reservation_id)",
 		"KEY idx_orders_status_payment_started (status, payment_started_at, id)",
+		"payment_attempt_history (",
+		"UNIQUE KEY uq_payment_attempt_history_attempt (payment_attempt_id)",
 	} {
 		if !strings.Contains(schemaText, value) || !strings.Contains(string(paymentMigration), value) {
 			t.Fatalf("M2.2 payment persistence must contain %q in both init schema and migration", value)

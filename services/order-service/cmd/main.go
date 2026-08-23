@@ -18,6 +18,7 @@ import (
 	orderclient "github.com/yuyu945/AI-Shopping/services/order-service/internal/client"
 	"github.com/yuyu945/AI-Shopping/services/order-service/internal/order"
 	"github.com/yuyu945/AI-Shopping/services/order-service/internal/outbox"
+	"github.com/yuyu945/AI-Shopping/services/order-service/internal/recovery"
 	orderserver "github.com/yuyu945/AI-Shopping/services/order-service/internal/server"
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/zrpc"
@@ -31,9 +32,17 @@ type orderServiceConfig struct {
 	UserRPC            zrpc.RpcClientConf
 	ProductRPC         zrpc.RpcClientConf
 	ConfirmationOutbox confirmationOutboxConfig
+	PaymentRecovery    paymentRecoveryConfig
 }
 
 type confirmationOutboxConfig struct {
+	PollInterval  time.Duration
+	BatchSize     int
+	LeaseDuration time.Duration
+	CallTimeout   time.Duration
+}
+
+type paymentRecoveryConfig struct {
 	PollInterval  time.Duration
 	BatchSize     int
 	LeaseDuration time.Duration
@@ -45,6 +54,14 @@ func (c orderServiceConfig) confirmationOutboxWorkerConfig() outbox.Config {
 		BatchSize:     c.ConfirmationOutbox.BatchSize,
 		LeaseDuration: c.ConfirmationOutbox.LeaseDuration,
 		CallTimeout:   c.ConfirmationOutbox.CallTimeout,
+	}
+}
+
+func (c orderServiceConfig) paymentRecoveryWorkerConfig() recovery.Config {
+	return recovery.Config{
+		BatchSize:     c.PaymentRecovery.BatchSize,
+		LeaseDuration: c.PaymentRecovery.LeaseDuration,
+		CallTimeout:   c.PaymentRecovery.CallTimeout,
 	}
 }
 
@@ -61,6 +78,7 @@ func main() {
 	if err := outboxConfig.Validate(); err != nil {
 		log.Fatalf("%s startup: invalid confirmation outbox configuration", SERVICE_NAME)
 	}
+	recoveryConfig := config.paymentRecoveryWorkerConfig()
 	runtimeConfig, err := platformconfig.Load()
 	if err != nil {
 		log.Fatalf("%s load runtime configuration: %v", SERVICE_NAME, err)
@@ -105,6 +123,7 @@ func main() {
 	publisher := outbox.NewKafkaPublisher(strings.Split(runtimeConfig.KafkaBrokers, ","))
 	defer publisher.Close()
 	confirmationWorker := outbox.NewWorker(outbox.NewMySQLRepository(db), publisher, outboxConfig)
+	recoveryWorker := recovery.NewWorker(recovery.NewMySQLStore(db), orderclient.NewReservationClient(productRPC.Conn(), runtimeConfig.InternalServiceToken, config.PaymentRecovery.CallTimeout), recovery.PaymentServiceSettler{Service: payment}, recoveryConfig)
 	zrpc.DontLogContentForMethod(orderpb.OrderService_CreateOrder_FullMethodName)
 	zrpc.DontLogContentForMethod(orderpb.OrderService_PayWallet_FullMethodName)
 	zrpc.DontLogContentForMethod(orderpb.OrderService_GetOrder_FullMethodName)
@@ -121,6 +140,11 @@ func main() {
 	go func() {
 		if err := confirmationWorker.Run(workerCtx, config.ConfirmationOutbox.PollInterval); err != nil && !errors.Is(err, context.Canceled) {
 			log.Printf("%s confirmation outbox worker stopped", SERVICE_NAME)
+		}
+	}()
+	go func() {
+		if err := recoveryWorker.Run(workerCtx, config.PaymentRecovery.PollInterval); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("%s payment recovery worker stopped", SERVICE_NAME)
 		}
 	}()
 	server.Start()

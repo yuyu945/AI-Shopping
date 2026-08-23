@@ -225,11 +225,18 @@ func TestMySQLPaymentRepositoryResetPaymentClaimReportsWhetherExactClaimChanged(
 			}
 			defer db.Close()
 			attempt := PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}
+			mock.ExpectBegin()
 			expect := mock.ExpectExec(regexp.QuoteMeta(resetPaymentOrder)).WithArgs(PendingPayment, uint64(7), "order-1", PaymentProcessing, attempt.ID, attempt.ReservationID)
 			if tc.err != nil {
 				expect.WillReturnError(tc.err)
+				mock.ExpectRollback()
+			} else if tc.rows == 1 {
+				expect.WillReturnResult(sqlmock.NewResult(0, tc.rows))
+				mock.ExpectExec(regexp.QuoteMeta(insertPaymentAttemptHistory)).WithArgs("order-1", attempt.ID, attempt.ReservationID, PendingPayment).WillReturnResult(sqlmock.NewResult(0, 1))
+				mock.ExpectCommit()
 			} else {
 				expect.WillReturnResult(sqlmock.NewResult(0, tc.rows))
+				mock.ExpectCommit()
 			}
 
 			reset, err := NewMySQLRepository(db).ResetPaymentClaim(context.Background(), 7, "order-1", attempt)
@@ -240,6 +247,65 @@ func TestMySQLPaymentRepositoryResetPaymentClaimReportsWhetherExactClaimChanged(
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestMySQLPaymentRepositoryResetPaymentClaimRecordsTerminalAttempt(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	attempt := PaymentAttempt{ID: "attempt-1", ReservationID: "reservation-1"}
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(resetPaymentOrder)).WithArgs(PendingPayment, uint64(7), "order-1", PaymentProcessing, attempt.ID, attempt.ReservationID).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(insertPaymentAttemptHistory)).WithArgs("order-1", attempt.ID, attempt.ReservationID, PendingPayment).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	reset, err := NewMySQLRepository(db).ResetPaymentClaim(context.Background(), 7, "order-1", attempt)
+	if err != nil || !reset {
+		t.Fatalf("ResetPaymentClaim() = %v, %v; want true, nil", reset, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMySQLPaymentRepositoryPaymentSettlementStatusReadsResetAttempt(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	const query = `SELECT status FROM payment_attempt_history WHERE order_no = ? AND payment_attempt_id = ? UNION ALL SELECT status FROM orders WHERE order_no = ? AND payment_attempt_id = ? LIMIT 1`
+	mock.ExpectQuery(regexp.QuoteMeta(query)).WithArgs("order-1", "attempt-reset", "order-1", "attempt-reset").WillReturnRows(
+		sqlmock.NewRows([]string{"status"}).AddRow(PendingPayment),
+	)
+
+	got, err := NewMySQLRepository(db).PaymentSettlementStatus(context.Background(), "order-1", "attempt-reset")
+	if err != nil || got != PendingPayment {
+		t.Fatalf("PaymentSettlementStatus() = %q, %v; want %q, nil", got, err, PendingPayment)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMySQLPaymentRepositoryPaymentSettlementStatusRejectsUnrelatedAttempt(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	const query = `SELECT status FROM payment_attempt_history WHERE order_no = ? AND payment_attempt_id = ? UNION ALL SELECT status FROM orders WHERE order_no = ? AND payment_attempt_id = ? LIMIT 1`
+	mock.ExpectQuery(regexp.QuoteMeta(query)).WithArgs("order-1", "unrelated-attempt", "order-1", "unrelated-attempt").WillReturnRows(sqlmock.NewRows([]string{"status"}))
+
+	_, err = NewMySQLRepository(db).PaymentSettlementStatus(context.Background(), "order-1", "unrelated-attempt")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("PaymentSettlementStatus() error = %v; want ErrNotFound", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 

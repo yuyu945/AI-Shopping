@@ -10,17 +10,17 @@ import (
 
 const queryPaymentOrderForUpdate = `SELECT id, order_no, user_id, status, total_amount, paid_amount, payment_attempt_id, reservation_id FROM orders WHERE user_id = ? AND order_no = ? FOR UPDATE`
 const queryPaymentOrder = `SELECT id, order_no, user_id, status, total_amount, paid_amount, payment_attempt_id, reservation_id FROM orders WHERE user_id = ? AND order_no = ?`
-const queryPaymentSettlement = `SELECT status FROM orders WHERE order_no = ? AND payment_attempt_id = ?`
+const queryPaymentSettlement = `SELECT status FROM payment_attempt_history WHERE order_no = ? AND payment_attempt_id = ? UNION ALL SELECT status FROM orders WHERE order_no = ? AND payment_attempt_id = ? LIMIT 1`
 
 // SettlementReader exposes the minimum order-owned state required by product expiry reconciliation.
 type SettlementReader interface {
 	PaymentSettlementStatus(context.Context, string, string) (OrderStatus, error)
 }
 
-// PaymentSettlementStatus reads only the status for the exact historical payment attempt.
+// PaymentSettlementStatus reads the status for the exact payment attempt, including a reset attempt awaiting release.
 func (r *MySQLRepository) PaymentSettlementStatus(ctx context.Context, orderNo, paymentAttemptID string) (OrderStatus, error) {
 	var value OrderStatus
-	err := r.db.QueryRowContext(ctx, queryPaymentSettlement, orderNo, paymentAttemptID).Scan(&value)
+	err := r.db.QueryRowContext(ctx, queryPaymentSettlement, orderNo, paymentAttemptID, orderNo, paymentAttemptID).Scan(&value)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrNotFound
 	}
@@ -33,6 +33,7 @@ func (r *MySQLRepository) PaymentSettlementStatus(ctx context.Context, orderNo, 
 const queryWalletForUpdate = `SELECT balance, version FROM wallet_accounts WHERE user_id = ? FOR UPDATE`
 const claimPaymentOrder = `UPDATE orders SET status = ?, payment_attempt_id = ?, reservation_id = ?, payment_started_at = CURRENT_TIMESTAMP(3) WHERE id = ? AND user_id = ? AND status = ?`
 const resetPaymentOrder = `UPDATE orders SET status = ?, payment_attempt_id = NULL, reservation_id = NULL, payment_started_at = NULL WHERE user_id = ? AND order_no = ? AND status = ? AND payment_attempt_id = ? AND reservation_id = ?`
+const insertPaymentAttemptHistory = `INSERT INTO payment_attempt_history (order_no, payment_attempt_id, reservation_id, status) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE status = VALUES(status)`
 const updateWalletBalance = `UPDATE wallet_accounts SET balance = ?, version = version + 1 WHERE user_id = ? AND version = ?`
 const insertWalletLedger = `INSERT INTO wallet_ledger (user_id, biz_type, biz_id, direction, amount) VALUES (?, ?, ?, ?, ?)`
 const updateOrderPaid = `UPDATE orders SET status = 'PAID', paid_amount = ?, paid_at = CURRENT_TIMESTAMP(3) WHERE id = ? AND status = 'PAYMENT_PROCESSING' AND payment_attempt_id = ? AND reservation_id = ?`
@@ -91,14 +92,31 @@ func (r *MySQLRepository) ClaimPayment(ctx context.Context, userID uint64, order
 }
 
 // ResetPaymentClaim clears only the exact durable claim and reports whether its CAS applied.
-func (r *MySQLRepository) ResetPaymentClaim(ctx context.Context, userID uint64, orderNo string, attempt PaymentAttempt) (bool, error) {
-	result, err := r.db.ExecContext(ctx, resetPaymentOrder, PendingPayment, userID, orderNo, PaymentProcessing, attempt.ID, attempt.ReservationID)
+func (r *MySQLRepository) ResetPaymentClaim(ctx context.Context, userID uint64, orderNo string, attempt PaymentAttempt) (changed bool, err error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin reset payment claim transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	result, err := tx.ExecContext(ctx, resetPaymentOrder, PendingPayment, userID, orderNo, PaymentProcessing, attempt.ID, attempt.ReservationID)
 	if err != nil {
 		return false, fmt.Errorf("reset payment claim: %w", err)
 	}
 	rows, err := result.RowsAffected()
 	if err != nil {
 		return false, fmt.Errorf("read reset payment claim rows: %w", err)
+	}
+	if rows == 1 {
+		if _, err = tx.ExecContext(ctx, insertPaymentAttemptHistory, orderNo, attempt.ID, attempt.ReservationID, PendingPayment); err != nil {
+			return false, fmt.Errorf("record reset payment attempt: %w", err)
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit reset payment claim: %w", err)
 	}
 	return rows == 1, nil
 }

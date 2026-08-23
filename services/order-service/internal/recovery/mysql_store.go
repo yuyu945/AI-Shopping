@@ -14,6 +14,10 @@ import (
 type MySQLStore struct{ db *sql.DB }
 
 func NewMySQLStore(db *sql.DB) *MySQLStore { return &MySQLStore{db: db} }
+
+const resetLeasedPaymentOrder = `UPDATE orders SET status='PENDING_PAYMENT', payment_attempt_id=NULL, reservation_id=NULL, payment_started_at=NULL, payment_recovery_token=NULL, payment_recovery_lease_until=NULL WHERE user_id=? AND order_no=? AND status='PAYMENT_PROCESSING' AND payment_attempt_id=? AND reservation_id=? AND payment_recovery_token=?`
+const insertPaymentAttemptHistory = `INSERT INTO payment_attempt_history (order_no, payment_attempt_id, reservation_id, status) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE status = VALUES(status)`
+
 func (s *MySQLStore) LeaseStale(ctx context.Context, limit int, now time.Time, lease time.Duration) ([]Attempt, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("trade database is required")
@@ -52,13 +56,33 @@ func (s *MySQLStore) LeaseStale(ctx context.Context, limit int, now time.Time, l
 	}
 	return result, tx.Commit()
 }
-func (s *MySQLStore) Reset(ctx context.Context, a Attempt) (bool, error) {
-	r, e := s.db.ExecContext(ctx, `UPDATE orders SET status='PENDING_PAYMENT', payment_attempt_id=NULL, reservation_id=NULL, payment_started_at=NULL, payment_recovery_token=NULL, payment_recovery_lease_until=NULL WHERE user_id=? AND order_no=? AND status='PAYMENT_PROCESSING' AND payment_attempt_id=? AND reservation_id=? AND payment_recovery_token=?`, a.UserID, a.OrderNo, a.Payment.ID, a.Payment.ReservationID, a.LeaseToken)
-	if e != nil {
-		return false, e
+func (s *MySQLStore) Reset(ctx context.Context, a Attempt) (changed bool, err error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
 	}
-	n, e := r.RowsAffected()
-	return n == 1, e
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	r, err := tx.ExecContext(ctx, resetLeasedPaymentOrder, a.UserID, a.OrderNo, a.Payment.ID, a.Payment.ReservationID, a.LeaseToken)
+	if err != nil {
+		return false, err
+	}
+	n, err := r.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if n == 1 {
+		if _, err = tx.ExecContext(ctx, insertPaymentAttemptHistory, a.OrderNo, a.Payment.ID, a.Payment.ReservationID, order.PendingPayment); err != nil {
+			return false, err
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return false, err
+	}
+	return n == 1, nil
 }
 func (s *MySQLStore) Done(ctx context.Context, a Attempt, _ time.Time) error {
 	_, e := s.db.ExecContext(ctx, `UPDATE orders SET payment_recovery_token=NULL, payment_recovery_lease_until=NULL WHERE user_id=? AND order_no=? AND status='PAYMENT_PROCESSING' AND payment_attempt_id=? AND reservation_id=? AND payment_recovery_token=?`, a.UserID, a.OrderNo, a.Payment.ID, a.Payment.ReservationID, a.LeaseToken)

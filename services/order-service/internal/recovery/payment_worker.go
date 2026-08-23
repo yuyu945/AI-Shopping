@@ -74,6 +74,25 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 	return nil
 }
 
+// Run polls recovery until cancellation.
+func (w *Worker) Run(ctx context.Context, interval time.Duration) error {
+	if interval <= 0 {
+		interval = time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if err := w.RunOnce(ctx); err != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
 func (w *Worker) reconcile(ctx context.Context, attempt Attempt) error {
 	getCtx, cancel := context.WithTimeout(ctx, w.config.CallTimeout)
 	reservation, err := w.reservations.GetReservation(getCtx, attempt.Payment.ReservationID)

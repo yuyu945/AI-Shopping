@@ -92,6 +92,18 @@ PREPARE payment_recovery_index_add_statement FROM @payment_recovery_index_add_sq
 EXECUTE payment_recovery_index_add_statement;
 DEALLOCATE PREPARE payment_recovery_index_add_statement;
 
+CREATE TABLE IF NOT EXISTS payment_attempt_history (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    order_no VARCHAR(64) NOT NULL,
+    payment_attempt_id CHAR(36) NOT NULL,
+    reservation_id CHAR(36) NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id), UNIQUE KEY uq_payment_attempt_history_attempt (payment_attempt_id),
+    UNIQUE KEY uq_payment_attempt_history_reservation (reservation_id), KEY idx_payment_attempt_history_order (order_no, payment_attempt_id)
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS wallet_accounts (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id BIGINT UNSIGNED NOT NULL,

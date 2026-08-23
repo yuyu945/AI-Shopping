@@ -3,9 +3,9 @@
 ## Current State
 
 - Repository: `D:\简历\AI-Shopping`
-- Transaction worktree: `D:\简历\AI-Shopping\.worktrees\m2-transaction`
-- Feature branch: `codex/m2-transaction`
-- M2.1 购物车与不可变订单快照已完成；M2.2 已有 Saga 设计，尚未开始实现。
+- Repository branch: `main`
+- M2.1 购物车与不可变订单快照已完成；M2.2 余额支付与库存预留 Saga 已合入主线并通过 baseline 验证。
+- 下一阶段从 M3.1 文档上传与事件可靠投递开始。
 
 ## Completed
 
@@ -21,6 +21,14 @@ M2.1 交易前置路径已完成：
 - `order-service` 只写入 `trade_db`，提供用户隔离的购物车增改删、`PENDING_PAYMENT` 幂等建单和只读订单快照展示。
 - 地址快照由 `user-service` 的 JWT 受保护接口按当前用户读取；Checkout SKU 快照由 `product-service` 直接查询 MySQL，不经过 Redis 商品详情缓存。
 - 订单和订单项持久化地址、商品标题、SKU、规格、价格和优惠快照；MySQL JSON 参数以 JSON document 写入，避免驱动把 JSON 文本保存为 JSON string。
+
+M2.2 余额支付与库存预留 Saga 已完成：
+
+- `order-service` 在 `trade_db` 中完成 `PENDING_PAYMENT -> PAYMENT_PROCESSING` 支付认领、钱包扣款、钱包流水、订单 `PAID` 状态和 `inventory.reservation.confirm` Outbox 写入；Outbox 写入失败会回滚同一 transaction 内的订单、钱包和流水。
+- `product-service` 拥有 `inventory_reservations`，实现 `ReserveStock`、`ConfirmReservation`、`ReleaseReservation` 与 `GetReservation`；库存条件扣减和预留写入在 `catalog_db` transaction 内原子完成，重复请求按 `reservation_id + sku_id` 幂等。
+- 全额优惠零金额支付不读取或更新钱包，不写钱包流水；重复支付返回已支付结果或稳定的 `PAYMENT_IN_PROGRESS`。
+- 支付恢复 worker 与预留过期 worker 已实现；过期预留会查询订单结算状态，已支付则确认，未支付/取消才释放，依赖超时保留预留并退避重试。
+- Order Outbox worker 保留未成功投递记录并退避重试；产品侧确认 consumer 使用 `event_consumptions` 幂等处理确认事件。
 
 Key endpoints:
 
@@ -40,6 +48,12 @@ Automated validation completed for this branch:
 - `go test ./... -count=1`
 - `go vet ./...`
 - `git diff --check`
+
+Latest baseline re-run on 2026-08-23 from `main`:
+
+- `go test ./... -count=1` passed.
+- `go vet ./...` passed.
+- `git diff --check` passed.
 - Docker Compose configuration validation with temporary local environment values
 
 Real local validation used an isolated Docker Compose project, `m12verify`, with MySQL bound to `127.0.0.1:3307`, a temporary user-service on `9003`, and Gateway on `8889`. It verified two users can register and log in; a JWT can read its own profile; the first address becomes default; an explicit default switch persists; address listing is user-scoped; and a cross-user address delete returns 404. Service logs were checked to ensure the test password was absent.
@@ -52,8 +66,8 @@ The `m12verify` and `m12cacheverify` Docker projects, their volumes, temporary p
 
 ## Next Milestone
 
-M2.2 余额支付与库存预留 Saga。先遵循已审阅的 Saga 设计，再实现产品侧预留、订单侧支付认领、余额流水、Outbox 确认和恢复 worker。保持边界：MySQL 是商品、库存、交易和快照的事实源；Redis 降级不得影响业务事实；服务不得直接访问其他服务 schema。
+M3.1 文档上传与事件可靠投递。`knowledge-service` 当前只有启动配置骨架，`knowledge_db` 只预留 schema；下一步应先补知识库 proto / RPC 骨架、MinIO 文件保存、`knowledge_documents`、`outbox_events`、`event_consumptions`、`embedding_tasks` 和 upload transaction 内的 `knowledge.document.ingest` Outbox 写入。保持边界：知识库资料原文件进入 MinIO，MySQL 保存元数据和事件事实，Kafka 只由 Outbox worker 异步投递；上传接口不能同步等待解析或 Embedding。
 
 ## Integration
 
-Before integration, re-run the automated validation above. The unpushed local commits on `codex/m1-user-auth` are focused and should be merged into `feat/m1-bootstrap` only after explicit authorization. Do not push without explicit authorization.
+Before starting M3 implementation, sync any stale M2 docs, create or confirm an isolated workspace if needed, then write the M3.1 spec and implementation plan. Do not push without explicit authorization.

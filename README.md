@@ -9,6 +9,36 @@ M1 已完成：Go-zero Gateway 与五个服务启动骨架、共享运行时基�
 3. 验证 schema：设置 `AI_SHOPPING_MYSQL_DSN` 后运行 `pwsh -File scripts/verify_schema.ps1`。product-service 启动时将该 DSN 的 database 固定为 `catalog_db`，避免误连其他逻辑 schema。
 4. 验证代码：`go test ./...`、`go vet ./...`。
 
+应用运行时需要独立的 `AI_SHOPPING_MINIO_ACCESS_KEY` 和 `AI_SHOPPING_MINIO_SECRET_KEY` 连接 MinIO；Docker Compose 的 `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` 只负责本地依赖初始化。二者可以在本地开发环境中使用同一组临时值，但都必须来自本地环境或秘密管理，不能写入代码或日志。
+
+## M3.1 知识库上传与 Outbox
+
+已有 MySQL volume 不会重新执行 `deploy/mysql/init`。设置指向 `knowledge_db` 的 `AI_SHOPPING_MYSQL_DSN` 后，运行：
+
+```powershell
+pwsh -File scripts/apply_knowledge_migrations.ps1
+```
+
+知识库上传接口为受 JWT 保护的 JSON endpoint：
+
+```text
+POST /api/v1/knowledge/documents
+```
+
+请求体：
+
+```json
+{
+  "product_id": 1001,
+  "doc_type": "FAQ",
+  "file_name": "faq.md",
+  "content_type": "text/markdown",
+  "content_base64": "IyBGQVE="
+}
+```
+
+M3.1 只完成原文件写入 MinIO、`knowledge_documents(status=PENDING)` 和 `knowledge.document.ingest` Outbox 原子登记。接口立即返回文档号、版本和 `PENDING` 状态；解析、Chunk、Embedding 和 Milvus 写入属于 M3.2。Outbox worker 同步等待 Kafka ack，失败会保留记录并退避重试，达到阈值后进入 `DEAD`，不会在上传 transaction 内发布 Kafka。
+
 ## Trade schema upgrade
 
 已有 M1 MySQL volume 不会重新执行 `deploy/mysql/init`。设置指向 `trade_db` 的 `AI_SHOPPING_MYSQL_DSN` 后，运行 `pwsh -File scripts/apply_migrations.ps1` 升级订单 schema；设置指向 `catalog_db` 的 DSN 后，运行 `pwsh -File scripts/apply_catalog_migrations.ps1` 升级商品 schema。两个 runner 都只从环境变量读取 DSN metadata（app user、host、port），不接受命令行 DSN；MySQL client authentication 使用 Compose container 内的 `MYSQL_PASSWORD`，二者均不会被记录或输出。它们分别记录 `trade_db.schema_migrations` 与 `catalog_db.schema_migrations`，已应用版本会安全跳过。trade runner 不执行 catalog DDL；catalog runner 不执行 trade DDL。

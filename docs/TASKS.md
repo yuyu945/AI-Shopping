@@ -2,10 +2,10 @@
 
 ## 1. 使用方式
 
-- 当前阶段：M2.2 已完成；下一里程碑为 M3.1 文档上传与事件可靠投递。
+- 当前阶段：M3.1 已完成；下一里程碑为 M3.2 解析、向量化和版本检索。
 - 任务按依赖顺序执行；每完成一个里程碑，先运行其验证命令、检查文档同步，再创建一个聚焦 commit。
 - 所有实现必须遵守 [AGENTS.md](../AGENTS.md)、[PRD.md](PRD.md)、[architecture.md](architecture.md)、[interaction.md](interaction.md) 和 [MVP 设计文档](智选购-ai导购-mvp-design.md)。设计与实现不一致时，先更新设计并说明取舍。
-- 状态标记：`[ ]` 未开始，`[-]` 进行中，`[x]` 已完成，`[!]` 受阻。M1.1、M1.2、M2.1、M2.2 已完成；M3-M6 尚未开始。
+- 状态标记：`[ ]` 未开始，`[-]` 进行中，`[x]` 已完成，`[!]` 受阻。M1.1、M1.2、M2.1、M2.2、M3.1 已完成；M3.2-M6 尚未开始。
 
 ## 2. 里程碑总览
 
@@ -64,12 +64,12 @@
 
 ## 5. M3：异步知识库与 RAG
 
-### M3.1 文档上传与事件可靠投递
+### M3.1 文档上传与事件可靠投递（已完成）
 
-- [ ] 实现资料上传至 MinIO 和 `knowledge_documents` 记录，支持 DETAIL、SPEC、FAQ、AFTER_SALE 类型。
-- [ ] 上传 transaction 内写入 `knowledge.document.ingest` Outbox 事件，接口立即返回文档号、版本和 `PENDING` 状态。
-- [ ] 建立 `outbox_events`、`event_consumptions`、`embedding_tasks` 迁移和通用事件信封，至少包含 `event_id`、事件类型、发生时间、聚合 ID 和 payload 版本。
-- [ ] 配置知识库 retry/dead-letter topic 与退避字段；重放入口必须保留原始事件 ID 和失败原因。
+- [x] 实现资料上传至 MinIO 和 `knowledge_documents` 记录，支持 DETAIL、SPEC、FAQ、AFTER_SALE 类型。
+- [x] 上传 transaction 内写入 `knowledge.document.ingest` Outbox 事件，接口立即返回文档号、版本和 `PENDING` 状态。
+- [x] 建立 `outbox_events`、`event_consumptions`、`embedding_tasks` 迁移和通用事件信封，至少包含 `event_id`、事件类型、聚合 ID 和 payload 版本。
+- [x] 配置知识库 Outbox 退避与 `DEAD` 终态；重试保留原始事件 ID 和失败分类。
 
 测试：同一文档重复上传、同一事件重复投递、发布失败重试、超过阈值进入 dead-letter。
 

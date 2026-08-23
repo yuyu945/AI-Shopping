@@ -3,9 +3,9 @@
 ## Current State
 
 - Repository: `D:\简历\AI-Shopping`
-- Repository branch: `main`
+- Repository branch: `codex/m3-knowledge-upload`
 - M2.1 购物车与不可变订单快照已完成；M2.2 余额支付与库存预留 Saga 已合入主线并通过 baseline 验证。
-- 下一阶段从 M3.1 文档上传与事件可靠投递开始。
+- M3.1 文档上传与事件可靠投递已完成；下一阶段从 M3.2 解析、向量化和版本检索开始。
 
 ## Completed
 
@@ -29,6 +29,14 @@ M2.2 余额支付与库存预留 Saga 已完成：
 - 全额优惠零金额支付不读取或更新钱包，不写钱包流水；重复支付返回已支付结果或稳定的 `PAYMENT_IN_PROGRESS`。
 - 支付恢复 worker 与预留过期 worker 已实现；过期预留会查询订单结算状态，已支付则确认，未支付/取消才释放，依赖超时保留预留并退避重试。
 - Order Outbox worker 保留未成功投递记录并退避重试；产品侧确认 consumer 使用 `event_consumptions` 幂等处理确认事件。
+
+M3.1 知识库上传与 Outbox 已完成：
+
+- `knowledge-service` 从启动骨架升级为 zRPC 服务，提供 `UploadDocument` RPC；Gateway 暴露受 JWT 保护的 `POST /api/v1/knowledge/documents` JSON endpoint。
+- 上传请求使用 base64 文件内容，支持固定资料类型 `DETAIL`、`SPEC`、`FAQ`、`AFTER_SALE`；服务端从 JWT 派生 `created_by_user_id`，不信任请求体用户 ID。
+- 原文件写入 MinIO，`knowledge_documents(status=PENDING)` 与 `knowledge.document.ingest` Outbox 在 `knowledge_db` transaction 内原子写入；重复 `(product_id, doc_type, source_hash)` 返回既有文档。
+- knowledge Outbox worker 使用 lease、同步 Kafka ack、退避 retry 和 `DEAD` 终态；未发布成功的事件保留在 `knowledge_db.outbox_events`。
+- 新增 `knowledge_db` 的 `knowledge_documents`、`outbox_events`、`event_consumptions`、`embedding_tasks` schema 和 `scripts/apply_knowledge_migrations.ps1`。
 
 Key endpoints:
 
@@ -54,6 +62,10 @@ Latest baseline re-run on 2026-08-23 from `main`:
 - `go test ./... -count=1` passed.
 - `go vet ./...` passed.
 - `git diff --check` passed.
+
+M3.1 targeted validation on 2026-08-23:
+
+- `go test ./services/knowledge-service/... ./apps/gateway/... ./internal/platform/... -count=1` passed.
 - Docker Compose configuration validation with temporary local environment values
 
 Real local validation used an isolated Docker Compose project, `m12verify`, with MySQL bound to `127.0.0.1:3307`, a temporary user-service on `9003`, and Gateway on `8889`. It verified two users can register and log in; a JWT can read its own profile; the first address becomes default; an explicit default switch persists; address listing is user-scoped; and a cross-user address delete returns 404. Service logs were checked to ensure the test password was absent.
@@ -66,8 +78,8 @@ The `m12verify` and `m12cacheverify` Docker projects, their volumes, temporary p
 
 ## Next Milestone
 
-M3.1 文档上传与事件可靠投递。`knowledge-service` 当前只有启动配置骨架，`knowledge_db` 只预留 schema；下一步应先补知识库 proto / RPC 骨架、MinIO 文件保存、`knowledge_documents`、`outbox_events`、`event_consumptions`、`embedding_tasks` 和 upload transaction 内的 `knowledge.document.ingest` Outbox 写入。保持边界：知识库资料原文件进入 MinIO，MySQL 保存元数据和事件事实，Kafka 只由 Outbox worker 异步投递；上传接口不能同步等待解析或 Embedding。
+M3.2 解析、向量化和版本检索。下一步应实现 `knowledge.document.ingest` consumer，解析文件、规范化文本、切分 chunk，发布 `knowledge.chunk.embed`，再由 embedding consumer 写 Milvus 并更新文档状态。保持边界：上传接口仍不等待解析或 Embedding；只有当前 `READY` 版本参与检索；重复事件必须由 `event_consumptions` 和业务唯一键幂等。
 
 ## Integration
 
-Before starting M3 implementation, sync any stale M2 docs, create or confirm an isolated workspace if needed, then write the M3.1 spec and implementation plan. Do not push without explicit authorization.
+Before starting M3.2 implementation, re-run full validation and update the M3.2 design/plan if parser, chunk schema, Embedding payload, or Milvus metadata differ from the MVP design. Do not push without explicit authorization.

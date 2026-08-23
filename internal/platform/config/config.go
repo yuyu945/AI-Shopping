@@ -12,6 +12,8 @@ const (
 	redisAddrEnv                     = "AI_SHOPPING_REDIS_ADDR"
 	kafkaBrokersEnv                  = "AI_SHOPPING_KAFKA_BROKERS"
 	minIOEndpointEnv                 = "AI_SHOPPING_MINIO_ENDPOINT"
+	minIOAccessKeyEnv                = "AI_SHOPPING_MINIO_ACCESS_KEY"
+	minIOSecretKeyEnv                = "AI_SHOPPING_MINIO_SECRET_KEY"
 	milvusAddressEnv                 = "AI_SHOPPING_MILVUS_ADDRESS"
 	jwtSecretEnv                     = "AI_SHOPPING_JWT_SECRET"
 	internalServiceTokenEnv          = "AI_SHOPPING_INTERNAL_SERVICE_TOKEN"
@@ -31,6 +33,8 @@ type Config struct {
 	RedisAddr            string
 	KafkaBrokers         string
 	MinIOEndpoint        string
+	MinIOAccessKey       string
+	MinIOSecretKey       string
 	MilvusAddress        string
 	JWTSecret            string
 	InternalServiceToken string
@@ -45,6 +49,8 @@ func Load() (Config, error) {
 		redisAddrEnv,
 		kafkaBrokersEnv,
 		minIOEndpointEnv,
+		minIOAccessKeyEnv,
+		minIOSecretKeyEnv,
 		milvusAddressEnv,
 		jwtSecretEnv,
 	} {
@@ -60,6 +66,8 @@ func Load() (Config, error) {
 		RedisAddr:            values[redisAddrEnv],
 		KafkaBrokers:         values[kafkaBrokersEnv],
 		MinIOEndpoint:        values[minIOEndpointEnv],
+		MinIOAccessKey:       values[minIOAccessKeyEnv],
+		MinIOSecretKey:       values[minIOSecretKeyEnv],
 		MilvusAddress:        values[milvusAddressEnv],
 		JWTSecret:            values[jwtSecretEnv],
 		InternalServiceToken: os.Getenv(internalServiceTokenEnv),

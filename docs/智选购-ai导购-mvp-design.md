@@ -520,13 +520,29 @@ products 1--N knowledge_documents 1--N knowledge_chunks
 
 商品知识问题走 Milvus 检索；价格、库存、订单和售后问题走确定性 Tool 或规则查询。
 
-### 10.4 创建订单
+### 10.4 上传商品资料
+
+`POST /api/v1/knowledge/documents`
+
+```json
+{
+  "product_id": 1001,
+  "doc_type": "FAQ",
+  "file_name": "laptop-faq.md",
+  "content_type": "text/markdown",
+  "content_base64": "IyBGQVEK..."
+}
+```
+
+接口受 JWT 保护。M3.1 上传原文件到 MinIO，并在 `knowledge_db` transaction 内写入 `knowledge_documents(status=PENDING)` 和 `knowledge.document.ingest` Outbox；接口立即返回文档号、版本和状态，不同步等待解析、Embedding 或 Milvus 写入。重复 `(product_id, doc_type, source_hash)` 返回既有文档。
+
+### 10.5 创建订单
 
 `POST /api/v1/orders`
 
 请求必须携带 `request_id`。服务端校验购物车和地址，写入订单、订单明细、商品价格和地址快照，初始状态为 `PENDING_PAYMENT`；重复请求返回首次创建结果。
 
-### 10.5 余额支付
+### 10.6 余额支付
 
 `POST /api/v1/orders/{order_no}/payments/wallet`
 

@@ -9,12 +9,14 @@ import (
 )
 
 var requiredEnvironment = map[string]string{
-	"AI_SHOPPING_MYSQL_DSN":      "user:password@tcp(mysql:3306)/app",
-	"AI_SHOPPING_REDIS_ADDR":     "redis:6379",
-	"AI_SHOPPING_KAFKA_BROKERS":  "kafka-1:9092,kafka-2:9092",
-	"AI_SHOPPING_MINIO_ENDPOINT": "minio:9000",
-	"AI_SHOPPING_MILVUS_ADDRESS": "milvus:19530",
-	"AI_SHOPPING_JWT_SECRET":     "01234567890123456789012345678901",
+	"AI_SHOPPING_MYSQL_DSN":        "user:password@tcp(mysql:3306)/app",
+	"AI_SHOPPING_REDIS_ADDR":       "redis:6379",
+	"AI_SHOPPING_KAFKA_BROKERS":    "kafka-1:9092,kafka-2:9092",
+	"AI_SHOPPING_MINIO_ENDPOINT":   "minio:9000",
+	"AI_SHOPPING_MINIO_ACCESS_KEY": "runtime-minio-access",
+	"AI_SHOPPING_MINIO_SECRET_KEY": "runtime-minio-secret",
+	"AI_SHOPPING_MILVUS_ADDRESS":   "milvus:19530",
+	"AI_SHOPPING_JWT_SECRET":       "01234567890123456789012345678901",
 }
 
 func setRequiredEnvironment(t *testing.T) {
@@ -66,6 +68,12 @@ func TestLoadReadsCompleteRequiredEnvironment(t *testing.T) {
 	}
 	if got.MinIOEndpoint != requiredEnvironment["AI_SHOPPING_MINIO_ENDPOINT"] {
 		t.Errorf("MinIOEndpoint = %q, want configured value", got.MinIOEndpoint)
+	}
+	if got.MinIOAccessKey != requiredEnvironment["AI_SHOPPING_MINIO_ACCESS_KEY"] {
+		t.Errorf("MinIOAccessKey = %q, want configured value", got.MinIOAccessKey)
+	}
+	if got.MinIOSecretKey != requiredEnvironment["AI_SHOPPING_MINIO_SECRET_KEY"] {
+		t.Errorf("MinIOSecretKey = %q, want configured value", got.MinIOSecretKey)
 	}
 	if got.MilvusAddress != requiredEnvironment["AI_SHOPPING_MILVUS_ADDRESS"] {
 		t.Errorf("MilvusAddress = %q, want configured value", got.MilvusAddress)

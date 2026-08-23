@@ -1,3 +1,13 @@
-# Executable skeleton only. Go-zero RPC/proto setup is intentionally deferred to M1.2.
 Name: knowledge-service
 ListenOn: 0.0.0.0:9004
+Timeout: 2000
+Upload:
+  Bucket: knowledge
+  MaxFileBytes: 2097152
+  MinIOSecure: false
+Outbox:
+  PollInterval: 1s
+  BatchSize: 50
+  LeaseDuration: 30s
+  CallTimeout: 250ms
+  MaxAttempts: 5

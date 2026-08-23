@@ -14,7 +14,7 @@ func TestOrderServiceConfigBuildsPaymentRecoveryWorkerConfig(t *testing.T) {
 	}
 
 	got := serviceConfig.paymentRecoveryWorkerConfig()
-	if got.BatchSize != 20 || got.LeaseDuration != 3*time.Minute || got.CallTimeout != 2*time.Second {
+	if got.BatchSize != 20 || got.LeaseDuration != 4*time.Minute || got.CallTimeout != 2*time.Second {
 		t.Fatalf("paymentRecoveryWorkerConfig() = %#v", got)
 	}
 	if err := got.Validate(); err != nil {
@@ -28,7 +28,7 @@ func TestOrderServiceConfigBuildsPaymentRecoveryWorkerConfig(t *testing.T) {
 func TestOrderServicePaymentRecoveryConfigRejectsLeaseBelowBatchBudget(t *testing.T) {
 	config := orderServiceConfig{PaymentRecovery: paymentRecoveryConfig{
 		BatchSize:     20,
-		LeaseDuration: 30 * time.Second,
+		LeaseDuration: 3 * time.Minute,
 		CallTimeout:   2 * time.Second,
 	}}
 

@@ -41,7 +41,10 @@ type Config struct {
 	LeaseDuration, CallTimeout time.Duration
 }
 
-const worstCaseCallsPerAttempt int64 = 4
+const (
+	leaseAcquisitionCalls    int64 = 1
+	worstCaseCallsPerAttempt int64 = 5
+)
 
 // Validate checks that one leased batch has enough time budget for serial reconciliation.
 func (c Config) Validate() error {
@@ -54,14 +57,14 @@ func (c Config) Validate() error {
 	if c.CallTimeout <= 0 {
 		return errors.New("call timeout must be positive")
 	}
-	if int64(c.BatchSize) > (1<<63-1)/worstCaseCallsPerAttempt {
+	if int64(c.BatchSize) > (1<<63-1-leaseAcquisitionCalls)/worstCaseCallsPerAttempt {
 		return errors.New("batch call timeout budget exceeds duration limit")
 	}
-	calls := time.Duration(int64(c.BatchSize) * worstCaseCallsPerAttempt)
-	if c.CallTimeout > time.Duration(1<<63-1)/calls {
+	callCount := leaseAcquisitionCalls + int64(c.BatchSize)*worstCaseCallsPerAttempt
+	if c.CallTimeout > time.Duration(1<<63-1)/time.Duration(callCount) {
 		return errors.New("batch call timeout budget exceeds duration limit")
 	}
-	if c.LeaseDuration < c.CallTimeout*calls {
+	if c.LeaseDuration < c.CallTimeout*time.Duration(callCount) {
 		return errors.New("lease duration must cover the batch call timeout budget")
 	}
 	return nil

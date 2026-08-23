@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package agent.v1;
+
+option go_package = "github.com/yuyu945/AI-Shopping/services/agent-service/gen;agentpb";
+
+service AgentService {
+  rpc StartRun(StartRunRequest) returns (StartRunResponse);
+  rpc GetRun(GetRunRequest) returns (GetRunResponse);
+}
+
+message StartRunRequest {
+  string session_no = 1;
+  string user_input = 2;
+}
+
+message StartRunResponse {
+  AgentRun run = 1;
+}
+
+message GetRunRequest {
+  string run_id = 1;
+}
+
+message GetRunResponse {
+  AgentRun run = 1;
+  repeated AgentStep steps = 2;
+}
+
+message AgentRun {
+  string run_id = 1;
+  string session_no = 2;
+  uint64 user_id = 3;
+  string status = 4;
+  string final_text = 5;
+  string error_code = 6;
+  string error_message = 7;
+  uint32 step_count = 8;
+}
+
+message AgentStep {
+  uint32 step_no = 1;
+  string step_type = 2;
+  string tool_name = 3;
+  string status = 4;
+  string error_code = 5;
+  string error_message = 6;
+  uint32 latency_ms = 7;
+}

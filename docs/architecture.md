@@ -101,12 +101,15 @@ sequenceDiagram
 
 创建订单不扣库存。`order-service` 用 `(user_id, request_id)` 唯一约束实现幂等，并在订单项中保存商品、规格、价格与地址快照，初始状态为 `PENDING_PAYMENT`。
 
-余额支付在一个本地 MySQL transaction 内按以下顺序执行：
+余额支付使用库存预留 Saga，不能让 `order-service` 写 `catalog_db.inventory`，也不引入分布式 transaction：
 
-1. 锁定订单和钱包账户，确认订单仍为 `PENDING_PAYMENT` 且余额充足。
-2. 对每个 SKU 执行库存条件更新；任一语句影响行数为 0 时回滚并返回库存不足。
-3. 将订单更新为 `PAID`，写入钱包流水和业务 Outbox 事件。
-4. 提交 transaction 后由 Worker 发送 Kafka；投递失败保留在 Outbox 表中重试。
+1. `order-service` 在 `trade_db` transaction 中将订单从 `PENDING_PAYMENT` 原子认领为 `PAYMENT_PROCESSING`，同时持久化唯一的 `payment_attempt_id` 与 `reservation_id`。
+2. `product-service` 在自己的 `catalog_db` transaction 中对全部 SKU 执行条件扣减并写入 `inventory_reservations`；任一 SKU 库存不足则整个预留回滚。`reservation_id + sku_id` 是幂等键。
+3. `order-service` 在独立的 `trade_db` transaction 中锁定该支付尝试；仅订单总额大于零时锁定钱包、校验余额并写 `wallet_ledger`。全额优惠的零金额订单跳过钱包读取、余额更新和流水，但仍在同一 transaction 写订单 `PAID` 和 `inventory.reservation.confirm` Outbox。该 transaction 不包含库存表。
+4. product-side consumer 幂等确认预留。确认投递失败只会延迟确认，由 Outbox 重试；已支付订单绝不因消息延迟而释放库存。
+5. 预留过期 worker 向 `order-service` 查询对应 `payment_attempt_id` 的结算状态：`PAID` 则确认，其他终态则释放。依赖超时必须保留预留并退避重试，禁止盲目释放。
+
+库存条件更新仍只在 `product-service` 内执行：
 
 ```sql
 UPDATE inventory
@@ -114,7 +117,7 @@ SET available_qty = available_qty - ?, version = version + 1, updated_at = NOW(3
 WHERE sku_id = ? AND available_qty >= ?;
 ```
 
-余额流水通过 `UNIQUE(biz_type, biz_id, direction)` 兜底幂等；支付接口在检测到已支付订单时直接返回首次成功结果，不重复扣减库存或余额。
+`wallet_ledger` 的 `UNIQUE(biz_type, biz_id, direction)` 兜底扣款幂等；支付请求发现 `PAID` 时返回首次结果，发现匹配的 `PAYMENT_PROCESSING` 时返回稳定的 `PAYMENT_IN_PROGRESS`。恢复 worker 使用持久化的尝试和预留 ID，而非请求内存状态。
 
 ### 4.3 商品缓存
 
@@ -155,6 +158,8 @@ knowledge.document.ingest
 | `knowledge.chunk.embed` | knowledge ingest consumer | `document_id:version` | `event_id`、`document_id`、`chunk_id`、`content_hash`、`embedding_model` | 向量写入；同一 chunk 不重复入库 |
 | `behavior.events` | Gateway / domain services | `user_id` | `event_id`、`user_id`、`event_type`、`occurred_at`、`payload` | 行为统计；按用户维度保序 |
 | `review.events` | `order-service` | `product_id` | `event_id`、`review_id`、`product_id`、`rating` | 评价分析；按商品维度保序 |
+| `inventory.reservation.confirm` | `order-service` Outbox | `reservation_id` | `event_id`、`reservation_id`、`order_no`、`payment_attempt_id`、`version` | product-service 确认预留；按事件 ID 去重 |
+| `inventory.reservation.confirm.deadletter` | product-service confirmation consumer | 原始消息 Key | `reason`、`raw_event_base64` | 畸形或确认重试耗尽的原始事件；仅 producer 确认后提交原消息 offset |
 
 所有需要可靠投递的事件都先在产生方本地 transaction 写入 `outbox_events`，再由 Worker 发布。消费者使用 `event_consumptions(event_id, consumer_group)` 唯一约束记录处理结果。失败消息进入同语义 retry topic，并用 `next_retry_at` 实施退避；超过阈值后进入 dead-letter topic，保留原始事件与失败原因以支持人工重放。
 

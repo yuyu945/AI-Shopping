@@ -7,10 +7,12 @@ import (
 
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/handler"
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/middleware"
+	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/orderclient"
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/productclient"
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/userclient"
 	platformauth "github.com/yuyu945/AI-Shopping/internal/platform/auth"
 	platformconfig "github.com/yuyu945/AI-Shopping/internal/platform/config"
+	orderpb "github.com/yuyu945/AI-Shopping/services/order-service/gen"
 	userpb "github.com/yuyu945/AI-Shopping/services/user-service/gen"
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/rest"
@@ -22,6 +24,7 @@ type gatewayConfig struct {
 	rest.RestConf
 	ProductRPC zrpc.RpcClientConf
 	UserRPC    zrpc.RpcClientConf
+	OrderRPC   zrpc.RpcClientConf
 }
 
 func main() {
@@ -47,14 +50,24 @@ func main() {
 		log.Fatalf("gateway connect user service: %v", err)
 	}
 	defer userRPC.Conn().Close()
+	orderRPC, err := zrpc.NewClient(config.OrderRPC)
+	if err != nil {
+		log.Fatalf("gateway connect order service: %v", err)
+	}
+	defer orderRPC.Conn().Close()
 	zrpc.DontLogClientContentForMethod(userpb.UserService_Register_FullMethodName)
 	zrpc.DontLogClientContentForMethod(userpb.UserService_Login_FullMethodName)
+	zrpc.DontLogClientContentForMethod(orderpb.OrderService_CreateOrder_FullMethodName)
+	zrpc.DontLogClientContentForMethod(orderpb.OrderService_PayWallet_FullMethodName)
+	zrpc.DontLogClientContentForMethod(orderpb.OrderService_GetOrder_FullMethodName)
+	zrpc.DontLogClientContentForMethod(orderpb.OrderService_ListOrders_FullMethodName)
 	manager, err := platformauth.NewManager([]byte(runtimeConfig.JWTSecret))
 	if err != nil {
 		log.Fatalf("gateway jwt configuration: invalid")
 	}
 	productHandler := handler.NewProductHandler(productclient.NewGRPCClient(productRPC.Conn()))
 	userHandler := handler.NewUserHandler(userclient.NewGRPCClient(userRPC.Conn()))
+	orderHandler := handler.NewOrderHandler(orderclient.NewGRPCClient(orderRPC.Conn()))
 	authMiddleware := middleware.NewAuthMiddleware(manager)
 
 	server := rest.MustNewServer(config.RestConf, rest.WithRouter(middleware.NewTraceRouter(router.NewRouter())))
@@ -74,5 +87,13 @@ func main() {
 	server.AddRoute(rest.Route{Method: http.MethodPost, Path: "/api/v1/users/me/addresses", Handler: authMiddleware.Wrap(userHandler.Addresses())})
 	server.AddRoute(rest.Route{Method: http.MethodPut, Path: "/api/v1/users/me/addresses/:id", Handler: authMiddleware.Wrap(userHandler.Address())})
 	server.AddRoute(rest.Route{Method: http.MethodDelete, Path: "/api/v1/users/me/addresses/:id", Handler: authMiddleware.Wrap(userHandler.Address())})
+	server.AddRoute(rest.Route{Method: http.MethodGet, Path: "/api/v1/cart", Handler: authMiddleware.Wrap(orderHandler.Cart())})
+	server.AddRoute(rest.Route{Method: http.MethodPost, Path: "/api/v1/cart/items", Handler: authMiddleware.Wrap(orderHandler.Cart())})
+	server.AddRoute(rest.Route{Method: http.MethodPut, Path: "/api/v1/cart/items/:id", Handler: authMiddleware.Wrap(orderHandler.CartItem())})
+	server.AddRoute(rest.Route{Method: http.MethodDelete, Path: "/api/v1/cart/items/:id", Handler: authMiddleware.Wrap(orderHandler.CartItem())})
+	server.AddRoute(rest.Route{Method: http.MethodGet, Path: "/api/v1/orders", Handler: authMiddleware.Wrap(orderHandler.Orders())})
+	server.AddRoute(rest.Route{Method: http.MethodPost, Path: "/api/v1/orders", Handler: authMiddleware.Wrap(orderHandler.Orders())})
+	server.AddRoute(rest.Route{Method: http.MethodGet, Path: "/api/v1/orders/:order_no", Handler: authMiddleware.Wrap(orderHandler.Order())})
+	server.AddRoute(rest.Route{Method: http.MethodPost, Path: "/api/v1/orders/:order_no/payments/wallet", Handler: authMiddleware.Wrap(orderHandler.WalletPayment())})
 	server.Start()
 }

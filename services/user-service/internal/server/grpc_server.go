@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/yuyu945/AI-Shopping/internal/platform/apperror"
@@ -86,6 +87,25 @@ func (s *GRPCServer) ListMyAddresses(ctx context.Context, _ *userpb.ListMyAddres
 	}
 	return out, nil
 }
+func (s *GRPCServer) GetMyAddressSnapshot(ctx context.Context, req *userpb.GetMyAddressRequest) (*userpb.AddressResponse, error) {
+	id, e := s.userID(ctx)
+	if e != nil {
+		return nil, e
+	}
+	if req == nil || req.GetAddressId() == 0 {
+		return nil, status.Error(codes.InvalidArgument, "address_id is required")
+	}
+	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	v, e := s.service.GetMyAddress(callCtx, id, req.GetAddressId())
+	if e != nil {
+		if errors.Is(callCtx.Err(), context.DeadlineExceeded) {
+			return nil, status.Error(codes.DeadlineExceeded, "dependency timeout")
+		}
+		return nil, toStatus(e)
+	}
+	return &userpb.AddressResponse{Address: addressWire(v)}, nil
+}
 func (s *GRPCServer) CreateMyAddress(ctx context.Context, req *userpb.CreateMyAddressRequest) (*userpb.AddressResponse, error) {
 	id, e := s.userID(ctx)
 	if e != nil {
@@ -164,6 +184,9 @@ func addressWire(v user.Address) *userpb.Address {
 	return &userpb.Address{AddressId: v.ID, ReceiverName: v.ReceiverName, ReceiverPhone: v.ReceiverPhone, Province: v.Province, City: v.City, District: v.District, Detail: v.Detail, IsDefault: v.IsDefault}
 }
 func toStatus(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return status.Error(codes.DeadlineExceeded, "dependency timeout")
+	}
 	var a *apperror.Error
 	if !asApp(err, &a) {
 		return status.Error(codes.Internal, "internal server error")

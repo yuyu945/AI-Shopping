@@ -124,6 +124,20 @@ func TestRepositoryFindUserAndUpdateProfile(t *testing.T) {
 	}
 }
 
+func TestRepositoryGetAddressScopesLookupToOwner(t *testing.T) {
+	db, mock := newRepositoryMock(t)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, receiver_name, receiver_phone, province, city, district, detail, is_default FROM user_addresses WHERE id = ? AND user_id = ?")).
+		WithArgs(uint64(9), uint64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "receiver_name", "receiver_phone", "province", "city", "district", "detail", "is_default"}).AddRow(uint64(9), "Ada", "13800000000", "Beijing", "Beijing", "Haidian", "Road 1", true))
+	got, err := NewRepository(db).GetAddress(context.Background(), 7, 9)
+	if err != nil || got.ID != 9 || !got.IsDefault {
+		t.Fatalf("GetAddress() = %#v, %v", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func newRepositoryMock(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
 	t.Helper()
 	db, mock, err := sqlmock.New()

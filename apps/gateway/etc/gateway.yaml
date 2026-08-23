@@ -10,3 +10,7 @@ UserRPC:
   Endpoints:
     - 127.0.0.1:9001
   Timeout: 2000
+OrderRPC:
+  Endpoints:
+    - 127.0.0.1:9003
+  Timeout: 2000

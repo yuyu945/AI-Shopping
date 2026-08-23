@@ -14,6 +14,39 @@ import (
 type ProductRepository interface {
 	ListProducts(context.Context, ProductFilter) ([]ProductSummary, error)
 	GetProduct(context.Context, uint64, *uint64) (ProductDetail, error)
+	CheckoutSKUs(context.Context, []uint64) ([]CheckoutSKU, error)
+}
+
+// CheckoutSKUs returns the current catalog facts needed to persist an order.
+// It deliberately bypasses detail cache reads because checkout cannot tolerate
+// the bounded stale window permitted for product browsing.
+func (s *ProductService) CheckoutSKUs(ctx context.Context, skuIDs []uint64) ([]CheckoutSKU, error) {
+	if len(skuIDs) == 0 || len(skuIDs) > 100 {
+		return nil, apperror.New(apperror.InvalidArgument, "sku_ids must contain between 1 and 100 values")
+	}
+	for _, skuID := range skuIDs {
+		if skuID == 0 {
+			return nil, apperror.New(apperror.InvalidArgument, "sku_ids must be positive")
+		}
+	}
+	ids := uniqueSKUIds(skuIDs)
+	rows, err := s.repository.CheckoutSKUs(ctx, ids)
+	if err != nil {
+		return nil, safeCheckoutSKUError(err)
+	}
+	bySKU := make(map[uint64]CheckoutSKU, len(rows))
+	for _, row := range rows {
+		bySKU[row.SKUID] = row
+	}
+	result := make([]CheckoutSKU, 0, len(skuIDs))
+	for _, skuID := range skuIDs {
+		row, ok := bySKU[skuID]
+		if !ok || !row.Saleable {
+			return nil, apperror.New(apperror.NotFound, "checkout sku not found")
+		}
+		result = append(result, row)
+	}
+	return cloneCheckoutSKUs(result), nil
 }
 
 // DetailCache stores serialized product details for a bounded period.
@@ -125,6 +158,19 @@ func cloneProductDetail(detail ProductDetail) ProductDetail {
 	return result
 }
 
+func cloneCheckoutSKUs(rows []CheckoutSKU) []CheckoutSKU {
+	result := append([]CheckoutSKU(nil), rows...)
+	for i := range result {
+		result[i].SpecJSON = append([]byte(nil), rows[i].SpecJSON...)
+		result[i].Promotions = append([]PromotionSummary(nil), rows[i].Promotions...)
+		for j := range result[i].Promotions {
+			result[i].Promotions[j].ThresholdAmount = cloneStringPtr(rows[i].Promotions[j].ThresholdAmount)
+			result[i].Promotions[j].DiscountAmount = cloneStringPtr(rows[i].Promotions[j].DiscountAmount)
+		}
+	}
+	return result
+}
+
 func cloneUint64Ptr(value *uint64) *uint64 {
 	if value == nil {
 		return nil
@@ -151,4 +197,12 @@ func safeProductError(err error) error {
 
 func safeDependencyError(operation string, err error) error {
 	return apperror.Wrap(apperror.Internal, operation+" failed", err)
+}
+
+func safeCheckoutSKUError(err error) error {
+	var notFound *NotFoundError
+	if errors.As(err, &notFound) {
+		return apperror.Wrap(apperror.NotFound, "checkout sku not found", err)
+	}
+	return safeDependencyError("checkout skus", err)
 }

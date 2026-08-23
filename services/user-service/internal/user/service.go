@@ -26,6 +26,7 @@ type userRepository interface {
 	GetProfile(context.Context, uint64) (Profile, error)
 	UpdateProfile(context.Context, uint64, ProfileUpdate) (Profile, error)
 	ListAddresses(context.Context, uint64) ([]Address, error)
+	GetAddress(context.Context, uint64, uint64) (Address, error)
 	CreateAddress(context.Context, uint64, AddressInput) (Address, error)
 	UpdateAddress(context.Context, uint64, uint64, AddressInput) (Address, error)
 	DeleteAddress(context.Context, uint64, uint64) error
@@ -46,6 +47,15 @@ func (s *UserService) UpdateMyProfile(ctx context.Context, userID uint64, update
 }
 func (s *UserService) ListMyAddresses(ctx context.Context, userID uint64) ([]Address, error) {
 	v, err := s.repo.ListAddresses(ctx, userID)
+	return v, safeResourceError(err)
+}
+
+// GetMyAddress returns one address after enforcing current-user ownership.
+func (s *UserService) GetMyAddress(ctx context.Context, userID, addressID uint64) (Address, error) {
+	if userID == 0 || addressID == 0 {
+		return Address{}, apperror.New(apperror.InvalidArgument, "address id is required")
+	}
+	v, err := s.repo.GetAddress(ctx, userID, addressID)
 	return v, safeResourceError(err)
 }
 func (s *UserService) CreateMyAddress(ctx context.Context, userID uint64, input AddressInput) (Address, error) {

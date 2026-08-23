@@ -75,6 +75,48 @@ func TestLoadReadsCompleteRequiredEnvironment(t *testing.T) {
 	}
 }
 
+func TestLoadReadsInternalServiceTokenWithoutMakingItGlobalRequirement(t *testing.T) {
+	setRequiredEnvironment(t)
+	t.Setenv("AI_SHOPPING_INTERNAL_SERVICE_TOKEN", "szF1wQ8oXn7uK4mV2rC9yT5pL6dE3aB0")
+
+	got, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.InternalServiceToken != "szF1wQ8oXn7uK4mV2rC9yT5pL6dE3aB0" {
+		t.Fatalf("InternalServiceToken = %q, want configured value", got.InternalServiceToken)
+	}
+}
+
+func TestValidateInternalServiceToken(t *testing.T) {
+	validToken := "szF1wQ8oXn7uK4mV2rC9yT5pL6dE3aB0"
+	tests := []struct {
+		name  string
+		token string
+		valid bool
+	}{
+		{name: "empty", token: ""},
+		{name: "example placeholder", token: "REPLACE_WITH_SECRET_MANAGER_VALUE"},
+		{name: "too short", token: "szF1wQ8oXn7uK4mV2rC9yT5pL6dE3"},
+		{name: "contains whitespace", token: "szF1wQ8oXn7uK4mV2rC9yT5pL6dE3a B"},
+		{name: "repeated development letter", token: strings.Repeat("a", 32)},
+		{name: "repeated development digit", token: strings.Repeat("0", 32)},
+		{name: "valid low-diversity lowercase hexadecimal token", token: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", valid: true},
+		{name: "valid random opaque token", token: validToken, valid: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := config.ValidateInternalServiceToken(tt.token)
+			if (err == nil) != tt.valid {
+				t.Fatalf("ValidateInternalServiceToken() error = %v, valid = %v", err, tt.valid)
+			}
+			if err != nil && tt.token != "" && strings.Contains(err.Error(), tt.token) {
+				t.Fatalf("ValidateInternalServiceToken() error = %q, leaked token", err)
+			}
+		})
+	}
+}
+
 func TestExampleEnvironmentSatisfiesLoadRequirements(t *testing.T) {
 	contents, err := os.ReadFile("../../../.env.example")
 	if err != nil {
@@ -92,7 +134,7 @@ func TestExampleEnvironmentSatisfiesLoadRequirements(t *testing.T) {
 	}
 	for name := range example {
 		if strings.HasPrefix(name, "AI_SHOPPING_") {
-			if _, ok := requiredEnvironment[name]; !ok {
+			if _, ok := requiredEnvironment[name]; !ok && name != "AI_SHOPPING_INTERNAL_SERVICE_TOKEN" {
 				t.Fatalf(".env.example contains unsupported runtime variable %s", name)
 			}
 		}
@@ -100,6 +142,9 @@ func TestExampleEnvironmentSatisfiesLoadRequirements(t *testing.T) {
 
 	if _, err := config.Load(); err != nil {
 		t.Fatalf("Load() with .env.example runtime variables: %v", err)
+	}
+	if err := config.ValidateInternalServiceToken(example["AI_SHOPPING_INTERNAL_SERVICE_TOKEN"]); err == nil {
+		t.Fatal(".env.example internal service token placeholder must be rejected for product-service startup")
 	}
 }
 

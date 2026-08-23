@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -14,6 +15,7 @@ import (
 	platformconfig "github.com/yuyu945/AI-Shopping/internal/platform/config"
 	productpb "github.com/yuyu945/AI-Shopping/services/product-service/gen"
 	"github.com/yuyu945/AI-Shopping/services/product-service/internal/catalog"
+	orderclient "github.com/yuyu945/AI-Shopping/services/product-service/internal/client"
 	productserver "github.com/yuyu945/AI-Shopping/services/product-service/internal/server"
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/zrpc"
@@ -22,9 +24,28 @@ import (
 
 const SERVICE_NAME = "product-service"
 
+const (
+	confirmationConsumerRestartInitial = time.Second
+	confirmationConsumerRestartMaximum = 5 * time.Second
+)
+
+type confirmationConsumerRunner interface {
+	Run(context.Context) error
+}
+
 type productServiceConfig struct {
 	zrpc.RpcServerConf
-	CacheInvalidation cacheInvalidationConfig
+	CacheInvalidation    cacheInvalidationConfig
+	ConfirmationConsumer confirmationConsumerConfig
+	OrderRPC             zrpc.RpcClientConf
+	ReservationExpiry    reservationExpiryConfig
+}
+
+type confirmationConsumerConfig struct{ CallTimeout time.Duration }
+type reservationExpiryConfig struct {
+	PollInterval                           time.Duration
+	BatchSize                              int
+	LeaseDuration, CallTimeout, RetryDelay time.Duration
 }
 
 type cacheInvalidationConfig struct {
@@ -73,6 +94,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("%s load runtime configuration: %v", SERVICE_NAME, err)
 	}
+	if err := platformconfig.ValidateInternalServiceToken(runtimeConfig.InternalServiceToken); err != nil {
+		log.Fatalf("%s startup: invalid internal service authentication configuration", SERVICE_NAME)
+	}
 
 	dsn, err := catalogDSN(runtimeConfig.MySQLDSN)
 	if err != nil {
@@ -98,13 +122,28 @@ func main() {
 
 	catalogRepository := catalog.NewRepository(db)
 	productService := catalog.NewProductService(catalogRepository, detailCache)
+	reservationService, err := buildReservationService(db, detailCache, config)
+	if err != nil {
+		log.Fatalf("%s startup: invalid inventory reservation configuration", SERVICE_NAME)
+	}
+	if config.ConfirmationConsumer.CallTimeout <= 0 {
+		log.Fatalf("%s startup: invalid inventory confirmation consumer configuration", SERVICE_NAME)
+	}
+	confirmationConsumer := catalog.NewKafkaConfirmationConsumer(strings.Split(runtimeConfig.KafkaBrokers, ","), catalog.NewConfirmationConsumer(catalog.NewReservationRepository(db), ""), config.ConfirmationConsumer.CallTimeout)
+	orderRPC, err := zrpc.NewClient(config.OrderRPC)
+	if err != nil {
+		log.Fatalf("%s connect order service: %v", SERVICE_NAME, err)
+	}
+	defer orderRPC.Conn().Close()
+	expiryWorker := catalog.NewReservationExpiryWorker(catalog.NewMySQLExpiryStore(db), orderclient.NewSettlementClient(orderRPC.Conn(), runtimeConfig.InternalServiceToken, config.ReservationExpiry.CallTimeout), catalog.ExpiryWorkerConfig{BatchSize: config.ReservationExpiry.BatchSize, LeaseDuration: config.ReservationExpiry.LeaseDuration, CallTimeout: config.ReservationExpiry.CallTimeout, RetryDelay: config.ReservationExpiry.RetryDelay})
+	defer confirmationConsumer.Close()
 	_, worker, err := buildCatalogMutationComponents(db, detailCache, config)
 	if err != nil {
 		log.Fatalf("%s startup: invalid cache invalidation configuration", SERVICE_NAME)
 	}
 
 	rpcServer, err := zrpc.NewServer(config.RpcServerConf, func(server *grpc.Server) {
-		productpb.RegisterProductServiceServer(server, productserver.NewGRPCServer(productService, time.Duration(config.Timeout)*time.Millisecond))
+		productpb.RegisterProductServiceServer(server, productserver.NewGRPCServerWithReservations(productService, reservationService, time.Duration(config.Timeout)*time.Millisecond, runtimeConfig.InternalServiceToken))
 	})
 	if err != nil {
 		log.Fatalf("%s create rpc server: %v", SERVICE_NAME, err)
@@ -119,7 +158,62 @@ func main() {
 			}
 		}()
 	}
+	consumerCtx, cancelConsumer := context.WithCancel(context.Background())
+	defer cancelConsumer()
+	go func() {
+		if err := runConfirmationConsumer(consumerCtx, confirmationConsumer, confirmationConsumerRestartInitial); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("%s inventory confirmation consumer stopped", SERVICE_NAME)
+		}
+	}()
+	go func() {
+		if err := expiryWorker.Run(consumerCtx, config.ReservationExpiry.PollInterval); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("%s reservation expiry worker stopped", SERVICE_NAME)
+		}
+	}()
 	rpcServer.Start()
+}
+
+// runConfirmationConsumer keeps the durable consumer alive across transient Kafka failures.
+func runConfirmationConsumer(ctx context.Context, consumer confirmationConsumerRunner, initialDelay time.Duration) error {
+	if consumer == nil {
+		return errors.New("inventory confirmation consumer is unavailable")
+	}
+	if initialDelay <= 0 {
+		initialDelay = confirmationConsumerRestartInitial
+	}
+	delay := initialDelay
+	for {
+		err := consumer.Run(ctx)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil {
+			log.Printf("%s inventory confirmation consumer retrying", SERVICE_NAME)
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
+		if delay < confirmationConsumerRestartMaximum {
+			delay *= 2
+			if delay > confirmationConsumerRestartMaximum {
+				delay = confirmationConsumerRestartMaximum
+			}
+		}
+	}
+}
+
+func buildReservationService(db *sql.DB, detailCache catalog.DetailCache, config productServiceConfig) (*catalog.ReservationService, error) {
+	workerConfig := config.cacheInvalidationWorkerConfig()
+	if err := validateCacheInvalidationConfig(config.CacheInvalidation.DelayedDeleteDelay, workerConfig); err != nil {
+		return nil, err
+	}
+	return catalog.NewReservationService(catalog.NewReservationRepository(db), detailCache, time.Now, config.CacheInvalidation.DelayedDeleteDelay, workerConfig.CallTimeout)
 }
 
 type redisOptions struct {

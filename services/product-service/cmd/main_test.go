@@ -63,6 +63,9 @@ func TestProductServiceConfigBuildsCatalogMutationComponents(t *testing.T) {
 	if got, want := serviceConfig.CacheInvalidation.RetryMaxDelay, 30*time.Second; got != want {
 		t.Fatalf("RetryMaxDelay = %s, want %s", got, want)
 	}
+	if got, want := serviceConfig.ConfirmationConsumer.CallTimeout, 2*time.Second; got != want {
+		t.Fatalf("ConfirmationConsumer.CallTimeout = %s, want %s", got, want)
+	}
 	if got, want := serviceConfig.cacheInvalidationWorkerConfig().CallTimeout, 600*time.Millisecond; got != want {
 		t.Fatalf("CallTimeout = %s, want %s", got, want)
 	}
@@ -85,6 +88,18 @@ func TestBuildCatalogMutationComponentsSkipsRedisDegradedStartup(t *testing.T) {
 	}
 	if worker != nil {
 		t.Fatalf("buildCatalogMutationComponents() worker = %#v, want nil", worker)
+	}
+}
+
+func TestBuildReservationServiceUsesPersistentCatalogStore(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	service, err := buildReservationService(db, &fakeDetailCache{}, testProductServiceConfig())
+	if err != nil || service == nil {
+		t.Fatalf("buildReservationService() = %#v, %v", service, err)
 	}
 }
 
@@ -182,6 +197,7 @@ func testProductServiceConfig() productServiceConfig {
 			RetryBaseDelay:     time.Second,
 			RetryMaxDelay:      30 * time.Second,
 		},
+		ConfirmationConsumer: confirmationConsumerConfig{CallTimeout: time.Second},
 	}
 }
 

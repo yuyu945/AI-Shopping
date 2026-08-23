@@ -79,6 +79,40 @@ CREATE TABLE inventory (
     CONSTRAINT fk_inventory_sku FOREIGN KEY (sku_id) REFERENCES product_skus (id)
 ) ENGINE=InnoDB;
 
+CREATE TABLE inventory_reservations (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    reservation_id CHAR(36) NOT NULL,
+    order_no VARCHAR(64) NOT NULL,
+    payment_attempt_id CHAR(36) NOT NULL,
+    sku_id BIGINT UNSIGNED NOT NULL,
+    quantity INT UNSIGNED NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    expires_at DATETIME(3) NOT NULL,
+    confirmed_at DATETIME(3) NULL,
+    released_at DATETIME(3) NULL,
+    next_retry_at DATETIME(3) NULL,
+    expiry_lease_token CHAR(36) NULL,
+    expiry_lease_until DATETIME(3) NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_inventory_reservation_sku (reservation_id, sku_id),
+    KEY idx_inventory_reservation_status_expiry (status, expires_at, id),
+    KEY idx_inventory_reservation_expiry_lease (status, expires_at, next_retry_at, expiry_lease_until, id),
+    CONSTRAINT chk_inventory_reservation_quantity_positive CHECK (quantity > 0),
+    CONSTRAINT chk_inventory_reservation_status CHECK (status IN ('RESERVED', 'CONFIRMED', 'RELEASED')),
+    CONSTRAINT fk_inventory_reservation_sku FOREIGN KEY (sku_id) REFERENCES product_skus(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE event_consumptions (
+    event_id CHAR(36) NOT NULL,
+    consumer_group VARCHAR(128) NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'CONSUMED',
+    consumed_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (event_id, consumer_group)
+) ENGINE=InnoDB;
+
 CREATE TABLE promotion_rules (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     product_id BIGINT UNSIGNED NOT NULL,

@@ -110,6 +110,20 @@ func (r *Repository) ListAddresses(ctx context.Context, userID uint64) ([]Addres
 	return addresses, nil
 }
 
+// GetAddress returns an address only when it belongs to the requested user.
+func (r *Repository) GetAddress(ctx context.Context, userID, addressID uint64) (Address, error) {
+	var address Address
+	err := r.db.QueryRowContext(ctx, "SELECT id, receiver_name, receiver_phone, province, city, district, detail, is_default FROM user_addresses WHERE id = ? AND user_id = ?", addressID, userID).
+		Scan(&address.ID, &address.ReceiverName, &address.ReceiverPhone, &address.Province, &address.City, &address.District, &address.Detail, &address.IsDefault)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Address{}, &NotFoundError{Resource: "address"}
+	}
+	if err != nil {
+		return Address{}, fmt.Errorf("get address: %w", err)
+	}
+	return address, nil
+}
+
 func (r *Repository) CreateAddress(ctx context.Context, userID uint64, input AddressInput) (Address, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {

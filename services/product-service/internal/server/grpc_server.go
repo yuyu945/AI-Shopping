@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"errors"
 	"time"
 
@@ -9,14 +11,30 @@ import (
 	productpb "github.com/yuyu945/AI-Shopping/services/product-service/gen"
 	"github.com/yuyu945/AI-Shopping/services/product-service/internal/catalog"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
-// GRPCServer exposes read-only catalog APIs over the generated product contract.
+// GRPCServer exposes catalog APIs over the generated product contract.
 type GRPCServer struct {
 	productpb.UnimplementedProductServiceServer
-	service *catalog.ProductService
-	timeout time.Duration
+	service              *catalog.ProductService
+	reservations         *catalog.ReservationService
+	timeout              time.Duration
+	internalServiceToken string
+}
+
+// InternalServiceTokenMetadataKey is the gRPC metadata key required by reservation RPCs.
+const InternalServiceTokenMetadataKey = "x-ai-shopping-service-token"
+
+const invalidInternalServiceTokenCandidate = "invalid-internal-service-token"
+
+// NewGRPCServerWithReservations constructs a server with catalog-owned inventory reservation operations.
+func NewGRPCServerWithReservations(service *catalog.ProductService, reservations *catalog.ReservationService, timeout time.Duration, internalServiceToken string) *GRPCServer {
+	server := NewGRPCServer(service, timeout)
+	server.reservations = reservations
+	server.internalServiceToken = internalServiceToken
+	return server
 }
 
 func NewGRPCServer(service *catalog.ProductService, timeout time.Duration) *GRPCServer {
@@ -67,6 +85,36 @@ func (s *GRPCServer) GetProduct(ctx context.Context, req *productpb.GetProductRe
 	return &productpb.GetProductResponse{Product: mapProductDetail(detail)}, nil
 }
 
+func (s *GRPCServer) GetCheckoutSKUs(ctx context.Context, req *productpb.CheckoutSKUsRequest) (*productpb.CheckoutSKUsResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	items, err := s.service.CheckoutSKUs(callCtx, req.GetSkuIds())
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	out := &productpb.CheckoutSKUsResponse{Skus: make([]*productpb.CheckoutSKU, 0, len(items))}
+	for _, item := range items {
+		mapped := &productpb.CheckoutSKU{ProductId: item.ProductID, SkuId: item.SKUID, ProductTitle: item.ProductTitle, SkuCode: item.SKUCode, SpecJson: append([]byte(nil), item.SpecJSON...), SalePrice: item.SalePrice, Saleable: item.Saleable}
+		for _, promotion := range item.Promotions {
+			value := &productpb.PromotionSummary{PromotionId: promotion.ID, RuleType: promotion.RuleType}
+			if promotion.ThresholdAmount != nil {
+				x := *promotion.ThresholdAmount
+				value.ThresholdAmount = &x
+			}
+			if promotion.DiscountAmount != nil {
+				x := *promotion.DiscountAmount
+				value.DiscountAmount = &x
+			}
+			mapped.Promotions = append(mapped.Promotions, value)
+		}
+		out.Skus = append(out.Skus, mapped)
+	}
+	return out, nil
+}
+
 func (s *GRPCServer) withTimeout(ctx context.Context, fn func(context.Context) (catalog.ProductDetailDTO, error)) (catalog.ProductDetailDTO, error) {
 	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
@@ -77,6 +125,25 @@ func (s *GRPCServer) withTimeoutList(ctx context.Context, fn func(context.Contex
 	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	return fn(callCtx)
+}
+
+func (s *GRPCServer) authorizeReservationRequest(ctx context.Context) error {
+	values := metadata.ValueFromIncomingContext(ctx, InternalServiceTokenMetadataKey)
+	candidate := invalidInternalServiceTokenCandidate
+	if len(values) == 1 {
+		candidate = values[0]
+	}
+	expectedDigest := internalServiceTokenDigest(s.internalServiceToken)
+	candidateDigest := internalServiceTokenDigest(candidate)
+	matched := subtle.ConstantTimeCompare(expectedDigest[:], candidateDigest[:]) == 1
+	if s.internalServiceToken == "" || len(values) != 1 || !matched {
+		return status.Error(codes.Unauthenticated, "internal service authentication required")
+	}
+	return nil
+}
+
+func internalServiceTokenDigest(token string) [sha256.Size]byte {
+	return sha256.Sum256([]byte(token))
 }
 
 type productSummaryWire struct {
@@ -191,6 +258,8 @@ func toStatusError(err error) error {
 		return status.Error(codes.InvalidArgument, appErr.Message)
 	case apperror.NotFound:
 		return status.Error(codes.NotFound, appErr.Message)
+	case apperror.OutOfStock, apperror.IdempotencyConflict:
+		return status.Error(codes.FailedPrecondition, appErr.Message)
 	case apperror.DependencyTimeout:
 		return status.Error(codes.DeadlineExceeded, "dependency timeout")
 	default:

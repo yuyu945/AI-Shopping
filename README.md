@@ -4,10 +4,29 @@ M1 已完成：Go-zero Gateway 与五个服务启动骨架、共享运行时基�
 
 ## Local bootstrap
 
-1. 复制 `.env.example` 为本地 `.env`，填写 `MYSQL_ROOT_PASSWORD`、`MYSQL_PASSWORD`、`MINIO_ACCESS_KEY` 和 `MINIO_SECRET_KEY`。真实值只保存在本地环境，不提交到 Git。
+1. 复制 `.env.example` 为本地 `.env`，填写 `MYSQL_ROOT_PASSWORD`、`MYSQL_PASSWORD`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY` 和 `AI_SHOPPING_INTERNAL_SERVICE_TOKEN`。真实值只保存在本地环境，不提交到 Git。`AI_SHOPPING_INTERNAL_SERVICE_TOKEN` 必须是由 secret manager 或安全随机源生成的至少 32-byte、无空白的可见 ASCII opaque secret；安全随机的 hexadecimal encoding 同样可接受。启动校验仅拒绝已知占位符和明显可预测的重复字节，不尝试评估 token 的熵或代替 secret manager。product-service 的库存预留 RPC 要求调用方在 gRPC metadata 中提供 `x-ai-shopping-service-token`，其值必须与 `AI_SHOPPING_INTERNAL_SERVICE_TOKEN` 匹配。
 2. 启动依赖：`docker compose -f deploy/docker-compose.yml up -d`。
 3. 验证 schema：设置 `AI_SHOPPING_MYSQL_DSN` 后运行 `pwsh -File scripts/verify_schema.ps1`。product-service 启动时将该 DSN 的 database 固定为 `catalog_db`，避免误连其他逻辑 schema。
 4. 验证代码：`go test ./...`、`go vet ./...`。
+
+## Trade schema upgrade
+
+已有 M1 MySQL volume 不会重新执行 `deploy/mysql/init`。设置指向 `trade_db` 的 `AI_SHOPPING_MYSQL_DSN` 后，运行 `pwsh -File scripts/apply_migrations.ps1` 升级订单 schema；设置指向 `catalog_db` 的 DSN 后，运行 `pwsh -File scripts/apply_catalog_migrations.ps1` 升级商品 schema。两个 runner 都只从环境变量读取 DSN metadata（app user、host、port），不接受命令行 DSN；MySQL client authentication 使用 Compose container 内的 `MYSQL_PASSWORD`，二者均不会被记录或输出。它们分别记录 `trade_db.schema_migrations` 与 `catalog_db.schema_migrations`，已应用版本会安全跳过。trade runner 不执行 catalog DDL；catalog runner 不执行 trade DDL。
+
+可在 disposable Compose 环境验证 M1 到 M2.2 升级。设置本地临时 `MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD` 后运行：`$env:AI_SHOPPING_TRADE_MIGRATION_INTEGRATION='1'; pwsh -File scripts/test_trade_migration_integration.ps1 -MySQLPort 33306`。脚本使用 UUID project，在 empty 与 M2.1 legacy 两种场景分别连续运行两个 runner 两次，验证两个 migration ledger、索引定义、FK 与 MySQL enforced CHECK；未设置 opt-in guard 时会显式跳过且不写入。
+
+## M2.1 购物车与订单快照集成验证
+
+订单快照 integration harness 只启动专用 MySQL Compose project，并在 repository/service 层验证购物车增改删、非本人地址拒绝、重复 `request_id` 重放，以及商品标题和价格变更后订单快照保持不变。它不启动 Gateway 或三服务 gRPC，因此不能作为 HTTP 端到端验证的替代。
+
+设置临时本地 `MYSQL_PASSWORD` 和 `MYSQL_ROOT_PASSWORD` 后显式运行：
+
+```powershell
+$env:AI_SHOPPING_ORDER_SNAPSHOT_INTEGRATION = '1'
+pwsh -File scripts/test_order_snapshot_integration.ps1 -MySQLPort 3310
+```
+
+未设置 `AI_SHOPPING_ORDER_SNAPSHOT_INTEGRATION=1` 时，harness 输出 `SKIP` 且不连接 Docker 或 MySQL。实际运行使用固定项目和精确隔离 label `m21ordersnapshot`、随机 UUID `run_id` 和 `trade_db.order_snapshot_integration_guards`；测试只接受 host 为 `localhost`、`127.0.0.1` 或 `[::1]`、且端口不是 `3306` 的 `trade_db` DSN。所有条件和数据库 guard row 校验完成前不会写入；脚本不会通过命令行传递凭证，运行结束会精确删除 Compose 容器、volume、network 及测试 fixture，并恢复其修改的 process environment。
 
 Compose 宿主端口默认只绑定 `127.0.0.1`。如果本机 `6379` 已被占用，可用 `REDIS_PORT=6380` 启动，并将应用连接地址同步为 `localhost:6380`；容器网络内仍使用 `redis:6379`。
 

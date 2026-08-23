@@ -63,6 +63,17 @@ type InventorySnapshot struct {
 	Version      uint64
 }
 
+// CheckoutSKU is the direct-MySQL snapshot used solely while creating an order.
+// It intentionally does not pass through the Redis-backed product detail path.
+type CheckoutSKU struct {
+	ProductID, SKUID      uint64
+	ProductTitle, SKUCode string
+	SpecJSON              json.RawMessage
+	SalePrice             string
+	Saleable              bool
+	Promotions            []PromotionSummary
+}
+
 // ImageRef identifies a product image in object storage.
 type ImageRef struct {
 	ID        uint64

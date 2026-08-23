@@ -1,3 +1,22 @@
-# Executable skeleton only. Go-zero RPC/proto setup is intentionally deferred to M1.2.
+# Order-service RPC configuration. Runtime infrastructure values come from AI_SHOPPING_ environment variables.
 Name: order-service
 ListenOn: 0.0.0.0:9003
+Timeout: 2000
+UserRPC:
+  Endpoints:
+    - 127.0.0.1:9001
+  Timeout: 2000
+ProductRPC:
+  Endpoints:
+    - 127.0.0.1:9002
+  Timeout: 2000
+ConfirmationOutbox:
+  PollInterval: 1s
+  BatchSize: 20
+  LeaseDuration: 30s
+  CallTimeout: 500ms
+PaymentRecovery:
+  PollInterval: 1s
+  BatchSize: 20
+  LeaseDuration: 4m
+  CallTimeout: 2s

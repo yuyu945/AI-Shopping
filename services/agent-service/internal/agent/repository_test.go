@@ -1,0 +1,143 @@
+package agent
+
+import (
+	"context"
+	"database/sql"
+	"regexp"
+	"testing"
+	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
+)
+
+func TestRepositoryCreatesSessionRunAndUserMessage(t *testing.T) {
+	db, mock := newRepositoryMock(t)
+	now := time.Date(2026, 8, 23, 10, 0, 0, 0, time.UTC)
+	repository := NewMySQLRepository(db)
+	command := StartRunCommand{
+		SessionNo: "sess_1", RunID: "run_1", UserID: 42, TraceID: "trace_1",
+		UserInput: "预算 5000 买笔记本", ModelName: "qwen-plus", PromptVersion: "m4.1-v1", Now: now,
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(insertAgentSession)).
+		WithArgs(command.SessionNo, command.UserID, "预算 5000 买笔记本", SessionActive).
+		WillReturnResult(sqlmock.NewResult(100, 1))
+	mock.ExpectExec(regexp.QuoteMeta(insertAgentMessage)).
+		WithArgs(uint64(100), uint32(1), MessageUser, command.UserInput, nil, nil, nil).
+		WillReturnResult(sqlmock.NewResult(200, 1))
+	mock.ExpectExec(regexp.QuoteMeta(insertAgentRun)).
+		WithArgs(command.RunID, uint64(100), command.UserID, command.TraceID, command.UserInput, RunRunning, command.ModelName, command.PromptVersion, now).
+		WillReturnResult(sqlmock.NewResult(300, 1))
+	mock.ExpectCommit()
+
+	run, err := repository.CreateRun(context.Background(), command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.ID != 300 || run.SessionID != 100 || run.RunID != "run_1" || run.Status != RunRunning {
+		t.Fatalf("run=%#v", run)
+	}
+	assertSQLExpectations(t, mock)
+}
+
+func TestRepositoryAppendsStepsInOrder(t *testing.T) {
+	db, mock := newRepositoryMock(t)
+	now := time.Date(2026, 8, 23, 10, 1, 0, 0, time.UTC)
+	repository := NewMySQLRepository(db)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(insertAgentStepStarted)).
+		WithArgs(uint64(300), uint32(1), StepTypeTool, "search_products", uint32(1), []byte(`{"keyword":"laptop"}`), StepRunning, now).
+		WillReturnResult(sqlmock.NewResult(400, 1))
+	mock.ExpectExec(regexp.QuoteMeta(updateAgentRunStepCount)).
+		WithArgs(uint32(1), uint64(300)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	step, err := repository.AppendStepStarted(context.Background(), StepStart{
+		RunDBID: 300, StepNo: 1, StepType: StepTypeTool, ToolName: "search_products",
+		Attempt: 1, InputJSON: []byte(`{"keyword":"laptop"}`), StartedAt: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if step.ID != 400 || step.StepNo != 1 || step.Status != StepRunning {
+		t.Fatalf("step=%#v", step)
+	}
+	assertSQLExpectations(t, mock)
+}
+
+func TestRepositoryMarksRunAndStepTerminal(t *testing.T) {
+	db, mock := newRepositoryMock(t)
+	now := time.Date(2026, 8, 23, 10, 2, 0, 0, time.UTC)
+	repository := NewMySQLRepository(db)
+
+	mock.ExpectExec(regexp.QuoteMeta(updateAgentStepSucceeded)).
+		WithArgs([]byte(`{"count":3}`), uint32(25), now, uint64(400)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(updateAgentRunSucceeded)).
+		WithArgs([]byte(`{"answer":"ok"}`), uint32(1), now, uint64(300)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := repository.MarkStepSucceeded(context.Background(), StepResult{StepID: 400, OutputJSON: []byte(`{"count":3}`), LatencyMS: 25, EndedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.MarkRunSucceeded(context.Background(), RunResult{RunDBID: 300, FinalResultJSON: []byte(`{"answer":"ok"}`), StepCount: 1, EndedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	assertSQLExpectations(t, mock)
+}
+
+func TestRepositoryLoadsRunTimelineForOwner(t *testing.T) {
+	db, mock := newRepositoryMock(t)
+	now := time.Date(2026, 8, 23, 10, 3, 0, 0, time.UTC)
+	repository := NewMySQLRepository(db)
+
+	mock.ExpectQuery(regexp.QuoteMeta(queryAgentRunTimeline)).
+		WithArgs(uint64(42), "run_1").
+		WillReturnRows(sqlmock.NewRows(runTimelineColumns()).AddRow(uint64(300), "run_1", uint64(100), uint64(42), "trace_1", "input", RunSucceeded, "qwen-plus", "m4.1-v1", uint32(1), []byte(`{"answer":"ok"}`), nil, nil, now, now, now))
+	mock.ExpectQuery(regexp.QuoteMeta(queryAgentTimelineSteps)).
+		WithArgs(uint64(300)).
+		WillReturnRows(sqlmock.NewRows(stepColumns()).AddRow(uint64(400), uint64(300), uint32(1), StepTypeTool, sql.NullString{String: "search_products", Valid: true}, uint32(1), []byte(`{"keyword":"laptop"}`), []byte(`{"count":3}`), StepSucceeded, nil, nil, uint32(25), now, now))
+
+	timeline, err := repository.GetRunTimeline(context.Background(), 42, "run_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if timeline.Run.RunID != "run_1" || len(timeline.Steps) != 1 || timeline.Steps[0].ToolName != "search_products" {
+		t.Fatalf("timeline=%#v", timeline)
+	}
+	assertSQLExpectations(t, mock)
+}
+
+func TestRepositoryRejectsNonOwnerRunLookup(t *testing.T) {
+	db, mock := newRepositoryMock(t)
+	repository := NewMySQLRepository(db)
+	mock.ExpectQuery(regexp.QuoteMeta(queryAgentRunTimeline)).
+		WithArgs(uint64(99), "run_1").
+		WillReturnError(sql.ErrNoRows)
+
+	_, err := repository.GetRunTimeline(context.Background(), 99, "run_1")
+	if err == nil {
+		t.Fatal("GetRunTimeline() error = nil, want not found")
+	}
+	assertSQLExpectations(t, mock)
+}
+
+func newRepositoryMock(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
+	t.Helper()
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db, mock
+}
+
+func assertSQLExpectations(t *testing.T, mock sqlmock.Sqlmock) {
+	t.Helper()
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

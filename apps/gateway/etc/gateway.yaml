@@ -14,3 +14,7 @@ OrderRPC:
   Endpoints:
     - 127.0.0.1:9003
   Timeout: 2000
+KnowledgeRPC:
+  Endpoints:
+    - 127.0.0.1:9004
+  Timeout: 2000

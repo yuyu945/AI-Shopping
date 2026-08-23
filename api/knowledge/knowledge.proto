@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package knowledge.v1;
+
+option go_package = "github.com/yuyu945/AI-Shopping/services/knowledge-service/gen;knowledgepb";
+
+// KnowledgeService owns product document metadata and asynchronous ingest events.
+service KnowledgeService {
+  rpc UploadDocument(UploadDocumentRequest) returns (UploadDocumentResponse);
+}
+
+message UploadDocumentRequest {
+  uint64 product_id = 1;
+  string doc_type = 2;
+  string file_name = 3;
+  string content_type = 4;
+  string content_base64 = 5;
+}
+
+message UploadDocumentResponse {
+  Document document = 1;
+}
+
+message Document {
+  string document_no = 1;
+  uint64 product_id = 2;
+  string doc_type = 3;
+  uint32 version = 4;
+  string status = 5;
+}

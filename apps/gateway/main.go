@@ -6,12 +6,14 @@ import (
 	"net/http"
 
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/handler"
+	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/knowledgeclient"
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/middleware"
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/orderclient"
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/productclient"
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/userclient"
 	platformauth "github.com/yuyu945/AI-Shopping/internal/platform/auth"
 	platformconfig "github.com/yuyu945/AI-Shopping/internal/platform/config"
+	knowledgepb "github.com/yuyu945/AI-Shopping/services/knowledge-service/gen"
 	orderpb "github.com/yuyu945/AI-Shopping/services/order-service/gen"
 	userpb "github.com/yuyu945/AI-Shopping/services/user-service/gen"
 	"github.com/zeromicro/go-zero/core/conf"
@@ -22,9 +24,10 @@ import (
 
 type gatewayConfig struct {
 	rest.RestConf
-	ProductRPC zrpc.RpcClientConf
-	UserRPC    zrpc.RpcClientConf
-	OrderRPC   zrpc.RpcClientConf
+	ProductRPC   zrpc.RpcClientConf
+	UserRPC      zrpc.RpcClientConf
+	OrderRPC     zrpc.RpcClientConf
+	KnowledgeRPC zrpc.RpcClientConf
 }
 
 func main() {
@@ -55,12 +58,18 @@ func main() {
 		log.Fatalf("gateway connect order service: %v", err)
 	}
 	defer orderRPC.Conn().Close()
+	knowledgeRPC, err := zrpc.NewClient(config.KnowledgeRPC)
+	if err != nil {
+		log.Fatalf("gateway connect knowledge service: %v", err)
+	}
+	defer knowledgeRPC.Conn().Close()
 	zrpc.DontLogClientContentForMethod(userpb.UserService_Register_FullMethodName)
 	zrpc.DontLogClientContentForMethod(userpb.UserService_Login_FullMethodName)
 	zrpc.DontLogClientContentForMethod(orderpb.OrderService_CreateOrder_FullMethodName)
 	zrpc.DontLogClientContentForMethod(orderpb.OrderService_PayWallet_FullMethodName)
 	zrpc.DontLogClientContentForMethod(orderpb.OrderService_GetOrder_FullMethodName)
 	zrpc.DontLogClientContentForMethod(orderpb.OrderService_ListOrders_FullMethodName)
+	zrpc.DontLogClientContentForMethod(knowledgepb.KnowledgeService_UploadDocument_FullMethodName)
 	manager, err := platformauth.NewManager([]byte(runtimeConfig.JWTSecret))
 	if err != nil {
 		log.Fatalf("gateway jwt configuration: invalid")
@@ -68,6 +77,7 @@ func main() {
 	productHandler := handler.NewProductHandler(productclient.NewGRPCClient(productRPC.Conn()))
 	userHandler := handler.NewUserHandler(userclient.NewGRPCClient(userRPC.Conn()))
 	orderHandler := handler.NewOrderHandler(orderclient.NewGRPCClient(orderRPC.Conn()))
+	knowledgeHandler := handler.NewKnowledgeHandler(knowledgeclient.NewGRPCClient(knowledgeRPC.Conn()))
 	authMiddleware := middleware.NewAuthMiddleware(manager)
 
 	server := rest.MustNewServer(config.RestConf, rest.WithRouter(middleware.NewTraceRouter(router.NewRouter())))
@@ -95,5 +105,6 @@ func main() {
 	server.AddRoute(rest.Route{Method: http.MethodPost, Path: "/api/v1/orders", Handler: authMiddleware.Wrap(orderHandler.Orders())})
 	server.AddRoute(rest.Route{Method: http.MethodGet, Path: "/api/v1/orders/:order_no", Handler: authMiddleware.Wrap(orderHandler.Order())})
 	server.AddRoute(rest.Route{Method: http.MethodPost, Path: "/api/v1/orders/:order_no/payments/wallet", Handler: authMiddleware.Wrap(orderHandler.WalletPayment())})
+	server.AddRoute(rest.Route{Method: http.MethodPost, Path: "/api/v1/knowledge/documents", Handler: authMiddleware.Wrap(knowledgeHandler.Documents())})
 	server.Start()
 }

@@ -1,0 +1,82 @@
+package server
+
+import (
+	"context"
+	"encoding/base64"
+	"testing"
+	"time"
+
+	platformauth "github.com/yuyu945/AI-Shopping/internal/platform/auth"
+	knowledgepb "github.com/yuyu945/AI-Shopping/services/knowledge-service/gen"
+	"github.com/yuyu945/AI-Shopping/services/knowledge-service/internal/knowledge"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+)
+
+func TestGRPCServerUploadDocumentDerivesUserFromBearer(t *testing.T) {
+	uploader := &fakeUploader{}
+	server := NewGRPCServer(uploader, testAuthManager(t), time.Second)
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", testBearer(t, 7)))
+
+	out, err := server.UploadDocument(ctx, &knowledgepb.UploadDocumentRequest{
+		ProductId: 1001, DocType: "FAQ", FileName: "faq.md", ContentType: "text/markdown",
+		ContentBase64: base64.StdEncoding.EncodeToString([]byte("# FAQ")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.GetDocument().GetDocumentNo() != "doc_1" || uploader.input.UserID != 7 || string(uploader.input.Content) != "# FAQ" {
+		t.Fatalf("out=%#v input=%#v", out, uploader.input)
+	}
+}
+
+func TestGRPCServerUploadDocumentRejectsInvalidBase64(t *testing.T) {
+	server := NewGRPCServer(&fakeUploader{}, testAuthManager(t), time.Second)
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", testBearer(t, 7)))
+
+	_, err := server.UploadDocument(ctx, &knowledgepb.UploadDocumentRequest{ProductId: 1001, DocType: "FAQ", FileName: "faq.md", ContentType: "text/markdown", ContentBase64: "not base64"})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestGRPCServerUploadDocumentRequiresBearer(t *testing.T) {
+	server := NewGRPCServer(&fakeUploader{}, testAuthManager(t), time.Second)
+
+	_, err := server.UploadDocument(context.Background(), &knowledgepb.UploadDocumentRequest{})
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+type fakeUploader struct {
+	input knowledge.UploadInput
+	err   error
+}
+
+func (f *fakeUploader) UploadDocument(_ context.Context, input knowledge.UploadInput) (knowledge.Document, error) {
+	f.input = input
+	if f.err != nil {
+		return knowledge.Document{}, f.err
+	}
+	return knowledge.Document{DocumentNo: "doc_1", ProductID: input.ProductID, DocType: input.DocType, Version: 1, Status: knowledge.DocumentPending}, nil
+}
+
+func testAuthManager(t *testing.T) *platformauth.Manager {
+	t.Helper()
+	manager, err := platformauth.NewManager([]byte("01234567890123456789012345678901"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return manager
+}
+
+func testBearer(t *testing.T, userID uint64) string {
+	t.Helper()
+	token, _, err := testAuthManager(t).Issue(platformauth.Principal{UserID: userID, Email: "user@example.com"}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "Bearer " + token
+}

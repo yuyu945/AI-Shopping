@@ -2,10 +2,10 @@
 
 ## 1. 使用方式
 
-- 当前阶段：M3.1 已完成；下一里程碑为 M3.2 解析、向量化和版本检索。
+- 当前阶段：M3.2 已完成；下一里程碑为 M4.1 Agent 运行模型与受控 Tool。
 - 任务按依赖顺序执行；每完成一个里程碑，先运行其验证命令、检查文档同步，再创建一个聚焦 commit。
 - 所有实现必须遵守 [AGENTS.md](../AGENTS.md)、[PRD.md](PRD.md)、[architecture.md](architecture.md)、[interaction.md](interaction.md) 和 [MVP 设计文档](智选购-ai导购-mvp-design.md)。设计与实现不一致时，先更新设计并说明取舍。
-- 状态标记：`[ ]` 未开始，`[-]` 进行中，`[x]` 已完成，`[!]` 受阻。M1.1、M1.2、M2.1、M2.2、M3.1 已完成；M3.2-M6 尚未开始。
+- 状态标记：`[ ]` 未开始，`[-]` 进行中，`[x]` 已完成，`[!]` 受阻。M1.1、M1.2、M2.1、M2.2、M3.1、M3.2 已完成；M4-M6 尚未开始。
 
 ## 2. 里程碑总览
 
@@ -73,7 +73,7 @@
 
 测试：同一文档重复上传、同一事件重复投递、发布失败重试、超过阈值进入 dead-letter。
 
-### M3.2 解析、向量化和版本检索（已完成代码收口，待真实外部依赖集成验证）
+### M3.2 解析、向量化和版本检索（已完成）
 
 - [x] 创建 `knowledge_chunks` schema、current-ready 字段与迁移，使用 `(document_id, chunk_index)`、`(document_id, content_hash)` 保障 Chunk 幂等。
 - [x] 实现解析/规范化/切分 domain，支持 `text/plain`、`text/markdown`、`application/json` 文本资料。
@@ -81,7 +81,7 @@
 - [x] 实现 `knowledge.chunk.embed` 处理服务：调用 EmbeddingProvider、VectorStore，并在向量写入成功后切换当前 `READY` 版本；失败不隐藏旧版本。
 - [x] 实现商品知识检索 domain、MySQL current-ready 二次过滤和 `SearchProductKnowledge` gRPC。
 - [x] 实现真实 Kafka reader runtime wiring、阿里 DashScope `text-embedding-v4` Embedding adapter、Milvus REST VectorStore adapter。
-- [ ] 在本地 DashScope API Key、Milvus、Kafka、MinIO、MySQL 都可用时补显式 gated integration tests。
+- [x] 补显式 gated integration tests：默认跳过；本地 DashScope API Key、Milvus、Kafka、MinIO、MySQL 都可用且隔离 guard 匹配时才运行。
 
 测试：Chunk 重复消费、Embedding 失败后重试、旧版本过滤、资料无依据问答的受控降级。
 

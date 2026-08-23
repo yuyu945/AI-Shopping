@@ -43,7 +43,19 @@ M3.1 只完成原文件写入 MinIO、`knowledge_documents(status=PENDING)` 和 
 
 M3.2 已建立 `knowledge_chunks` schema、文档解析/切分 domain、`knowledge.document.ingest` 处理服务、`knowledge.chunk.embed` 处理服务、当前 `READY` 版本切换事务，以及 `SearchProductKnowledge` gRPC 检索接口。检索会先读取 MySQL 当前可见版本，再调用向量检索，并在返回前重新用 MySQL 过滤 current-ready chunk，避免旧版本资料被召回。
 
-Embedding 默认配置为阿里 DashScope `text-embedding-v4` / `1024` 维，写在 `services/knowledge-service/etc/knowledge-service.yaml` 中；`.env.example` 只列出 `AI_SHOPPING_DASHSCOPE_API_KEY` 等变量名，不包含真实值。runtime wiring 已接入 DashScope HTTP Embedding adapter、Milvus REST VectorStore adapter，以及 `knowledge.document.ingest` / `knowledge.chunk.embed` Kafka reader。真实外部依赖的端到端集成验证仍需要显式环境变量和本地依赖 guard 后再运行。
+Embedding 默认配置为阿里 DashScope `text-embedding-v4` / `1024` 维，写在 `services/knowledge-service/etc/knowledge-service.yaml` 中；`.env.example` 只列出 `AI_SHOPPING_DASHSCOPE_API_KEY` 等变量名，不包含真实值。runtime wiring 已接入 DashScope HTTP Embedding adapter、Milvus REST VectorStore adapter，以及 `knowledge.document.ingest` / `knowledge.chunk.embed` Kafka reader。
+
+M3.2 external dependency integration harness 默认不连接外部依赖。设置本地临时 MySQL/MinIO 凭证和 DashScope Key 后运行：
+
+```powershell
+$env:AI_SHOPPING_KNOWLEDGE_M32_INTEGRATION = '1'
+$env:MYSQL_PASSWORD = '<local disposable password>'
+$env:MYSQL_ROOT_PASSWORD = '<local disposable root password>'
+$env:AI_SHOPPING_DASHSCOPE_API_KEY = '<local dashscope key>'
+pwsh -File scripts/test_knowledge_m32_integration.ps1
+```
+
+未设置 `AI_SHOPPING_KNOWLEDGE_M32_INTEGRATION=1` 时，harness 输出 `SKIP` 且不启动 Docker、不连接 MySQL/MinIO/Kafka/Milvus/DashScope。实际运行使用专用 Compose project `m32knowledge`、随机 UUID `run_id` 和 `knowledge_db.knowledge_integration_guards`，测试只接受 loopback 且非默认 `3306` 的 `knowledge_db` DSN；通过 guard 后才验证 MinIO put/get/delete、Kafka topic 可见、Milvus REST list collections 以及 DashScope 返回 `1024` 维 embedding。
 
 ## Trade schema upgrade
 

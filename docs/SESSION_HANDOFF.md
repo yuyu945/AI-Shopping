@@ -5,7 +5,7 @@
 - Repository: `D:\简历\AI-Shopping`
 - Repository branch: `main`
 - M2.1 购物车与不可变订单快照已完成；M2.2 余额支付与库存预留 Saga 已合入主线并通过 baseline 验证。
-- M3.1 文档上传与事件可靠投递已完成；M3.2 解析、向量化和版本检索正在进行。
+- M3.1 文档上传与事件可靠投递已完成；M3.2 解析、向量化和版本检索已完成。下一阶段是 M4.1 Agent 运行模型与受控 Tool。
 
 ## Completed
 
@@ -38,7 +38,7 @@ M3.1 知识库上传与 Outbox 已完成：
 - knowledge Outbox worker 使用 lease、同步 Kafka ack、退避 retry 和 `DEAD` 终态；未发布成功的事件保留在 `knowledge_db.outbox_events`。
 - 新增 `knowledge_db` 的 `knowledge_documents`、`outbox_events`、`event_consumptions`、`embedding_tasks` schema 和 `scripts/apply_knowledge_migrations.ps1`。
 
-M3.2 已完成的本地可验证部分：
+M3.2 完成内容：
 
 - 新增 M3.2 设计与实施计划：`docs/superpowers/specs/2026-08-23-m3.2-knowledge-processing-retrieval-design.md`、`docs/superpowers/plans/2026-08-23-m3.2-knowledge-processing-retrieval.md`。
 - 新增 `knowledge_chunks` schema、`knowledge_documents.is_current_ready`、`knowledge_documents.ready_at` 和知识库迁移 `20260823_m3_2_knowledge_processing_retrieval.sql`。
@@ -46,7 +46,8 @@ M3.2 已完成的本地可验证部分：
 - 实现 `IngestService`：消费 `knowledge.document.ingest` payload，以 `document_no` 查回文档，读取 MinIO object，写 Chunk，并创建 `knowledge.chunk.embed` Outbox event。
 - 实现 `EmbedService`：调用 `EmbeddingProvider`、`VectorStore`，向量写入成功后在 MySQL transaction 内标记 Chunk `EMBEDDED`、embedding task `DONE`、新文档 `READY/current`，失败只记录 retry，不清理旧 current-ready。
 - 实现 `RetrievalService` 和 `SearchProductKnowledge` gRPC：检索前读取 current-ready 文档，向量检索后再用 MySQL 过滤 current-ready Chunk，返回 snippet、doc type、version、section、source page 和 score。
-- knowledge-service runtime config 已切换为阿里 DashScope `text-embedding-v4` / `1024` 维，runtime wiring 已接入 DashScope HTTP Embedding adapter、Milvus REST VectorStore adapter，以及 `knowledge.document.ingest` / `knowledge.chunk.embed` Kafka readers。真实外部依赖 integration tests 尚未添加。
+- knowledge-service runtime config 已切换为阿里 DashScope `text-embedding-v4` / `1024` 维，runtime wiring 已接入 DashScope HTTP Embedding adapter、Milvus REST VectorStore adapter，以及 `knowledge.document.ingest` / `knowledge.chunk.embed` Kafka readers。
+- 新增 M3.2 gated integration harness：`services/knowledge-service/internal/knowledge/knowledge_integration_test.go`、`integration_config_test.go`、`integration_support_test.go`、`scripts/prepare_knowledge_integration.ps1`、`scripts/test_knowledge_m32_integration.ps1`。普通测试默认跳过；只有 `AI_SHOPPING_KNOWLEDGE_M32_INTEGRATION=1` 运行脚本、且 `AI_SHOPPING_INTEGRATION=1` / `AI_SHOPPING_INTEGRATION_ISOLATED=m32knowledge` / UUID guard 匹配时才连接真实 MySQL、MinIO、Kafka、Milvus 和 DashScope。
 
 Key endpoints:
 
@@ -88,8 +89,8 @@ The `m12verify` and `m12cacheverify` Docker projects, their volumes, temporary p
 
 ## Next Milestone
 
-M3.2 后续收口。下一步应在可用的本地 DashScope API Key、Milvus、Kafka、MinIO、MySQL 环境下补显式 gated integration tests。保持边界：上传接口仍不等待解析或 Embedding；只有当前 `READY` 版本参与检索；重复事件必须由 `event_consumptions` 和业务唯一键幂等。
+M4.1 后续开发。保持边界：Agent 只能在 `agent-service` 中使用 Eino 和模型 Provider；Tool 必须 typed、受控、有 schema/timeout/max result/权限来源；模型不能直接写订单、库存、余额或执行 SQL。`search_product_knowledge` Tool 应调用 M3.2 的 `SearchProductKnowledge` gRPC，RAG 不可用时只做受控降级。
 
 ## Integration
 
-Before starting M3.2 implementation, re-run full validation and update the M3.2 design/plan if parser, chunk schema, Embedding payload, or Milvus metadata differ from the MVP design. Do not push without explicit authorization.
+Before starting M4.1 implementation, create or update the M4 Agent design/plan, then keep changes directly on `main` per the latest user instruction. Do not rewrite history; push only when explicitly requested or when continuing the already approved mainline push workflow.

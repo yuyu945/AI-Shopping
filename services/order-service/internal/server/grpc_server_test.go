@@ -51,6 +51,55 @@ func TestOrderGRPCServerRejectsInvalidRequestID(t *testing.T) {
 	}
 }
 
+func TestOrderGRPCServerSubmitReviewForwardsAuthenticatedRequest(t *testing.T) {
+	manager, ctx := authenticatedOrderContext(t, 7)
+	repository := &transportRepository{}
+	server := NewGRPCServer(order.NewService(repository, nil, nil), manager, time.Second)
+
+	response, err := server.SubmitReview(ctx, &orderpb.SubmitReviewRequest{OrderNo: "ORD-1", SkuId: 101, Rating: 5, Content: "good"})
+	if err != nil {
+		t.Fatalf("SubmitReview: %v", err)
+	}
+	if repository.lastReview.UserID != 7 || repository.lastReview.OrderNo != "ORD-1" || repository.lastReview.SKUID != 101 || repository.lastReview.Rating != 5 || repository.lastReview.Content != "good" {
+		t.Fatalf("repository review = %#v, want forwarded request", repository.lastReview)
+	}
+	if response.GetReview().GetReviewNo() == "" || response.GetReview().GetProductId() != 21 || response.GetReview().GetStatus() != string(order.PublishedReview) {
+		t.Fatalf("response = %#v, want review DTO", response.GetReview())
+	}
+}
+
+func TestOrderGRPCServerSubmitReviewRequiresAuthentication(t *testing.T) {
+	manager, err := platformauth.NewManager([]byte("01234567890123456789012345678901"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = NewGRPCServer(order.NewService(&transportRepository{}, nil, nil), manager, time.Second).SubmitReview(context.Background(), &orderpb.SubmitReviewRequest{OrderNo: "ORD-1", SkuId: 101, Rating: 5, Content: "good"})
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("code = %v, want unauthenticated", status.Code(err))
+	}
+}
+
+func TestOrderGRPCServerSubmitReviewMapsDomainErrors(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want codes.Code
+	}{
+		{name: "duplicate", err: &order.Error{Code: order.IdempotencyConflict, Message: "review already exists"}, want: codes.AlreadyExists},
+		{name: "invalid", err: &order.Error{Code: order.InvalidArgument, Message: "rating must be between 1 and 5"}, want: codes.InvalidArgument},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			manager, ctx := authenticatedOrderContext(t, 7)
+			repository := &transportRepository{submitReviewErr: tc.err}
+			_, err := NewGRPCServer(order.NewService(repository, nil, nil), manager, time.Second).SubmitReview(ctx, &orderpb.SubmitReviewRequest{OrderNo: "ORD-1", SkuId: 101, Rating: 5, Content: "good"})
+			if status.Code(err) != tc.want {
+				t.Fatalf("code = %v, want %v", status.Code(err), tc.want)
+			}
+		})
+	}
+}
+
 func TestOrderStatusMapsDependencyTimeout(t *testing.T) {
 	if got := status.Code(orderStatus(&order.Error{Code: order.DependencyTimeout})); got != codes.DeadlineExceeded {
 		t.Fatalf("status code = %v, want deadline exceeded", got)
@@ -104,7 +153,10 @@ func TestOrderGRPCServerScopesForeignResourcesAndRejectsInvalidIDs(t *testing.T)
 	}
 }
 
-type transportRepository struct{}
+type transportRepository struct {
+	lastReview      order.Review
+	submitReviewErr error
+}
 
 func (transportRepository) GetCart(context.Context, uint64) (order.Cart, error) {
 	return order.Cart{}, nil
@@ -129,4 +181,26 @@ func (transportRepository) ListOrders(context.Context, uint64) ([]order.Order, e
 }
 func (transportRepository) CreateOrder(context.Context, order.Order) (order.Order, error) {
 	return order.Order{}, nil
+}
+func (r *transportRepository) SubmitReview(_ context.Context, review order.Review) (order.Review, error) {
+	r.lastReview = review
+	if r.submitReviewErr != nil {
+		return order.Review{}, r.submitReviewErr
+	}
+	review.ProductID = 21
+	review.Status = order.PublishedReview
+	return review, nil
+}
+
+func authenticatedOrderContext(t *testing.T, userID uint64) (*platformauth.Manager, context.Context) {
+	t.Helper()
+	manager, err := platformauth.NewManager([]byte("01234567890123456789012345678901"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := manager.Issue(platformauth.Principal{UserID: userID, Email: "ada@example.com"}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return manager, metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+token))
 }

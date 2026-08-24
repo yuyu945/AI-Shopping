@@ -214,6 +214,21 @@ func (s *GRPCServer) GetOrder(ctx context.Context, r *orderpb.GetOrderRequest) (
 	}
 	return &orderpb.OrderResponse{Order: orderWire(out)}, nil
 }
+func (s *GRPCServer) SubmitReview(ctx context.Context, r *orderpb.SubmitReviewRequest) (*orderpb.ReviewResponse, error) {
+	if r == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	var out order.Review
+	err := s.call(ctx, func(c context.Context, id uint64) error {
+		var e error
+		out, e = s.service.SubmitReview(c, id, order.SubmitReviewInput{OrderNo: r.GetOrderNo(), SKUID: r.GetSkuId(), Rating: r.GetRating(), Content: r.GetContent()})
+		return e
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &orderpb.ReviewResponse{Review: reviewWire(out)}, nil
+}
 func orderStatus(err error) error {
 	var e *order.Error
 	if !errors.As(err, &e) {
@@ -273,4 +288,16 @@ func promotionWire(v order.PromotionSnapshot) *orderpb.PromotionSnapshot {
 		out.DiscountAmount = &x
 	}
 	return out
+}
+
+func reviewWire(v order.Review) *orderpb.Review {
+	return &orderpb.Review{
+		ReviewNo:  v.ReviewNo,
+		OrderNo:   v.OrderNo,
+		ProductId: v.ProductID,
+		SkuId:     v.SKUID,
+		Rating:    v.Rating,
+		Content:   v.Content,
+		Status:    string(v.Status),
+	}
 }

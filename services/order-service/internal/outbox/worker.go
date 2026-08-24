@@ -13,7 +13,8 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
-const confirmationTopic = "inventory.reservation.confirm"
+const ConfirmationTopic = "inventory.reservation.confirm"
+const ReviewEventsTopic = "review.events"
 
 type Status string
 
@@ -25,16 +26,15 @@ const (
 
 // Event contains only the confirmation identity needed by product-service.
 type Event struct {
-	ID               uint64
-	EventID          string
-	ReservationID    string
-	Status           Status
-	Attempts         int
-	OrderNo          string
-	PaymentAttemptID string
-	Version          int
-	LeaseUntil       time.Time
-	ClaimToken       string
+	ID         uint64
+	EventID    string
+	Topic      string
+	Key        string
+	Payload    []byte
+	Status     Status
+	Attempts   int
+	LeaseUntil time.Time
+	ClaimToken string
 }
 
 // Repository provides durable ownership and retry transitions for confirmation events.
@@ -109,18 +109,8 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 		return errors.New("lease confirmation outbox events failed")
 	}
 	for _, event := range events {
-		payload, err := json.Marshal(struct {
-			EventID          string `json:"event_id"`
-			ReservationID    string `json:"reservation_id"`
-			OrderNo          string `json:"order_no"`
-			PaymentAttemptID string `json:"payment_attempt_id"`
-			Version          int    `json:"version"`
-		}{event.EventID, event.ReservationID, event.OrderNo, event.PaymentAttemptID, event.Version})
-		if err != nil {
-			return errors.New("marshal reservation confirmation failed")
-		}
 		publishCtx, cancelPublish := w.callContext(ctx)
-		err = w.publisher.Publish(publishCtx, Message{Topic: confirmationTopic, Key: event.ReservationID, Value: payload})
+		err = w.publisher.Publish(publishCtx, Message{Topic: event.Topic, Key: event.Key, Value: append([]byte(nil), event.Payload...)})
 		cancelPublish()
 		if err != nil {
 			retryCtx, cancelRetry := w.callContext(ctx)
@@ -161,7 +151,13 @@ func (r *MySQLRepository) LeasePending(ctx context.Context, limit int, now time.
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT id, event_id, event_key, payload, attempts FROM outbox_events WHERE topic = ? AND ((status = 'PENDING' AND (next_retry_at IS NULL OR next_retry_at <= ?)) OR (status = 'PROCESSING' AND lease_until <= ?)) ORDER BY id ASC LIMIT ? FOR UPDATE SKIP LOCKED`, confirmationTopic, now.UTC().Truncate(time.Millisecond), now.UTC().Truncate(time.Millisecond), limit)
+	topics := []string{ConfirmationTopic, ReviewEventsTopic}
+	args := make([]any, 0, len(topics)+3)
+	for _, topic := range topics {
+		args = append(args, topic)
+	}
+	args = append(args, now.UTC().Truncate(time.Millisecond), now.UTC().Truncate(time.Millisecond), limit)
+	rows, err := tx.QueryContext(ctx, queryLeasePendingOutboxEvents(topics), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -169,24 +165,12 @@ func (r *MySQLRepository) LeasePending(ctx context.Context, limit int, now time.
 	events := make([]Event, 0, limit)
 	for rows.Next() {
 		var event Event
-		var payload struct {
-			EventID          string `json:"event_id"`
-			ReservationID    string `json:"reservation_id"`
-			OrderNo          string `json:"order_no"`
-			PaymentAttemptID string `json:"payment_attempt_id"`
-			Version          int    `json:"version"`
-		}
-		var rawPayload []byte
-		if err := rows.Scan(&event.ID, &event.EventID, &event.ReservationID, &rawPayload, &event.Attempts); err != nil {
+		if err := rows.Scan(&event.ID, &event.EventID, &event.Topic, &event.Key, &event.Payload, &event.Attempts); err != nil {
 			return nil, err
 		}
-		if err := json.Unmarshal(rawPayload, &payload); err != nil {
-			return nil, fmt.Errorf("decode confirmation outbox payload: %w", err)
+		if !json.Valid(event.Payload) || event.EventID == "" || event.Topic == "" || event.Key == "" {
+			return nil, fmt.Errorf("invalid outbox payload")
 		}
-		if payload.EventID != event.EventID || payload.ReservationID != event.ReservationID || payload.OrderNo == "" || payload.PaymentAttemptID == "" || payload.Version <= 0 {
-			return nil, errors.New("invalid confirmation outbox payload")
-		}
-		event.OrderNo, event.PaymentAttemptID, event.Version = payload.OrderNo, payload.PaymentAttemptID, payload.Version
 		events = append(events, event)
 	}
 	if err := rows.Err(); err != nil {
@@ -259,6 +243,21 @@ func (p *KafkaPublisher) Publish(ctx context.Context, message Message) error {
 		return errors.New("kafka publisher is unavailable")
 	}
 	return p.writer.WriteMessages(ctx, kafka.Message{Topic: message.Topic, Key: []byte(message.Key), Value: message.Value})
+}
+
+func queryLeasePendingOutboxEvents(topics []string) string {
+	return `SELECT id, event_id, topic, event_key, payload, attempts FROM outbox_events WHERE topic IN (` + placeholders(len(topics)) + `) AND ((status = 'PENDING' AND (next_retry_at IS NULL OR next_retry_at <= ?)) OR (status = 'PROCESSING' AND lease_until <= ?)) ORDER BY id ASC LIMIT ? FOR UPDATE SKIP LOCKED`
+}
+
+func placeholders(count int) string {
+	if count <= 0 {
+		return "?"
+	}
+	result := "?"
+	for i := 1; i < count; i++ {
+		result += ",?"
+	}
+	return result
 }
 
 func retryDelay(attempts int) time.Duration {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 )
 
 func TestConfirmationOutboxRetriesWithoutReleasingPaidReservation(t *testing.T) {
-	repository := &fakeRepository{events: []Event{{ID: 1, EventID: "event-1", ReservationID: "reservation-1", OrderNo: "order-1", PaymentAttemptID: "attempt-1", Version: 1}}}
+	repository := &fakeRepository{events: []Event{confirmationEvent(1)}}
 	publisher := &fakePublisher{err: errors.New("product unavailable")}
 	worker := NewWorker(repository, publisher, Config{BatchSize: 1, LeaseDuration: time.Minute, CallTimeout: 100 * time.Millisecond})
 
@@ -36,8 +37,31 @@ func TestConfirmationOutboxRetriesWithoutReleasingPaidReservation(t *testing.T) 
 	}
 }
 
+func TestOutboxPublishesReviewEventsWithoutRemarshalling(t *testing.T) {
+	payload := []byte(`{"event_id":"event-1","event_type":"review.submitted","review_no":"REV-1","version":1}`)
+	repository := &fakeRepository{events: []Event{{ID: 1, EventID: "event-1", Topic: ReviewEventsTopic, Key: "21", Payload: payload}}}
+	publisher := &fakePublisher{}
+	worker := NewWorker(repository, publisher, Config{BatchSize: 1, LeaseDuration: time.Minute, CallTimeout: 100 * time.Millisecond})
+
+	if err := worker.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if publisher.lastMessage.Topic != ReviewEventsTopic || publisher.lastMessage.Key != "21" || string(publisher.lastMessage.Value) != string(payload) {
+		t.Fatalf("published message = %#v", publisher.lastMessage)
+	}
+}
+
+func TestMySQLRepositoryLeasesOnlyAllowedOutboxTopics(t *testing.T) {
+	if !strings.Contains(queryLeasePendingOutboxEvents([]string{ConfirmationTopic, ReviewEventsTopic}), "topic IN (?,?)") {
+		t.Fatal("lease query must restrict allowed outbox topics")
+	}
+}
+
 func TestConfirmationOutboxReclaimsExpiredProcessingLease(t *testing.T) {
-	repository := &fakeRepository{events: []Event{{ID: 1, EventID: "event-1", ReservationID: "reservation-1", Status: Processing, LeaseUntil: time.Now().Add(-time.Minute)}}}
+	event := confirmationEvent(1)
+	event.Status = Processing
+	event.LeaseUntil = time.Now().Add(-time.Minute)
+	repository := &fakeRepository{events: []Event{event}}
 	publisher := &fakePublisher{}
 	worker := NewWorker(repository, publisher, Config{BatchSize: 1, LeaseDuration: time.Minute, CallTimeout: 100 * time.Millisecond})
 
@@ -50,7 +74,7 @@ func TestConfirmationOutboxReclaimsExpiredProcessingLease(t *testing.T) {
 }
 
 func TestConfirmationOutboxTimesOutBlockedPublisherAndRetainsEventForRetry(t *testing.T) {
-	repository := &fakeRepository{events: []Event{{ID: 1, EventID: "event-1", ReservationID: "reservation-1", OrderNo: "order-1", PaymentAttemptID: "attempt-1", Version: 1}}}
+	repository := &fakeRepository{events: []Event{confirmationEvent(1)}}
 	publisher := &blockedPublisher{}
 	worker := NewWorker(repository, publisher, Config{BatchSize: 1, LeaseDuration: time.Minute, CallTimeout: 100 * time.Millisecond})
 
@@ -133,6 +157,16 @@ type fakeRepository struct {
 	releaseCalls int
 }
 
+func confirmationEvent(id uint64) Event {
+	return Event{
+		ID:      id,
+		EventID: "event-1",
+		Topic:   ConfirmationTopic,
+		Key:     "reservation-1",
+		Payload: []byte(`{"event_id":"event-1","reservation_id":"reservation-1","order_no":"order-1","payment_attempt_id":"attempt-1","version":1}`),
+	}
+}
+
 func (r *fakeRepository) LeasePending(_ context.Context, _ int, now time.Time, _ time.Duration) ([]Event, error) {
 	for i := range r.events {
 		if r.events[i].Status == "" || r.events[i].Status == Pending || (r.events[i].Status == Processing && r.events[i].LeaseUntil.Before(now)) {
@@ -162,10 +196,12 @@ func (r *fakeRepository) Retry(_ context.Context, id uint64, _ string, _ time.Ti
 type fakePublisher struct {
 	err          error
 	publishCalls int
+	lastMessage  Message
 }
 
-func (p *fakePublisher) Publish(context.Context, Message) error {
+func (p *fakePublisher) Publish(_ context.Context, message Message) error {
 	p.publishCalls++
+	p.lastMessage = message
 	return p.err
 }
 

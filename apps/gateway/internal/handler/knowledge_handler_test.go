@@ -64,8 +64,105 @@ func TestKnowledgeUploadHandlerRejectsInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestKnowledgeQuestionHandlerMapsRequestAndResponse(t *testing.T) {
+	client := &fakeKnowledgeClient{search: func(_ context.Context, req *knowledgepb.SearchProductKnowledgeRequest) (*knowledgepb.SearchProductKnowledgeResponse, error) {
+		if req.GetProductId() != 1001 || req.GetQuery() != "battery life" || req.GetTopK() != 3 {
+			t.Fatalf("req=%#v", req)
+		}
+		if got := req.GetDocTypes(); len(got) != 2 || got[0] != "SPEC" || got[1] != "FAQ" {
+			t.Fatalf("doc_types=%v", got)
+		}
+		return &knowledgepb.SearchProductKnowledgeResponse{
+			Snippets: []*knowledgepb.KnowledgeSnippet{{
+				ChunkId: 9001, DocumentNo: "doc_1", ProductId: 1001, DocType: "SPEC",
+				Version: 2, Section: "Battery", SourcePage: 4, Content: "Up to 10 hours.", Score: 0.82,
+			}},
+		}, nil
+	}}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/products/1001/knowledge/questions", strings.NewReader(`{"question":" battery life ","doc_types":["SPEC","FAQ"],"top_k":3}`))
+	r.SetPathValue("product_id", "1001")
+
+	NewKnowledgeHandler(client).ProductQuestion().ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"chunk_id":9001`) || !strings.Contains(w.Body.String(), `"source_page":4`) {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), `"answer"`) {
+		t.Fatalf("handler must not synthesize answer: %s", w.Body.String())
+	}
+}
+
+func TestKnowledgeQuestionHandlerDefaultsAndCapsTopK(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want uint32
+	}{
+		{name: "default", body: `{"question":"battery"}`, want: 3},
+		{name: "cap", body: `{"question":"battery","top_k":99}`, want: 5},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &fakeKnowledgeClient{search: func(_ context.Context, req *knowledgepb.SearchProductKnowledgeRequest) (*knowledgepb.SearchProductKnowledgeResponse, error) {
+				if req.GetTopK() != tc.want {
+					t.Fatalf("top_k=%d want %d", req.GetTopK(), tc.want)
+				}
+				return &knowledgepb.SearchProductKnowledgeResponse{FallbackReason: "NO_SOURCE"}, nil
+			}}
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "/api/v1/products/1001/knowledge/questions", strings.NewReader(tc.body))
+			r.SetPathValue("product_id", "1001")
+			NewKnowledgeHandler(client).ProductQuestion().ServeHTTP(w, r)
+			if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"fallback_reason":"NO_SOURCE"`) {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestKnowledgeQuestionHandlerRejectsInvalidInput(t *testing.T) {
+	cases := []struct {
+		name      string
+		productID string
+		body      string
+	}{
+		{name: "bad product", productID: "bad", body: `{"question":"battery"}`},
+		{name: "zero product", productID: "0", body: `{"question":"battery"}`},
+		{name: "empty question", productID: "1001", body: `{"question":"   "}`},
+		{name: "bad json", productID: "1001", body: `{`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "/api/v1/products/"+tc.productID+"/knowledge/questions", strings.NewReader(tc.body))
+			r.SetPathValue("product_id", tc.productID)
+			NewKnowledgeHandler(&fakeKnowledgeClient{}).ProductQuestion().ServeHTTP(w, r)
+			if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "INVALID_ARGUMENT") {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestKnowledgeQuestionHandlerMapsStableSearchErrors(t *testing.T) {
+	h := NewKnowledgeHandler(&fakeKnowledgeClient{search: func(context.Context, *knowledgepb.SearchProductKnowledgeRequest) (*knowledgepb.SearchProductKnowledgeResponse, error) {
+		return nil, status.Error(codes.DeadlineExceeded, "milvus internal detail")
+	}})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/products/1001/knowledge/questions", strings.NewReader(`{"question":"battery"}`))
+	r.SetPathValue("product_id", "1001")
+
+	h.ProductQuestion().ServeHTTP(w, r)
+
+	if w.Code != http.StatusGatewayTimeout || !strings.Contains(w.Body.String(), "DEPENDENCY_TIMEOUT") || strings.Contains(w.Body.String(), "milvus") {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
 type fakeKnowledgeClient struct {
 	upload func(context.Context, *knowledgepb.UploadDocumentRequest) (*knowledgepb.UploadDocumentResponse, error)
+	search func(context.Context, *knowledgepb.SearchProductKnowledgeRequest) (*knowledgepb.SearchProductKnowledgeResponse, error)
 }
 
 func (f *fakeKnowledgeClient) UploadDocument(ctx context.Context, req *knowledgepb.UploadDocumentRequest) (*knowledgepb.UploadDocumentResponse, error) {
@@ -73,4 +170,11 @@ func (f *fakeKnowledgeClient) UploadDocument(ctx context.Context, req *knowledge
 		return &knowledgepb.UploadDocumentResponse{Document: &knowledgepb.Document{}}, nil
 	}
 	return f.upload(ctx, req)
+}
+
+func (f *fakeKnowledgeClient) SearchProductKnowledge(ctx context.Context, req *knowledgepb.SearchProductKnowledgeRequest) (*knowledgepb.SearchProductKnowledgeResponse, error) {
+	if f.search == nil {
+		return &knowledgepb.SearchProductKnowledgeResponse{}, nil
+	}
+	return f.search(ctx, req)
 }

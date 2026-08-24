@@ -13,15 +13,16 @@ import (
 )
 
 type fakeOrderClient struct {
-	getCart func(context.Context, *orderpb.GetCartRequest) (*orderpb.GetCartResponse, error)
-	create  func(context.Context, *orderpb.CreateOrderRequest) (*orderpb.OrderResponse, error)
-	add     func(context.Context, *orderpb.AddCartItemRequest) (*orderpb.CartItemResponse, error)
-	update  func(context.Context, *orderpb.UpdateCartItemRequest) (*orderpb.Empty, error)
-	delete  func(context.Context, *orderpb.DeleteCartItemRequest) (*orderpb.Empty, error)
-	list    func(context.Context, *orderpb.ListOrdersRequest) (*orderpb.ListOrdersResponse, error)
-	get     func(context.Context, *orderpb.GetOrderRequest) (*orderpb.OrderResponse, error)
-	pay     func(context.Context, *orderpb.PayWalletRequest) (*orderpb.OrderResponse, error)
-	review  func(context.Context, *orderpb.SubmitReviewRequest) (*orderpb.ReviewResponse, error)
+	getCart  func(context.Context, *orderpb.GetCartRequest) (*orderpb.GetCartResponse, error)
+	create   func(context.Context, *orderpb.CreateOrderRequest) (*orderpb.OrderResponse, error)
+	add      func(context.Context, *orderpb.AddCartItemRequest) (*orderpb.CartItemResponse, error)
+	update   func(context.Context, *orderpb.UpdateCartItemRequest) (*orderpb.Empty, error)
+	delete   func(context.Context, *orderpb.DeleteCartItemRequest) (*orderpb.Empty, error)
+	list     func(context.Context, *orderpb.ListOrdersRequest) (*orderpb.ListOrdersResponse, error)
+	get      func(context.Context, *orderpb.GetOrderRequest) (*orderpb.OrderResponse, error)
+	pay      func(context.Context, *orderpb.PayWalletRequest) (*orderpb.OrderResponse, error)
+	review   func(context.Context, *orderpb.SubmitReviewRequest) (*orderpb.ReviewResponse, error)
+	overview func(context.Context, *orderpb.GetAnalyticsOverviewRequest) (*orderpb.AnalyticsOverviewResponse, error)
 }
 
 func (f *fakeOrderClient) GetCart(c context.Context, r *orderpb.GetCartRequest) (*orderpb.GetCartResponse, error) {
@@ -71,6 +72,13 @@ func (f *fakeOrderClient) SubmitReview(ctx context.Context, req *orderpb.SubmitR
 		return f.review(ctx, req)
 	}
 	return &orderpb.ReviewResponse{Review: &orderpb.Review{}}, nil
+}
+
+func (f *fakeOrderClient) GetAnalyticsOverview(ctx context.Context, req *orderpb.GetAnalyticsOverviewRequest) (*orderpb.AnalyticsOverviewResponse, error) {
+	if f.overview != nil {
+		return f.overview(ctx, req)
+	}
+	return &orderpb.AnalyticsOverviewResponse{}, nil
 }
 
 func TestOrderHandlerServesAllRegisteredCartAndOrderMethods(t *testing.T) {
@@ -187,6 +195,27 @@ func TestOrderHandlerCartAndCreateOrder(t *testing.T) {
 		t.Fatalf("order=%d %s", w.Code, w.Body.String())
 	}
 }
+
+func TestOrderOpsEventsOverview(t *testing.T) {
+	h := NewOrderHandler(&fakeOrderClient{overview: func(_ context.Context, req *orderpb.GetAnalyticsOverviewRequest) (*orderpb.AnalyticsOverviewResponse, error) {
+		if req.GetLimit() != 20 {
+			t.Fatalf("request=%#v", req)
+		}
+		return &orderpb.AnalyticsOverviewResponse{
+			BehaviorEvents: []*orderpb.BehaviorEventRecord{{EventId: "event-1", EventType: "product.viewed", UserId: 7, TraceId: "trace-1"}},
+			DeadLetters:    []*orderpb.DeadLetterRecord{{Topic: "behavior.events", EventKey: "7", Reason: "invalid_behavior_event"}},
+		}, nil
+	}})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/ops/events/overview?limit=20", nil)
+
+	h.OpsEventsOverview().ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"product.viewed"`) || !strings.Contains(w.Body.String(), `"invalid_behavior_event"`) {
+		t.Fatalf("response=%d %s", w.Code, w.Body.String())
+	}
+}
+
 func TestOrderHandlerMapsConflictWithoutDetails(t *testing.T) {
 	h := NewOrderHandler(&fakeOrderClient{getCart: func(context.Context, *orderpb.GetCartRequest) (*orderpb.GetCartResponse, error) {
 		return nil, status.Error(codes.AlreadyExists, "secret db")

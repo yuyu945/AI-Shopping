@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v3.19.4
-// source: order.proto
+// source: api/order/order.proto
 
 package orderpb
 
@@ -29,6 +29,7 @@ const (
 	OrderService_ListOrders_FullMethodName                 = "/order.v1.OrderService/ListOrders"
 	OrderService_GetOrder_FullMethodName                   = "/order.v1.OrderService/GetOrder"
 	OrderService_SubmitReview_FullMethodName               = "/order.v1.OrderService/SubmitReview"
+	OrderService_GetAnalyticsOverview_FullMethodName       = "/order.v1.OrderService/GetAnalyticsOverview"
 )
 
 // OrderServiceClient is the client API for OrderService service.
@@ -49,6 +50,7 @@ type OrderServiceClient interface {
 	ListOrders(ctx context.Context, in *ListOrdersRequest, opts ...grpc.CallOption) (*ListOrdersResponse, error)
 	GetOrder(ctx context.Context, in *GetOrderRequest, opts ...grpc.CallOption) (*OrderResponse, error)
 	SubmitReview(ctx context.Context, in *SubmitReviewRequest, opts ...grpc.CallOption) (*ReviewResponse, error)
+	GetAnalyticsOverview(ctx context.Context, in *GetAnalyticsOverviewRequest, opts ...grpc.CallOption) (*AnalyticsOverviewResponse, error)
 }
 
 type orderServiceClient struct {
@@ -159,6 +161,16 @@ func (c *orderServiceClient) SubmitReview(ctx context.Context, in *SubmitReviewR
 	return out, nil
 }
 
+func (c *orderServiceClient) GetAnalyticsOverview(ctx context.Context, in *GetAnalyticsOverviewRequest, opts ...grpc.CallOption) (*AnalyticsOverviewResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AnalyticsOverviewResponse)
+	err := c.cc.Invoke(ctx, OrderService_GetAnalyticsOverview_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // OrderServiceServer is the server API for OrderService service.
 // All implementations must embed UnimplementedOrderServiceServer
 // for forward compatibility.
@@ -177,6 +189,7 @@ type OrderServiceServer interface {
 	ListOrders(context.Context, *ListOrdersRequest) (*ListOrdersResponse, error)
 	GetOrder(context.Context, *GetOrderRequest) (*OrderResponse, error)
 	SubmitReview(context.Context, *SubmitReviewRequest) (*ReviewResponse, error)
+	GetAnalyticsOverview(context.Context, *GetAnalyticsOverviewRequest) (*AnalyticsOverviewResponse, error)
 	mustEmbedUnimplementedOrderServiceServer()
 }
 
@@ -216,6 +229,9 @@ func (UnimplementedOrderServiceServer) GetOrder(context.Context, *GetOrderReques
 }
 func (UnimplementedOrderServiceServer) SubmitReview(context.Context, *SubmitReviewRequest) (*ReviewResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SubmitReview not implemented")
+}
+func (UnimplementedOrderServiceServer) GetAnalyticsOverview(context.Context, *GetAnalyticsOverviewRequest) (*AnalyticsOverviewResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAnalyticsOverview not implemented")
 }
 func (UnimplementedOrderServiceServer) mustEmbedUnimplementedOrderServiceServer() {}
 func (UnimplementedOrderServiceServer) testEmbeddedByValue()                      {}
@@ -418,6 +434,24 @@ func _OrderService_SubmitReview_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OrderService_GetAnalyticsOverview_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAnalyticsOverviewRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OrderServiceServer).GetAnalyticsOverview(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OrderService_GetAnalyticsOverview_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OrderServiceServer).GetAnalyticsOverview(ctx, req.(*GetAnalyticsOverviewRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // OrderService_ServiceDesc is the grpc.ServiceDesc for OrderService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -465,7 +499,11 @@ var OrderService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "SubmitReview",
 			Handler:    _OrderService_SubmitReview_Handler,
 		},
+		{
+			MethodName: "GetAnalyticsOverview",
+			Handler:    _OrderService_GetAnalyticsOverview_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "order.proto",
+	Metadata: "api/order/order.proto",
 }

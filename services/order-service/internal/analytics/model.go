@@ -87,6 +87,45 @@ type DeadLetterRecord struct {
 	RawEventBase64 string
 }
 
+type Overview struct {
+	BehaviorEvents []BehaviorEventRecord
+	ReviewEvents   []ReviewEventRecord
+	ProductStats   []ProductReviewStat
+	DeadLetters    []DeadLetterOverview
+}
+
+type BehaviorEventRecord struct {
+	EventID      string
+	UserID       uint64
+	EventType    string
+	TraceID      string
+	ResourceType string
+	ResourceID   string
+	OccurredAt   time.Time
+}
+
+type ReviewEventRecord struct {
+	EventID    string
+	ReviewNo   string
+	ProductID  uint64
+	SKUID      uint64
+	Rating     uint32
+	OccurredAt time.Time
+}
+
+type ProductReviewStat struct {
+	ProductID   uint64
+	ReviewCount uint64
+	RatingAvg   string
+}
+
+type DeadLetterOverview struct {
+	Topic     string
+	EventKey  string
+	Reason    string
+	CreatedAt time.Time
+}
+
 func containsPIIKey(raw json.RawMessage) bool {
 	var value any
 	if err := json.Unmarshal(raw, &value); err != nil {

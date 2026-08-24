@@ -10,6 +10,7 @@ import (
 
 	platformauth "github.com/yuyu945/AI-Shopping/internal/platform/auth"
 	orderpb "github.com/yuyu945/AI-Shopping/services/order-service/gen"
+	"github.com/yuyu945/AI-Shopping/services/order-service/internal/analytics"
 	"github.com/yuyu945/AI-Shopping/services/order-service/internal/order"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -21,9 +22,14 @@ type GRPCServer struct {
 	service              *order.Service
 	payment              *order.PaymentService
 	settlements          order.SettlementReader
+	analytics            AnalyticsReader
 	internalServiceToken string
 	auth                 *platformauth.Manager
 	timeout              time.Duration
+}
+
+type AnalyticsReader interface {
+	GetOverview(context.Context, int) (analytics.Overview, error)
 }
 
 // NewGRPCServerWithPayment exposes cart/order operations and wallet payment.
@@ -38,6 +44,12 @@ func NewGRPCServerWithPaymentAndSettlement(service *order.Service, payment *orde
 	s := NewGRPCServerWithPayment(service, payment, auth, timeout)
 	s.settlements = settlements
 	s.internalServiceToken = token
+	return s
+}
+
+func NewGRPCServerWithPaymentSettlementAndAnalytics(service *order.Service, payment *order.PaymentService, settlements order.SettlementReader, analyticsReader AnalyticsReader, auth *platformauth.Manager, timeout time.Duration, token string) *GRPCServer {
+	s := NewGRPCServerWithPaymentAndSettlement(service, payment, settlements, auth, timeout, token)
+	s.analytics = analyticsReader
 	return s
 }
 
@@ -229,6 +241,29 @@ func (s *GRPCServer) SubmitReview(ctx context.Context, r *orderpb.SubmitReviewRe
 	}
 	return &orderpb.ReviewResponse{Review: reviewWire(out)}, nil
 }
+
+func (s *GRPCServer) GetAnalyticsOverview(ctx context.Context, r *orderpb.GetAnalyticsOverviewRequest) (*orderpb.AnalyticsOverviewResponse, error) {
+	if _, err := s.userID(ctx); err != nil {
+		return nil, err
+	}
+	if s.analytics == nil {
+		return nil, status.Error(codes.Internal, "internal server error")
+	}
+	call, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	limit := 0
+	if r != nil {
+		limit = int(r.GetLimit())
+	}
+	overview, err := s.analytics.GetOverview(call, limit)
+	if errors.Is(call.Err(), context.DeadlineExceeded) {
+		return nil, status.Error(codes.DeadlineExceeded, "dependency timeout")
+	}
+	if err != nil {
+		return nil, status.Error(codes.Internal, "internal server error")
+	}
+	return analyticsOverviewWire(overview), nil
+}
 func orderStatus(err error) error {
 	var e *order.Error
 	if !errors.As(err, &e) {
@@ -300,4 +335,29 @@ func reviewWire(v order.Review) *orderpb.Review {
 		Content:   v.Content,
 		Status:    string(v.Status),
 	}
+}
+
+func analyticsOverviewWire(v analytics.Overview) *orderpb.AnalyticsOverviewResponse {
+	out := &orderpb.AnalyticsOverviewResponse{}
+	for _, item := range v.BehaviorEvents {
+		out.BehaviorEvents = append(out.BehaviorEvents, &orderpb.BehaviorEventRecord{
+			EventId: item.EventID, UserId: item.UserID, EventType: item.EventType, TraceId: item.TraceID,
+			ResourceType: item.ResourceType, ResourceId: item.ResourceID, OccurredAt: item.OccurredAt.UTC().Format(time.RFC3339Nano),
+		})
+	}
+	for _, item := range v.ReviewEvents {
+		out.ReviewEvents = append(out.ReviewEvents, &orderpb.ReviewEventRecord{
+			EventId: item.EventID, ReviewNo: item.ReviewNo, ProductId: item.ProductID, SkuId: item.SKUID,
+			Rating: item.Rating, OccurredAt: item.OccurredAt.UTC().Format(time.RFC3339Nano),
+		})
+	}
+	for _, item := range v.ProductStats {
+		out.ProductStats = append(out.ProductStats, &orderpb.ProductReviewStat{ProductId: item.ProductID, ReviewCount: item.ReviewCount, RatingAvg: item.RatingAvg})
+	}
+	for _, item := range v.DeadLetters {
+		out.DeadLetters = append(out.DeadLetters, &orderpb.DeadLetterRecord{
+			Topic: item.Topic, EventKey: item.EventKey, Reason: item.Reason, CreatedAt: item.CreatedAt.UTC().Format(time.RFC3339Nano),
+		})
+	}
+	return out
 }

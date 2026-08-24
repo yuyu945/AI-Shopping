@@ -78,6 +78,7 @@ func main() {
 	zrpc.DontLogClientContentForMethod(orderpb.OrderService_GetOrder_FullMethodName)
 	zrpc.DontLogClientContentForMethod(orderpb.OrderService_ListOrders_FullMethodName)
 	zrpc.DontLogClientContentForMethod(orderpb.OrderService_SubmitReview_FullMethodName)
+	zrpc.DontLogClientContentForMethod(orderpb.OrderService_GetAnalyticsOverview_FullMethodName)
 	zrpc.DontLogClientContentForMethod(knowledgepb.KnowledgeService_UploadDocument_FullMethodName)
 	zrpc.DontLogClientContentForMethod(knowledgepb.KnowledgeService_ListDocuments_FullMethodName)
 	zrpc.DontLogClientContentForMethod(knowledgepb.KnowledgeService_GetDocument_FullMethodName)
@@ -134,5 +135,6 @@ func main() {
 	server.AddRoute(rest.Route{Method: http.MethodGet, Path: "/api/v1/agent/runs/:run_id/events", Handler: authMiddleware.Wrap(agentHandler.Events())})
 	server.AddRoute(rest.Route{Method: http.MethodGet, Path: "/api/v1/ops/agent-runs", Handler: authMiddleware.Wrap(handler.RequireOperatorHeader(agentHandler.OpsRuns()))})
 	server.AddRoute(rest.Route{Method: http.MethodGet, Path: "/api/v1/ops/agent-runs/:run_id", Handler: authMiddleware.Wrap(handler.RequireOperatorHeader(agentHandler.OpsRun()))})
+	server.AddRoute(rest.Route{Method: http.MethodGet, Path: "/api/v1/ops/events/overview", Handler: authMiddleware.Wrap(handler.RequireOperatorHeader(orderHandler.OpsEventsOverview()))})
 	server.Start()
 }

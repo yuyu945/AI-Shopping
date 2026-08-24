@@ -20,6 +20,10 @@ const queryBehaviorAnalyticsConsumption = `SELECT status FROM behavior_event_con
 const updateBehaviorAnalyticsConsumptionSucceeded = `UPDATE behavior_event_consumptions SET status = 'SUCCEEDED', consumed_at = CURRENT_TIMESTAMP(3) WHERE event_id = ? AND consumer_group = ?`
 const insertBehaviorEventRecord = `INSERT INTO behavior_event_records (event_id, user_id, event_type, trace_id, resource_type, resource_id, payload, occurred_at) VALUES (?, ?, ?, ?, ?, ?, CAST(? AS JSON), ?)`
 const insertAnalyticsDeadLetter = `INSERT INTO analytics_dead_letters (topic, event_key, reason, raw_event_base64) VALUES (?, ?, ?, ?)`
+const queryRecentBehaviorEvents = `SELECT event_id, user_id, event_type, trace_id, resource_type, resource_id, occurred_at FROM behavior_event_records ORDER BY occurred_at DESC, id DESC LIMIT 20`
+const queryRecentReviewEvents = `SELECT event_id, review_no, product_id, sku_id, rating, occurred_at FROM review_event_records ORDER BY occurred_at DESC, id DESC LIMIT 20`
+const queryProductReviewStats = `SELECT product_id, review_count, rating_avg FROM product_review_stats ORDER BY updated_at DESC LIMIT 20`
+const queryRecentDeadLetters = `SELECT topic, event_key, reason, created_at FROM analytics_dead_letters ORDER BY created_at DESC, id DESC LIMIT 20`
 
 type MySQLRepository struct {
 	db *sql.DB
@@ -144,6 +148,97 @@ func (r *MySQLRepository) RecordDeadLetter(ctx context.Context, record DeadLette
 	}
 	result, err := r.db.ExecContext(ctx, insertAnalyticsDeadLetter, record.Topic, record.EventKey, record.Reason, record.RawEventBase64)
 	return requireSingleRow(result, err, "insert analytics dead letter")
+}
+
+func (r *MySQLRepository) GetOverview(ctx context.Context, limit int) (Overview, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	behaviorEvents, err := r.listBehaviorEvents(ctx)
+	if err != nil {
+		return Overview{}, err
+	}
+	reviewEvents, err := r.listReviewEvents(ctx)
+	if err != nil {
+		return Overview{}, err
+	}
+	productStats, err := r.listProductStats(ctx)
+	if err != nil {
+		return Overview{}, err
+	}
+	deadLetters, err := r.listDeadLetters(ctx)
+	if err != nil {
+		return Overview{}, err
+	}
+	return Overview{BehaviorEvents: behaviorEvents, ReviewEvents: reviewEvents, ProductStats: productStats, DeadLetters: deadLetters}, nil
+}
+
+func (r *MySQLRepository) listBehaviorEvents(ctx context.Context) ([]BehaviorEventRecord, error) {
+	rows, err := r.db.QueryContext(ctx, queryRecentBehaviorEvents)
+	if err != nil {
+		return nil, fmt.Errorf("read behavior event overview: %w", err)
+	}
+	defer rows.Close()
+	var out []BehaviorEventRecord
+	for rows.Next() {
+		var item BehaviorEventRecord
+		if err := rows.Scan(&item.EventID, &item.UserID, &item.EventType, &item.TraceID, &item.ResourceType, &item.ResourceID, &item.OccurredAt); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (r *MySQLRepository) listReviewEvents(ctx context.Context) ([]ReviewEventRecord, error) {
+	rows, err := r.db.QueryContext(ctx, queryRecentReviewEvents)
+	if err != nil {
+		return nil, fmt.Errorf("read review event overview: %w", err)
+	}
+	defer rows.Close()
+	var out []ReviewEventRecord
+	for rows.Next() {
+		var item ReviewEventRecord
+		if err := rows.Scan(&item.EventID, &item.ReviewNo, &item.ProductID, &item.SKUID, &item.Rating, &item.OccurredAt); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (r *MySQLRepository) listProductStats(ctx context.Context) ([]ProductReviewStat, error) {
+	rows, err := r.db.QueryContext(ctx, queryProductReviewStats)
+	if err != nil {
+		return nil, fmt.Errorf("read product review stats overview: %w", err)
+	}
+	defer rows.Close()
+	var out []ProductReviewStat
+	for rows.Next() {
+		var item ProductReviewStat
+		if err := rows.Scan(&item.ProductID, &item.ReviewCount, &item.RatingAvg); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (r *MySQLRepository) listDeadLetters(ctx context.Context) ([]DeadLetterOverview, error) {
+	rows, err := r.db.QueryContext(ctx, queryRecentDeadLetters)
+	if err != nil {
+		return nil, fmt.Errorf("read dead letter overview: %w", err)
+	}
+	defer rows.Close()
+	var out []DeadLetterOverview
+	for rows.Next() {
+		var item DeadLetterOverview
+		if err := rows.Scan(&item.Topic, &item.EventKey, &item.Reason, &item.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
 }
 
 func (r *MySQLRepository) updateProductStats(ctx context.Context, tx *sql.Tx, productID, rating uint64, occurredAt time.Time) error {

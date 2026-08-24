@@ -18,6 +18,7 @@ service OrderService {
   rpc ListOrders(ListOrdersRequest) returns (ListOrdersResponse);
   rpc GetOrder(GetOrderRequest) returns (OrderResponse);
   rpc SubmitReview(SubmitReviewRequest) returns (ReviewResponse);
+  rpc GetAnalyticsOverview(GetAnalyticsOverviewRequest) returns (AnalyticsOverviewResponse);
 }
 
 message GetCartRequest {}
@@ -98,6 +99,49 @@ message OrderResponse {
 
 message ReviewResponse {
   Review review = 1;
+}
+
+message GetAnalyticsOverviewRequest {
+  uint32 limit = 1;
+}
+
+message AnalyticsOverviewResponse {
+  repeated BehaviorEventRecord behavior_events = 1;
+  repeated ReviewEventRecord review_events = 2;
+  repeated ProductReviewStat product_stats = 3;
+  repeated DeadLetterRecord dead_letters = 4;
+}
+
+message BehaviorEventRecord {
+  string event_id = 1;
+  uint64 user_id = 2;
+  string event_type = 3;
+  string trace_id = 4;
+  string resource_type = 5;
+  string resource_id = 6;
+  string occurred_at = 7;
+}
+
+message ReviewEventRecord {
+  string event_id = 1;
+  string review_no = 2;
+  uint64 product_id = 3;
+  uint64 sku_id = 4;
+  uint32 rating = 5;
+  string occurred_at = 6;
+}
+
+message ProductReviewStat {
+  uint64 product_id = 1;
+  uint64 review_count = 2;
+  string rating_avg = 3;
+}
+
+message DeadLetterRecord {
+  string topic = 1;
+  string event_key = 2;
+  string reason = 3;
+  string created_at = 4;
 }
 
 message Order {

@@ -160,6 +160,18 @@ func (h *OrderHandler) Review() http.HandlerFunc {
 		writeJSONValue(w, http.StatusOK, map[string]any{"review": reviewJSON(out.GetReview())})
 	}
 }
+
+func (h *OrderHandler) OpsEventsOverview() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit, _ := strconv.ParseUint(r.URL.Query().Get("limit"), 10, 32)
+		out, err := h.client.GetAnalyticsOverview(r.Context(), &orderpb.GetAnalyticsOverviewRequest{Limit: uint32(limit)})
+		if err != nil {
+			writeOrderError(w, err)
+			return
+		}
+		writeJSONValue(w, http.StatusOK, analyticsOverviewJSON(out))
+	}
+}
 func cartJSON(v *orderpb.Cart) map[string]any {
 	out := map[string]any{"items": []any{}}
 	for _, i := range v.GetItems() {
@@ -214,6 +226,34 @@ func reviewJSON(value *orderpb.Review) map[string]any {
 		"status":     value.GetStatus(),
 	}
 }
+
+func analyticsOverviewJSON(value *orderpb.AnalyticsOverviewResponse) map[string]any {
+	behaviorEvents := make([]any, 0, len(value.GetBehaviorEvents()))
+	for _, item := range value.GetBehaviorEvents() {
+		behaviorEvents = append(behaviorEvents, map[string]any{
+			"event_id": item.GetEventId(), "user_id": item.GetUserId(), "event_type": item.GetEventType(),
+			"trace_id": item.GetTraceId(), "resource_type": item.GetResourceType(), "resource_id": item.GetResourceId(),
+			"occurred_at": item.GetOccurredAt(),
+		})
+	}
+	reviewEvents := make([]any, 0, len(value.GetReviewEvents()))
+	for _, item := range value.GetReviewEvents() {
+		reviewEvents = append(reviewEvents, map[string]any{
+			"event_id": item.GetEventId(), "review_no": item.GetReviewNo(), "product_id": item.GetProductId(),
+			"sku_id": item.GetSkuId(), "rating": item.GetRating(), "occurred_at": item.GetOccurredAt(),
+		})
+	}
+	productStats := make([]any, 0, len(value.GetProductStats()))
+	for _, item := range value.GetProductStats() {
+		productStats = append(productStats, map[string]any{"product_id": item.GetProductId(), "review_count": item.GetReviewCount(), "rating_avg": item.GetRatingAvg()})
+	}
+	deadLetters := make([]any, 0, len(value.GetDeadLetters()))
+	for _, item := range value.GetDeadLetters() {
+		deadLetters = append(deadLetters, map[string]any{"topic": item.GetTopic(), "event_key": item.GetEventKey(), "reason": item.GetReason(), "created_at": item.GetCreatedAt()})
+	}
+	return map[string]any{"behavior_events": behaviorEvents, "review_events": reviewEvents, "product_stats": productStats, "dead_letters": deadLetters}
+}
+
 func writeOrderError(w http.ResponseWriter, e error) {
 	code := codes.Internal
 	if s, ok := status.FromError(e); ok {

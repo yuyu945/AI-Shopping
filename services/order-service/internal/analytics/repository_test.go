@@ -238,6 +238,34 @@ func TestMySQLRepositoryRecordsAnalyticsDeadLetter(t *testing.T) {
 	}
 }
 
+func TestMySQLRepositoryGetsOverview(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta(queryRecentBehaviorEvents)).
+		WillReturnRows(sqlmock.NewRows([]string{"event_id", "user_id", "event_type", "trace_id", "resource_type", "resource_id", "occurred_at"}).
+			AddRow("event-1", uint64(7), "product.viewed", "trace-1", "product", "1001", time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)))
+	mock.ExpectQuery(regexp.QuoteMeta(queryRecentReviewEvents)).
+		WillReturnRows(sqlmock.NewRows([]string{"event_id", "review_no", "product_id", "sku_id", "rating", "occurred_at"}).
+			AddRow("review-event-1", "REV-1", uint64(21), uint64(101), uint32(5), time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)))
+	mock.ExpectQuery(regexp.QuoteMeta(queryProductReviewStats)).
+		WillReturnRows(sqlmock.NewRows([]string{"product_id", "review_count", "rating_avg"}).
+			AddRow(uint64(21), uint64(1), "5.00"))
+	mock.ExpectQuery(regexp.QuoteMeta(queryRecentDeadLetters)).
+		WillReturnRows(sqlmock.NewRows([]string{"topic", "event_key", "reason", "created_at"}).
+			AddRow(BehaviorEventsTopic, "7", "invalid_behavior_event", time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)))
+
+	got, err := NewMySQLRepository(db).GetOverview(context.Background(), 20)
+	if err != nil || len(got.BehaviorEvents) != 1 || len(got.ReviewEvents) != 1 || len(got.DeadLetters) != 1 {
+		t.Fatalf("GetOverview() = %#v, %v", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func validReviewEvent() ReviewEvent {
 	return ReviewEvent{
 		EventID:    "11111111-1111-4111-8111-111111111111",

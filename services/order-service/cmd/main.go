@@ -151,12 +151,13 @@ func main() {
 	service := order.NewService(repository, orderclient.NewUserClient(userRPC.Conn(), timeout), orderclient.NewProductClient(productRPC.Conn(), timeout))
 	reservations := orderclient.NewReservationClient(productRPC.Conn(), runtimeConfig.InternalServiceToken, timeout)
 	payment := order.NewPaymentService(repository, reservations, order.IDGeneratorFunc(uuid.NewString), 5*time.Minute)
+	analyticsRepository := analytics.NewMySQLRepository(db)
 	publisher := outbox.NewKafkaPublisher(strings.Split(runtimeConfig.KafkaBrokers, ","))
 	defer publisher.Close()
 	confirmationWorker := outbox.NewWorker(outbox.NewMySQLRepository(db), publisher, outboxConfig)
 	var reviewConsumer *analytics.ReviewConsumer
 	if config.ReviewAnalytics.Enabled {
-		reviewConsumer = analytics.NewReviewConsumer(strings.Split(runtimeConfig.KafkaBrokers, ","), analytics.NewMySQLRepository(db), config.ReviewAnalytics.CallTimeout)
+		reviewConsumer = analytics.NewReviewConsumer(strings.Split(runtimeConfig.KafkaBrokers, ","), analyticsRepository, config.ReviewAnalytics.CallTimeout)
 		defer reviewConsumer.Close()
 	}
 	recoveryWorker := recovery.NewWorker(recovery.NewMySQLStore(db), orderclient.NewReservationClient(productRPC.Conn(), runtimeConfig.InternalServiceToken, config.PaymentRecovery.CallTimeout), recovery.PaymentServiceSettler{Service: payment}, recoveryConfig)
@@ -166,7 +167,7 @@ func main() {
 	zrpc.DontLogContentForMethod(orderpb.OrderService_ListOrders_FullMethodName)
 	zrpc.DontLogContentForMethod(orderpb.OrderService_SubmitReview_FullMethodName)
 	server, err := zrpc.NewServer(config.RpcServerConf, func(g *grpc.Server) {
-		orderpb.RegisterOrderServiceServer(g, orderserver.NewGRPCServerWithPaymentAndSettlement(service, payment, repository, manager, timeout, runtimeConfig.InternalServiceToken))
+		orderpb.RegisterOrderServiceServer(g, orderserver.NewGRPCServerWithPaymentSettlementAndAnalytics(service, payment, repository, analyticsRepository, manager, timeout, runtimeConfig.InternalServiceToken))
 	})
 	if err != nil {
 		log.Fatalf("%s create rpc server: %v", SERVICE_NAME, err)

@@ -23,6 +23,7 @@ type Client interface {
 	ListOrders(context.Context, *orderpb.ListOrdersRequest) (*orderpb.ListOrdersResponse, error)
 	GetOrder(context.Context, *orderpb.GetOrderRequest) (*orderpb.OrderResponse, error)
 	SubmitReview(context.Context, *orderpb.SubmitReviewRequest) (*orderpb.ReviewResponse, error)
+	GetAnalyticsOverview(context.Context, *orderpb.GetAnalyticsOverviewRequest) (*orderpb.AnalyticsOverviewResponse, error)
 }
 type grpcClient struct{ client orderpb.OrderServiceClient }
 
@@ -88,4 +89,10 @@ func (c *grpcClient) SubmitReview(x context.Context, r *orderpb.SubmitReviewRequ
 	ctx, cancel := c.auth(x)
 	defer cancel()
 	return c.client.SubmitReview(ctx, r)
+}
+
+func (c *grpcClient) GetAnalyticsOverview(x context.Context, r *orderpb.GetAnalyticsOverviewRequest) (*orderpb.AnalyticsOverviewResponse, error) {
+	ctx, cancel := c.auth(x)
+	defer cancel()
+	return c.client.GetAnalyticsOverview(ctx, r)
 }

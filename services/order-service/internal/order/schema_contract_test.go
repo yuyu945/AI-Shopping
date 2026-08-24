@@ -172,6 +172,33 @@ func TestOrderProtoReviewContract(t *testing.T) {
 	}
 }
 
+func TestReviewAnalyticsSchemaContract(t *testing.T) {
+	root := repositoryRoot(t)
+	initSQL := readFile(t, filepath.Join(root, "deploy", "mysql", "init", "03-trade-schema.sql"))
+	migrationSQL := readFile(t, filepath.Join(root, "deploy", "mysql", "migrations", "20260824_m5_2b_review_analytics.sql"))
+
+	for name, sql := range map[string]string{
+		"init schema": initSQL,
+		"migration":   migrationSQL,
+	} {
+		for _, want := range []string{
+			"CREATE TABLE",
+			"review_event_consumptions",
+			"PRIMARY KEY (event_id, consumer_group)",
+			"review_event_records",
+			"UNIQUE KEY uq_review_event_records_event (event_id)",
+			"UNIQUE KEY uq_review_event_records_review (review_no)",
+			"product_review_stats",
+			"rating_avg DECIMAL(4,2) NOT NULL DEFAULT 0.00",
+			"PRIMARY KEY (product_id)",
+		} {
+			if !strings.Contains(sql, want) {
+				t.Fatalf("%s review analytics schema missing %q", name, want)
+			}
+		}
+	}
+}
+
 func repositoryRoot(t *testing.T) string {
 	t.Helper()
 

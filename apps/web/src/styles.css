@@ -349,6 +349,136 @@ textarea {
   font-size: 12px;
 }
 
+.guideLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.9fr);
+  gap: 18px;
+}
+
+.conversationPanel,
+.recommendationPanel {
+  padding: 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.conversationPanel {
+  display: grid;
+  gap: 14px;
+}
+
+.messageBubble {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-muted);
+}
+
+.userBubble {
+  border-left: 4px solid var(--accent-strong);
+}
+
+.errorPanel {
+  padding: 12px;
+  color: #9f2f28;
+  background: #fff1ef;
+  border: 1px solid #ffd5d0;
+  border-radius: 6px;
+}
+
+.timeline {
+  display: grid;
+  gap: 8px;
+}
+
+.timelineItem {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 48px;
+  padding: 10px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.timelineItem span,
+.timelineItem em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.guideInput textarea {
+  min-height: 112px;
+}
+
+.recommendationPanel {
+  align-self: start;
+}
+
+.panelHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.panelHeader h2 {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+.recommendationList {
+  display: grid;
+  gap: 12px;
+}
+
+.recommendationCard {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.snapshotList {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.snapshotList div {
+  min-height: 58px;
+  padding: 8px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.snapshotList dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.snapshotList dd {
+  margin: 2px 0 0;
+  font-weight: 700;
+}
+
+.actionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .productCard {
   min-height: 244px;
   overflow: hidden;
@@ -423,8 +553,10 @@ textarea {
 
   .toolbar,
   .detailLayout,
+  .guideLayout,
   .factGrid,
-  .productGrid {
+  .productGrid,
+  .snapshotList {
     grid-template-columns: 1fr;
   }
 }

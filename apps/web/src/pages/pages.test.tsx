@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { Product } from "../api/client";
 import App from "../App";
+import GuidePage from "./GuidePage";
 import ProductDetailPage from "./ProductDetailPage";
 import ProductListPage from "./ProductListPage";
 
@@ -63,6 +64,67 @@ describe("Product pages", () => {
     expect(await screen.findByText("资料中没有足够信息回答该问题。")).toBeInTheDocument();
   });
 });
+
+describe("Guide page", () => {
+  it("starts an agent run and renders verified recommendations", async () => {
+    const user = userEvent.setup();
+    render(<GuidePage api={fakeGuideApiWithEvents()} initialMessage="预算 5000 买电脑" />);
+
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText("search_products")).toBeInTheDocument();
+    expect(await screen.findByText("VERIFIED")).toBeInTheDocument();
+  });
+
+  it("keeps prompt visible after controlled run failure", async () => {
+    render(<GuidePage api={fakeFailedGuideApi()} initialMessage="买手机" />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findAllByText("买手机")).toHaveLength(2);
+    expect(screen.getByText("导购服务暂时无法完成，请调整条件后重试。")).toBeInTheDocument();
+  });
+});
+
+function fakeGuideApiWithEvents() {
+  return {
+    startAgentRun: async () => ({ run: { run_id: "run_1", status: "RUNNING", stream_url: "/events" } }),
+    subscribeAgentRunEvents: async (_runID: string, onEvent: (event: { type: string; data: unknown }) => void) => {
+      onEvent({ type: "step_snapshot", data: { step: { step_no: 1, tool_name: "search_products", status: "SUCCEEDED" } } });
+      onEvent({
+        type: "recommendation_snapshot",
+        data: {
+          recommendation: {
+            sku_id: 2001,
+            rank_no: 1,
+            product_id: 1001,
+            product_title: "Laptop",
+            price: "4999.00",
+            validation_status: "VERIFIED",
+            reason: "预算内，适合编程。",
+          },
+        },
+      });
+      onEvent({ type: "run_completed", data: { run_id: "run_1", status: "SUCCEEDED" } });
+    },
+    getAgentRun: async () => ({
+      run: { run_id: "run_1", status: "SUCCEEDED" },
+      steps: [],
+      recommendations: [],
+    }),
+    addCartItem: async () => ({ item: { cart_item_id: 1, sku_id: 2001, quantity: 1, selected: true } }),
+  };
+}
+
+function fakeFailedGuideApi() {
+  return {
+    ...fakeGuideApiWithEvents(),
+    startAgentRun: async () => ({ run: { run_id: "run_2", status: "RUNNING", stream_url: "/events" } }),
+    subscribeAgentRunEvents: async (_runID: string, onEvent: (event: { type: string; data: unknown }) => void) => {
+      onEvent({ type: "run_failed", data: { code: "AGENT_RUN_FAILED" } });
+    },
+  };
+}
 
 function fakeProductDetailApi(
   answer: {

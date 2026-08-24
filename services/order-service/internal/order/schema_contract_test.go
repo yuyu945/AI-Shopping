@@ -70,8 +70,8 @@ func TestTradeSchemaOwnsCartAndOrderSnapshots(t *testing.T) {
 		t.Fatalf("trade schema %s must define five order amounts plus wallet balance and ledger amount as DECIMAL(12,2), got %d", schemaPath, count)
 	}
 	foreignKeys := regexp.MustCompile(`(?m)CONSTRAINT\s+\w+\s+FOREIGN KEY\s+\([^)]*\)\s+REFERENCES\s+\w+\([^)]*\)`).FindAllString(schemaText, -1)
-	if len(foreignKeys) != 2 {
-		t.Fatalf("trade schema %s may only define cart_items->carts and order_items->orders foreign keys: %v", schemaPath, foreignKeys)
+	if len(foreignKeys) != 4 {
+		t.Fatalf("trade schema %s may only define same-schema cart, order, and review foreign keys: %v", schemaPath, foreignKeys)
 	}
 	if strings.Contains(schemaText, "REFERENCES user_db.") || strings.Contains(schemaText, "REFERENCES catalog_db.") {
 		t.Fatalf("trade schema %s must not define cross-service foreign keys", schemaPath)
@@ -127,4 +127,76 @@ func TestTradeSchemaOwnsCartAndOrderSnapshots(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestReviewSchemaContract(t *testing.T) {
+	root := repositoryRoot(t)
+	initSQL := readFile(t, filepath.Join(root, "deploy", "mysql", "init", "03-trade-schema.sql"))
+	migrationSQL := readFile(t, filepath.Join(root, "deploy", "mysql", "migrations", "20260824_m5_2a_reviews.sql"))
+
+	for name, sql := range map[string]string{
+		"init schema": initSQL,
+		"migration":   migrationSQL,
+	} {
+		for _, want := range []string{
+			"CREATE TABLE",
+			"reviews",
+			"review_no VARCHAR(64) NOT NULL",
+			"UNIQUE KEY uq_reviews_order_item (order_item_id)",
+			"CONSTRAINT chk_reviews_rating_range CHECK (rating BETWEEN 1 AND 5)",
+			"CONSTRAINT fk_reviews_order FOREIGN KEY (order_id) REFERENCES orders(id)",
+			"CONSTRAINT fk_reviews_order_item FOREIGN KEY (order_item_id) REFERENCES order_items(id)",
+		} {
+			if !strings.Contains(sql, want) {
+				t.Fatalf("%s review schema missing %q", name, want)
+			}
+		}
+	}
+}
+
+func TestOrderProtoReviewContract(t *testing.T) {
+	root := repositoryRoot(t)
+	proto := readFile(t, filepath.Join(root, "api", "order", "order.proto"))
+
+	for _, want := range []string{
+		"rpc SubmitReview(SubmitReviewRequest) returns (ReviewResponse);",
+		"message SubmitReviewRequest",
+		"message ReviewResponse",
+		"message Review",
+		"string review_no = 1;",
+		"uint32 rating = 5;",
+	} {
+		if !strings.Contains(proto, want) {
+			t.Fatalf("order proto missing %q", want)
+		}
+	}
+}
+
+func repositoryRoot(t *testing.T) string {
+	t.Helper()
+
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("repository root with go.mod not found")
+		}
+		dir = parent
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(content)
 }

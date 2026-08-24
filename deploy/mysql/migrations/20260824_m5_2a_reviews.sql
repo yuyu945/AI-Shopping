@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS reviews (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    review_no VARCHAR(64) NOT NULL,
+    order_id BIGINT UNSIGNED NOT NULL,
+    order_item_id BIGINT UNSIGNED NOT NULL,
+    order_no VARCHAR(64) NOT NULL,
+    user_id BIGINT UNSIGNED NOT NULL,
+    product_id BIGINT UNSIGNED NOT NULL,
+    sku_id BIGINT UNSIGNED NOT NULL,
+    rating TINYINT UNSIGNED NOT NULL,
+    content VARCHAR(1000) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'PUBLISHED',
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_reviews_review_no (review_no),
+    UNIQUE KEY uq_reviews_order_item (order_item_id),
+    KEY idx_reviews_user_created (user_id, created_at),
+    KEY idx_reviews_product_created (product_id, created_at),
+    CONSTRAINT chk_reviews_rating_range CHECK (rating BETWEEN 1 AND 5),
+    CONSTRAINT fk_reviews_order FOREIGN KEY (order_id) REFERENCES orders(id),
+    CONSTRAINT fk_reviews_order_item FOREIGN KEY (order_item_id) REFERENCES order_items(id)
+) ENGINE=InnoDB;

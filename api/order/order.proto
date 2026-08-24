@@ -17,6 +17,7 @@ service OrderService {
   rpc GetPaymentSettlementStatus(GetPaymentSettlementStatusRequest) returns (GetPaymentSettlementStatusResponse);
   rpc ListOrders(ListOrdersRequest) returns (ListOrdersResponse);
   rpc GetOrder(GetOrderRequest) returns (OrderResponse);
+  rpc SubmitReview(SubmitReviewRequest) returns (ReviewResponse);
 }
 
 message GetCartRequest {}
@@ -84,8 +85,19 @@ message GetOrderRequest {
   string order_no = 1;
 }
 
+message SubmitReviewRequest {
+  string order_no = 1;
+  uint64 sku_id = 2;
+  uint32 rating = 3;
+  string content = 4;
+}
+
 message OrderResponse {
   Order order = 1;
+}
+
+message ReviewResponse {
+  Review review = 1;
 }
 
 message Order {
@@ -128,6 +140,16 @@ message PromotionSnapshot {
   string rule_type = 2;
   optional string threshold_amount = 3;
   optional string discount_amount = 4;
+}
+
+message Review {
+  string review_no = 1;
+  string order_no = 2;
+  uint64 product_id = 3;
+  uint64 sku_id = 4;
+  uint32 rating = 5;
+  string content = 6;
+  string status = 7;
 }
 
 message Empty {}

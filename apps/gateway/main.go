@@ -100,6 +100,7 @@ func main() {
 	})
 	server.AddRoute(rest.Route{Method: http.MethodGet, Path: "/api/v1/products", Handler: productHandler.List()})
 	server.AddRoute(rest.Route{Method: http.MethodGet, Path: "/api/v1/products/:id", Handler: productHandler.Get()})
+	server.AddRoute(rest.Route{Method: http.MethodPost, Path: "/api/v1/products/:product_id/knowledge/questions", Handler: authMiddleware.Wrap(knowledgeHandler.ProductQuestion())})
 	server.AddRoute(rest.Route{Method: http.MethodPost, Path: "/api/v1/auth/register", Handler: userHandler.Register()})
 	server.AddRoute(rest.Route{Method: http.MethodPost, Path: "/api/v1/auth/login", Handler: userHandler.Login()})
 	server.AddRoute(rest.Route{Method: http.MethodGet, Path: "/api/v1/users/me", Handler: authMiddleware.Wrap(userHandler.Profile())})

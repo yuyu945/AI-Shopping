@@ -9,12 +9,14 @@ import (
 )
 
 const (
-	ErrorCodeInvalidToolArgument = "INVALID_TOOL_ARGUMENT"
-	ErrorCodeUnknownTool         = "UNKNOWN_TOOL"
-	ErrorCodeToolFailed          = "TOOL_FAILED"
-	ErrorCodeDependencyTimeout   = "DEPENDENCY_TIMEOUT"
-	ErrorCodeMaxStepsExceeded    = "MAX_STEPS_EXCEEDED"
-	ErrorCodeModelFailed         = "MODEL_FAILED"
+	ErrorCodeInvalidToolArgument        = "INVALID_TOOL_ARGUMENT"
+	ErrorCodeUnknownTool                = "UNKNOWN_TOOL"
+	ErrorCodeToolFailed                 = "TOOL_FAILED"
+	ErrorCodeDependencyTimeout          = "DEPENDENCY_TIMEOUT"
+	ErrorCodeMaxStepsExceeded           = "MAX_STEPS_EXCEEDED"
+	ErrorCodeModelFailed                = "MODEL_FAILED"
+	ErrorCodeInvalidFinalRecommendation = "INVALID_FINAL_RECOMMENDATION"
+	ErrorCodeNoValidRecommendation      = "NO_VALID_RECOMMENDATION"
 )
 
 // ErrMaxStepsExceeded reports a run that exhausted its bounded step budget.
@@ -22,6 +24,9 @@ var ErrMaxStepsExceeded = errors.New(ErrorCodeMaxStepsExceeded)
 
 // ErrModelFailed reports a model provider failure through a stable domain error.
 var ErrModelFailed = errors.New(ErrorCodeModelFailed)
+
+// ErrNoValidRecommendation reports that every model-recommended SKU failed backend verification.
+var ErrNoValidRecommendation = errors.New(ErrorCodeNoValidRecommendation)
 
 // RunStore persists Agent runs and steps.
 type RunStore interface {

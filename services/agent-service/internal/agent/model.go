@@ -165,3 +165,28 @@ type ModelRecommendation struct {
 	RankNo uint32 `json:"rank_no"`
 	Reason string `json:"reason"`
 }
+
+// RecommendationStatus is the validation state of a persisted recommendation snapshot.
+type RecommendationStatus string
+
+const (
+	RecommendationVerified RecommendationStatus = "VERIFIED"
+)
+
+// RecommendationSnapshot stores backend-verified recommendation data.
+type RecommendationSnapshot struct {
+	ID                   uint64
+	RunDBID              uint64
+	RankNo               uint32
+	SKUID                uint64
+	ProductID            uint64
+	ProductTitleSnapshot string
+	SKUCodeSnapshot      string
+	SKUSpecSnapshotJSON  json.RawMessage
+	PriceSnapshot        string
+	SaleableSnapshot     bool
+	DiscountSnapshotJSON json.RawMessage
+	Reason               string
+	ValidationStatus     RecommendationStatus
+	CreatedAt            time.Time
+}

@@ -88,14 +88,17 @@ func main() {
 	timeout := time.Duration(config.Timeout) * time.Millisecond
 	repository := agent.NewMySQLRepository(db)
 	registry := agent.NewDefaultToolRegistry(config.Runtime.ToolTimeout)
+	productClient := agentclient.NewProductClient(productRPC.Conn(), config.Runtime.ToolTimeout)
 	tools := agent.NewToolExecutor(
 		registry,
-		agentclient.NewProductClient(productRPC.Conn(), config.Runtime.ToolTimeout),
+		productClient,
 		agentclient.NewUserClient(userRPC.Conn(), config.Runtime.ToolTimeout),
 		agentclient.NewKnowledgeClient(knowledgeRPC.Conn(), config.Runtime.ToolTimeout),
 	)
+	verifier := agent.NewRecommendationVerifier(productClient, config.Runtime.ToolTimeout)
 	runService := agent.NewRunService(repository, disabledModel{}, registry, tools, agent.RunServiceOptions{
 		MaxSteps: config.Runtime.MaxSteps, RunTimeout: config.Runtime.RunTimeout, Now: time.Now,
+		RecommendationVerifier: verifier,
 	})
 
 	zrpc.DontLogContentForMethod(agentpb.AgentService_StartRun_FullMethodName)

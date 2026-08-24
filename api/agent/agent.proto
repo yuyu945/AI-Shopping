@@ -25,6 +25,7 @@ message GetRunRequest {
 message GetRunResponse {
   AgentRun run = 1;
   repeated AgentStep steps = 2;
+  repeated Recommendation recommendations = 3;
 }
 
 message AgentRun {
@@ -46,4 +47,18 @@ message AgentStep {
   string error_code = 5;
   string error_message = 6;
   uint32 latency_ms = 7;
+}
+
+message Recommendation {
+  uint32 rank_no = 1;
+  uint64 sku_id = 2;
+  uint64 product_id = 3;
+  string product_title = 4;
+  string sku_code = 5;
+  bytes sku_spec_json = 6;
+  string price = 7;
+  bool saleable = 8;
+  bytes discount_json = 9;
+  string reason = 10;
+  string validation_status = 11;
 }

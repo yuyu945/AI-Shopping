@@ -44,6 +44,27 @@ func TestAgentServerGetRunRequiresOwner(t *testing.T) {
 	}
 }
 
+func TestAgentServerGetRunReturnsRecommendations(t *testing.T) {
+	loader := &fakeRunLoader{timeline: agent.RunTimeline{
+		Run: agent.Run{RunID: "run_1", UserID: 42, Status: agent.RunSucceeded},
+		Recommendations: []agent.RecommendationSnapshot{{
+			RankNo: 1, SKUID: 2001, ProductID: 1001, ProductTitleSnapshot: "轻薄笔记本",
+			SKUCodeSnapshot: "LAPTOP-16G", SKUSpecSnapshotJSON: []byte(`{"memory":"16G"}`),
+			PriceSnapshot: "4999.00", SaleableSnapshot: true, DiscountSnapshotJSON: []byte(`[{"promotion_id":3001}]`),
+			Reason: "适合编程", ValidationStatus: agent.RecommendationVerified,
+		}},
+	}}
+	server := NewGRPCServer(&fakeRunStarter{}, loader, testAuthManager(t), time.Second)
+
+	resp, err := server.GetRun(authContext(t, 42), &agentpb.GetRunRequest{RunId: "run_1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.GetRecommendations()) != 1 || resp.GetRecommendations()[0].GetSkuId() != 2001 || resp.GetRecommendations()[0].GetPrice() != "4999.00" {
+		t.Fatalf("response=%#v", resp)
+	}
+}
+
 func TestAgentServerGetRunMapsNonOwnerToNotFound(t *testing.T) {
 	loader := &fakeRunLoader{err: agent.ErrRunNotFound}
 	server := NewGRPCServer(&fakeRunStarter{}, loader, testAuthManager(t), time.Second)

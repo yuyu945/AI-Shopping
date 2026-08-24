@@ -162,11 +162,12 @@ func (x *GetRunRequest) GetRunId() string {
 }
 
 type GetRunResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Run           *AgentRun              `protobuf:"bytes,1,opt,name=run,proto3" json:"run,omitempty"`
-	Steps         []*AgentStep           `protobuf:"bytes,2,rep,name=steps,proto3" json:"steps,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Run             *AgentRun              `protobuf:"bytes,1,opt,name=run,proto3" json:"run,omitempty"`
+	Steps           []*AgentStep           `protobuf:"bytes,2,rep,name=steps,proto3" json:"steps,omitempty"`
+	Recommendations []*Recommendation      `protobuf:"bytes,3,rep,name=recommendations,proto3" json:"recommendations,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GetRunResponse) Reset() {
@@ -209,6 +210,13 @@ func (x *GetRunResponse) GetRun() *AgentRun {
 func (x *GetRunResponse) GetSteps() []*AgentStep {
 	if x != nil {
 		return x.Steps
+	}
+	return nil
+}
+
+func (x *GetRunResponse) GetRecommendations() []*Recommendation {
+	if x != nil {
+		return x.Recommendations
 	}
 	return nil
 }
@@ -405,6 +413,130 @@ func (x *AgentStep) GetLatencyMs() uint32 {
 	return 0
 }
 
+type Recommendation struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	RankNo           uint32                 `protobuf:"varint,1,opt,name=rank_no,json=rankNo,proto3" json:"rank_no,omitempty"`
+	SkuId            uint64                 `protobuf:"varint,2,opt,name=sku_id,json=skuId,proto3" json:"sku_id,omitempty"`
+	ProductId        uint64                 `protobuf:"varint,3,opt,name=product_id,json=productId,proto3" json:"product_id,omitempty"`
+	ProductTitle     string                 `protobuf:"bytes,4,opt,name=product_title,json=productTitle,proto3" json:"product_title,omitempty"`
+	SkuCode          string                 `protobuf:"bytes,5,opt,name=sku_code,json=skuCode,proto3" json:"sku_code,omitempty"`
+	SkuSpecJson      []byte                 `protobuf:"bytes,6,opt,name=sku_spec_json,json=skuSpecJson,proto3" json:"sku_spec_json,omitempty"`
+	Price            string                 `protobuf:"bytes,7,opt,name=price,proto3" json:"price,omitempty"`
+	Saleable         bool                   `protobuf:"varint,8,opt,name=saleable,proto3" json:"saleable,omitempty"`
+	DiscountJson     []byte                 `protobuf:"bytes,9,opt,name=discount_json,json=discountJson,proto3" json:"discount_json,omitempty"`
+	Reason           string                 `protobuf:"bytes,10,opt,name=reason,proto3" json:"reason,omitempty"`
+	ValidationStatus string                 `protobuf:"bytes,11,opt,name=validation_status,json=validationStatus,proto3" json:"validation_status,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *Recommendation) Reset() {
+	*x = Recommendation{}
+	mi := &file_api_agent_agent_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Recommendation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Recommendation) ProtoMessage() {}
+
+func (x *Recommendation) ProtoReflect() protoreflect.Message {
+	mi := &file_api_agent_agent_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Recommendation.ProtoReflect.Descriptor instead.
+func (*Recommendation) Descriptor() ([]byte, []int) {
+	return file_api_agent_agent_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *Recommendation) GetRankNo() uint32 {
+	if x != nil {
+		return x.RankNo
+	}
+	return 0
+}
+
+func (x *Recommendation) GetSkuId() uint64 {
+	if x != nil {
+		return x.SkuId
+	}
+	return 0
+}
+
+func (x *Recommendation) GetProductId() uint64 {
+	if x != nil {
+		return x.ProductId
+	}
+	return 0
+}
+
+func (x *Recommendation) GetProductTitle() string {
+	if x != nil {
+		return x.ProductTitle
+	}
+	return ""
+}
+
+func (x *Recommendation) GetSkuCode() string {
+	if x != nil {
+		return x.SkuCode
+	}
+	return ""
+}
+
+func (x *Recommendation) GetSkuSpecJson() []byte {
+	if x != nil {
+		return x.SkuSpecJson
+	}
+	return nil
+}
+
+func (x *Recommendation) GetPrice() string {
+	if x != nil {
+		return x.Price
+	}
+	return ""
+}
+
+func (x *Recommendation) GetSaleable() bool {
+	if x != nil {
+		return x.Saleable
+	}
+	return false
+}
+
+func (x *Recommendation) GetDiscountJson() []byte {
+	if x != nil {
+		return x.DiscountJson
+	}
+	return nil
+}
+
+func (x *Recommendation) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *Recommendation) GetValidationStatus() string {
+	if x != nil {
+		return x.ValidationStatus
+	}
+	return ""
+}
+
 var File_api_agent_agent_proto protoreflect.FileDescriptor
 
 const file_api_agent_agent_proto_rawDesc = "" +
@@ -418,10 +550,11 @@ const file_api_agent_agent_proto_rawDesc = "" +
 	"\x10StartRunResponse\x12$\n" +
 	"\x03run\x18\x01 \x01(\v2\x12.agent.v1.AgentRunR\x03run\"&\n" +
 	"\rGetRunRequest\x12\x15\n" +
-	"\x06run_id\x18\x01 \x01(\tR\x05runId\"a\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\"\xa5\x01\n" +
 	"\x0eGetRunResponse\x12$\n" +
 	"\x03run\x18\x01 \x01(\v2\x12.agent.v1.AgentRunR\x03run\x12)\n" +
-	"\x05steps\x18\x02 \x03(\v2\x13.agent.v1.AgentStepR\x05steps\"\xf3\x01\n" +
+	"\x05steps\x18\x02 \x03(\v2\x13.agent.v1.AgentStepR\x05steps\x12B\n" +
+	"\x0frecommendations\x18\x03 \x03(\v2\x18.agent.v1.RecommendationR\x0frecommendations\"\xf3\x01\n" +
 	"\bAgentRun\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1d\n" +
 	"\n" +
@@ -444,7 +577,21 @@ const file_api_agent_agent_proto_rawDesc = "" +
 	"error_code\x18\x05 \x01(\tR\terrorCode\x12#\n" +
 	"\rerror_message\x18\x06 \x01(\tR\ferrorMessage\x12\x1d\n" +
 	"\n" +
-	"latency_ms\x18\a \x01(\rR\tlatencyMs2\x8e\x01\n" +
+	"latency_ms\x18\a \x01(\rR\tlatencyMs\"\xdf\x02\n" +
+	"\x0eRecommendation\x12\x17\n" +
+	"\arank_no\x18\x01 \x01(\rR\x06rankNo\x12\x15\n" +
+	"\x06sku_id\x18\x02 \x01(\x04R\x05skuId\x12\x1d\n" +
+	"\n" +
+	"product_id\x18\x03 \x01(\x04R\tproductId\x12#\n" +
+	"\rproduct_title\x18\x04 \x01(\tR\fproductTitle\x12\x19\n" +
+	"\bsku_code\x18\x05 \x01(\tR\askuCode\x12\"\n" +
+	"\rsku_spec_json\x18\x06 \x01(\fR\vskuSpecJson\x12\x14\n" +
+	"\x05price\x18\a \x01(\tR\x05price\x12\x1a\n" +
+	"\bsaleable\x18\b \x01(\bR\bsaleable\x12#\n" +
+	"\rdiscount_json\x18\t \x01(\fR\fdiscountJson\x12\x16\n" +
+	"\x06reason\x18\n" +
+	" \x01(\tR\x06reason\x12+\n" +
+	"\x11validation_status\x18\v \x01(\tR\x10validationStatus2\x8e\x01\n" +
 	"\fAgentService\x12A\n" +
 	"\bStartRun\x12\x19.agent.v1.StartRunRequest\x1a\x1a.agent.v1.StartRunResponse\x12;\n" +
 	"\x06GetRun\x12\x17.agent.v1.GetRunRequest\x1a\x18.agent.v1.GetRunResponseBCZAgithub.com/yuyu945/AI-Shopping/services/agent-service/gen;agentpbb\x06proto3"
@@ -461,7 +608,7 @@ func file_api_agent_agent_proto_rawDescGZIP() []byte {
 	return file_api_agent_agent_proto_rawDescData
 }
 
-var file_api_agent_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_api_agent_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_api_agent_agent_proto_goTypes = []any{
 	(*StartRunRequest)(nil),  // 0: agent.v1.StartRunRequest
 	(*StartRunResponse)(nil), // 1: agent.v1.StartRunResponse
@@ -469,20 +616,22 @@ var file_api_agent_agent_proto_goTypes = []any{
 	(*GetRunResponse)(nil),   // 3: agent.v1.GetRunResponse
 	(*AgentRun)(nil),         // 4: agent.v1.AgentRun
 	(*AgentStep)(nil),        // 5: agent.v1.AgentStep
+	(*Recommendation)(nil),   // 6: agent.v1.Recommendation
 }
 var file_api_agent_agent_proto_depIdxs = []int32{
 	4, // 0: agent.v1.StartRunResponse.run:type_name -> agent.v1.AgentRun
 	4, // 1: agent.v1.GetRunResponse.run:type_name -> agent.v1.AgentRun
 	5, // 2: agent.v1.GetRunResponse.steps:type_name -> agent.v1.AgentStep
-	0, // 3: agent.v1.AgentService.StartRun:input_type -> agent.v1.StartRunRequest
-	2, // 4: agent.v1.AgentService.GetRun:input_type -> agent.v1.GetRunRequest
-	1, // 5: agent.v1.AgentService.StartRun:output_type -> agent.v1.StartRunResponse
-	3, // 6: agent.v1.AgentService.GetRun:output_type -> agent.v1.GetRunResponse
-	5, // [5:7] is the sub-list for method output_type
-	3, // [3:5] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	6, // 3: agent.v1.GetRunResponse.recommendations:type_name -> agent.v1.Recommendation
+	0, // 4: agent.v1.AgentService.StartRun:input_type -> agent.v1.StartRunRequest
+	2, // 5: agent.v1.AgentService.GetRun:input_type -> agent.v1.GetRunRequest
+	1, // 6: agent.v1.AgentService.StartRun:output_type -> agent.v1.StartRunResponse
+	3, // 7: agent.v1.AgentService.GetRun:output_type -> agent.v1.GetRunResponse
+	6, // [6:8] is the sub-list for method output_type
+	4, // [4:6] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_api_agent_agent_proto_init() }
@@ -496,7 +645,7 @@ func file_api_agent_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_agent_agent_proto_rawDesc), len(file_api_agent_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

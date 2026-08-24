@@ -95,7 +95,7 @@ func (s *GRPCServer) GetRun(ctx context.Context, req *agentpb.GetRunRequest) (*a
 		}
 		return nil, toStatus(err)
 	}
-	return &agentpb.GetRunResponse{Run: runWire(timeline.Run), Steps: stepWire(timeline.Steps)}, nil
+	return &agentpb.GetRunResponse{Run: runWire(timeline.Run), Steps: stepWire(timeline.Steps), Recommendations: recommendationWire(timeline.Recommendations)}, nil
 }
 
 func (s *GRPCServer) userID(ctx context.Context) (uint64, error) {
@@ -123,6 +123,26 @@ func stepWire(steps []agent.Step) []*agentpb.AgentStep {
 		out = append(out, &agentpb.AgentStep{
 			StepNo: step.StepNo, StepType: string(step.StepType), ToolName: step.ToolName, Status: string(step.Status),
 			ErrorCode: step.ErrorCode, ErrorMessage: step.ErrorMessage, LatencyMs: step.LatencyMS,
+		})
+	}
+	return out
+}
+
+func recommendationWire(items []agent.RecommendationSnapshot) []*agentpb.Recommendation {
+	out := make([]*agentpb.Recommendation, 0, len(items))
+	for _, item := range items {
+		out = append(out, &agentpb.Recommendation{
+			RankNo:           item.RankNo,
+			SkuId:            item.SKUID,
+			ProductId:        item.ProductID,
+			ProductTitle:     item.ProductTitleSnapshot,
+			SkuCode:          item.SKUCodeSnapshot,
+			SkuSpecJson:      append([]byte(nil), item.SKUSpecSnapshotJSON...),
+			Price:            item.PriceSnapshot,
+			Saleable:         item.SaleableSnapshot,
+			DiscountJson:     append([]byte(nil), item.DiscountSnapshotJSON...),
+			Reason:           item.Reason,
+			ValidationStatus: string(item.ValidationStatus),
 		})
 	}
 	return out

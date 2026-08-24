@@ -192,8 +192,8 @@ func (r *Repository) CheckoutSKUs(ctx context.Context, skuIDs []uint64) ([]Check
 	for i, skuID := range queryIDs {
 		args[i] = skuID
 	}
-	query := "SELECT ps.id, ps.product_id, p.title, ps.sku_code, ps.spec_json, ps.sale_price " +
-		"FROM product_skus ps JOIN products p ON p.id = ps.product_id WHERE ps.id IN (" + placeholders + ") " +
+	query := "SELECT ps.id, ps.product_id, p.title, ps.sku_code, ps.spec_json, ps.sale_price, COALESCE(i.available_qty, 0) " +
+		"FROM product_skus ps JOIN products p ON p.id = ps.product_id LEFT JOIN inventory i ON i.sku_id = ps.id WHERE ps.id IN (" + placeholders + ") " +
 		"AND p.status = 'ACTIVE' AND p.deleted_at IS NULL AND ps.status = 'ACTIVE'"
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -204,10 +204,11 @@ func (r *Repository) CheckoutSKUs(ctx context.Context, skuIDs []uint64) ([]Check
 	for rows.Next() {
 		var row CheckoutSKU
 		var spec string
-		if err := rows.Scan(&row.SKUID, &row.ProductID, &row.ProductTitle, &row.SKUCode, &spec, &row.SalePrice); err != nil {
+		var availableQty uint64
+		if err := rows.Scan(&row.SKUID, &row.ProductID, &row.ProductTitle, &row.SKUCode, &spec, &row.SalePrice, &availableQty); err != nil {
 			return nil, fmt.Errorf("scan checkout sku: %w", err)
 		}
-		row.Saleable = true
+		row.Saleable = availableQty > 0
 		row.SpecJSON = []byte(spec)
 		if !decimal12_2Pattern.MatchString(row.SalePrice) {
 			return nil, fmt.Errorf("invalid checkout sku price")

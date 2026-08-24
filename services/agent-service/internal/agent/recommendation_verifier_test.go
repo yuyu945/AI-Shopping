@@ -38,6 +38,23 @@ func TestRecommendationVerifierFiltersMissingAndUnsaleableSKUs(t *testing.T) {
 	}
 }
 
+func TestRecommendationVerifierKeepsValidSKUWhenAnotherCandidateIsUnavailable(t *testing.T) {
+	product := &fakeRecommendationProductClient{bySKU: map[uint64]CheckoutSKU{
+		2001: {ProductID: 1001, SKUID: 2001, SalePrice: "4999.00", Saleable: true},
+	}, unavailable: map[uint64]struct{}{9999: {}}}
+	verifier := NewRecommendationVerifier(product, time.Second)
+	got, err := verifier.Verify(context.Background(), FinalRecommendationOutput{Recommendations: []ModelRecommendation{
+		{SKUID: 9999, RankNo: 1, Reason: "不存在"},
+		{SKUID: 2001, RankNo: 2, Reason: "有效"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].SKUID != 2001 || got[0].RankNo != 2 {
+		t.Fatalf("snapshots=%#v", got)
+	}
+}
+
 func TestRecommendationVerifierUsesChangedBackendPromotions(t *testing.T) {
 	product := &fakeRecommendationProductClient{skus: []CheckoutSKU{{
 		ProductID: 1001, SKUID: 2001, SalePrice: "4999.00", Saleable: true,
@@ -63,9 +80,11 @@ func TestRecommendationVerifierMapsDependencyTimeout(t *testing.T) {
 }
 
 type fakeRecommendationProductClient struct {
-	request []uint64
-	skus    []CheckoutSKU
-	err     error
+	request     []uint64
+	skus        []CheckoutSKU
+	bySKU       map[uint64]CheckoutSKU
+	unavailable map[uint64]struct{}
+	err         error
 }
 
 func (f *fakeRecommendationProductClient) ListProducts(context.Context, ProductSearchRequest) (ProductSearchResult, error) {
@@ -74,5 +93,19 @@ func (f *fakeRecommendationProductClient) ListProducts(context.Context, ProductS
 
 func (f *fakeRecommendationProductClient) GetCheckoutSKUs(ctx context.Context, skuIDs []uint64) ([]CheckoutSKU, error) {
 	f.request = append([]uint64(nil), skuIDs...)
+	if len(f.bySKU) > 0 || len(f.unavailable) > 0 {
+		out := make([]CheckoutSKU, 0, len(skuIDs))
+		for _, skuID := range skuIDs {
+			if _, ok := f.unavailable[skuID]; ok {
+				return nil, ErrCheckoutSKUUnavailable
+			}
+			sku, ok := f.bySKU[skuID]
+			if !ok {
+				return nil, ErrCheckoutSKUUnavailable
+			}
+			out = append(out, sku)
+		}
+		return out, f.err
+	}
 	return f.skus, f.err
 }

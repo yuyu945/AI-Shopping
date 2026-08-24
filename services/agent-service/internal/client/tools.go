@@ -166,5 +166,8 @@ func mapDependencyError(err error) error {
 	if errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded {
 		return agent.ErrDependencyTimeout
 	}
+	if status.Code(err) == codes.NotFound {
+		return agent.ErrCheckoutSKUUnavailable
+	}
 	return err
 }

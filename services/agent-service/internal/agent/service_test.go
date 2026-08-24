@@ -268,6 +268,12 @@ func (f *fakeRunStore) SaveRecommendations(ctx context.Context, runDBID uint64, 
 	return nil
 }
 
+func (f *fakeRunStore) CompleteRunWithRecommendations(ctx context.Context, result RunResult, items []RecommendationSnapshot) error {
+	f.savedRecommendations = append(f.savedRecommendations, items...)
+	f.runSucceeded = &result
+	return nil
+}
+
 func (f *fakeRunStore) stepTypes() []StepType {
 	types := make([]StepType, 0, len(f.startedSteps))
 	for _, step := range f.startedSteps {

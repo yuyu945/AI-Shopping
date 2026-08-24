@@ -37,6 +37,7 @@ type RunStore interface {
 	MarkRunSucceeded(context.Context, RunResult) error
 	MarkRunFailed(context.Context, RunFailure) error
 	SaveRecommendations(context.Context, uint64, []RecommendationSnapshot) error
+	CompleteRunWithRecommendations(context.Context, RunResult, []RecommendationSnapshot) error
 }
 
 // ChatModel is the model-provider boundary used by the Agent run loop.
@@ -211,11 +212,8 @@ func (s *RunService) completeRunWithRecommendations(ctx context.Context, runCtx 
 			snapshots[i].CreatedAt = now
 		}
 	}
-	if err := s.store.SaveRecommendations(ctx, run.ID, snapshots); err != nil {
-		return RunOutcome{}, err
-	}
 	finalJSON := mustMarshalJSON(finalOutput)
-	if err := s.store.MarkRunSucceeded(ctx, RunResult{RunDBID: run.ID, FinalResultJSON: finalJSON, StepCount: stepCount, EndedAt: s.options.Now()}); err != nil {
+	if err := s.store.CompleteRunWithRecommendations(ctx, RunResult{RunDBID: run.ID, FinalResultJSON: finalJSON, StepCount: stepCount, EndedAt: s.options.Now()}, snapshots); err != nil {
 		return RunOutcome{}, err
 	}
 	return RunOutcome{RunID: run.RunID, Status: RunSucceeded}, nil

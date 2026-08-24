@@ -75,6 +75,23 @@ func TestAgentServerGetRunMapsNonOwnerToNotFound(t *testing.T) {
 	}
 }
 
+func TestAgentServerStartRunMapsRecommendationFailures(t *testing.T) {
+	tests := map[string]error{
+		"invalid final recommendation": agent.ErrInvalidFinalRecommendation,
+		"no valid recommendation":      agent.ErrNoValidRecommendation,
+	}
+	for name, runErr := range tests {
+		t.Run(name, func(t *testing.T) {
+			server := NewGRPCServer(&fakeRunStarter{err: runErr}, &fakeRunLoader{}, testAuthManager(t), time.Second)
+
+			_, err := server.StartRun(authContext(t, 42), &agentpb.StartRunRequest{UserInput: "买电脑"})
+			if status.Code(err) != codes.FailedPrecondition || status.Convert(err).Message() != "agent run failed" {
+				t.Fatalf("StartRun() error = %v", err)
+			}
+		})
+	}
+}
+
 type fakeRunStarter struct {
 	command agent.StartRunCommand
 	result  agent.RunOutcome

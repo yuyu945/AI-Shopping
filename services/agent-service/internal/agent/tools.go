@@ -13,6 +13,9 @@ var ErrDependencyTimeout = errors.New("DEPENDENCY_TIMEOUT")
 // ErrToolFailed reports a controlled Tool dependency failure.
 var ErrToolFailed = errors.New("TOOL_FAILED")
 
+// ErrCheckoutSKUUnavailable reports a backend-rejected checkout SKU candidate.
+var ErrCheckoutSKUUnavailable = errors.New("CHECKOUT_SKU_UNAVAILABLE")
+
 // ProductClient is the product-service read surface used by Agent Tools.
 type ProductClient interface {
 	ListProducts(context.Context, ProductSearchRequest) (ProductSearchResult, error)

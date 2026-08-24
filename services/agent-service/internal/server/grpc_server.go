@@ -156,7 +156,7 @@ func toStatus(err error) error {
 		return status.Error(codes.InvalidArgument, "invalid request")
 	case errors.Is(err, agent.ErrDependencyTimeout), errors.Is(err, context.DeadlineExceeded):
 		return status.Error(codes.DeadlineExceeded, "dependency timeout")
-	case errors.Is(err, agent.ErrUnknownTool), errors.Is(err, agent.ErrMaxStepsExceeded), errors.Is(err, agent.ErrModelFailed), errors.Is(err, agent.ErrToolFailed):
+	case errors.Is(err, agent.ErrUnknownTool), errors.Is(err, agent.ErrMaxStepsExceeded), errors.Is(err, agent.ErrModelFailed), errors.Is(err, agent.ErrToolFailed), errors.Is(err, agent.ErrInvalidFinalRecommendation), errors.Is(err, agent.ErrNoValidRecommendation):
 		return status.Error(codes.FailedPrecondition, "agent run failed")
 	default:
 		return status.Error(codes.Internal, "internal server error")

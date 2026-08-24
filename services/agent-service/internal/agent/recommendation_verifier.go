@@ -27,29 +27,25 @@ func (v *RecommendationVerifier) Verify(ctx context.Context, output FinalRecomme
 	if v.product == nil {
 		return nil, fmt.Errorf("%w: product client unavailable", ErrToolFailed)
 	}
-	skuIDs := make([]uint64, 0, len(output.Recommendations))
-	for _, item := range output.Recommendations {
-		skuIDs = append(skuIDs, item.SKUID)
-	}
-	callCtx, cancel := context.WithTimeout(ctx, v.timeout)
-	defer cancel()
-	skus, err := v.product.GetCheckoutSKUs(callCtx, skuIDs)
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(callCtx.Err(), context.DeadlineExceeded) {
-			return nil, ErrDependencyTimeout
-		}
-		return nil, fmt.Errorf("%w: verify recommendations", ErrToolFailed)
-	}
-	byID := make(map[uint64]CheckoutSKU, len(skus))
-	for _, sku := range skus {
-		byID[sku.SKUID] = sku
-	}
 	snapshots := make([]RecommendationSnapshot, 0, len(output.Recommendations))
 	for _, candidate := range output.Recommendations {
-		sku, ok := byID[candidate.SKUID]
-		if !ok || !sku.Saleable {
+		callCtx, cancel := context.WithTimeout(ctx, v.timeout)
+		skus, err := v.product.GetCheckoutSKUs(callCtx, []uint64{candidate.SKUID})
+		timedOut := errors.Is(err, context.DeadlineExceeded) || errors.Is(callCtx.Err(), context.DeadlineExceeded)
+		cancel()
+		if timedOut {
+			return nil, ErrDependencyTimeout
+		}
+		if errors.Is(err, ErrCheckoutSKUUnavailable) {
 			continue
 		}
+		if err != nil {
+			return nil, fmt.Errorf("%w: verify recommendations", ErrToolFailed)
+		}
+		if len(skus) != 1 || skus[0].SKUID != candidate.SKUID || !skus[0].Saleable {
+			continue
+		}
+		sku := skus[0]
 		discountJSON, err := json.Marshal(sku.Promotions)
 		if err != nil {
 			return nil, fmt.Errorf("%w: encode discounts", ErrToolFailed)

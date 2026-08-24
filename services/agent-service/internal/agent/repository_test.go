@@ -113,6 +113,35 @@ func TestRepositorySavesRecommendationSnapshots(t *testing.T) {
 	assertSQLExpectations(t, mock)
 }
 
+func TestRepositoryCompletesRunWithRecommendationSnapshotsAtomically(t *testing.T) {
+	db, mock := newRepositoryMock(t)
+	now := time.Date(2026, 8, 24, 10, 2, 0, 0, time.UTC)
+	repository := NewMySQLRepository(db)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(insertRecommendationSnapshot)).
+		WithArgs(uint64(300), uint32(1), uint64(2001), uint64(1001), "轻薄笔记本", "LAPTOP-16G", []byte(`{"memory":"16G"}`), "4999.00", true, []byte(`[]`), "适合编程", RecommendationVerified, now).
+		WillReturnResult(sqlmock.NewResult(500, 1))
+	mock.ExpectExec(regexp.QuoteMeta(updateAgentRunSucceeded)).
+		WithArgs([]byte(`{"recommendations":[{"sku_id":2001,"rank_no":1,"reason":"适合编程"}]}`), uint32(1), now, uint64(300)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	err := repository.CompleteRunWithRecommendations(context.Background(), RunResult{
+		RunDBID: 300, FinalResultJSON: []byte(`{"recommendations":[{"sku_id":2001,"rank_no":1,"reason":"适合编程"}]}`),
+		StepCount: 1, EndedAt: now,
+	}, []RecommendationSnapshot{{
+		RankNo: 1, SKUID: 2001, ProductID: 1001, ProductTitleSnapshot: "轻薄笔记本",
+		SKUCodeSnapshot: "LAPTOP-16G", SKUSpecSnapshotJSON: []byte(`{"memory":"16G"}`),
+		PriceSnapshot: "4999.00", SaleableSnapshot: true, DiscountSnapshotJSON: []byte(`[]`),
+		Reason: "适合编程", ValidationStatus: RecommendationVerified, CreatedAt: now,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSQLExpectations(t, mock)
+}
+
 func TestRepositoryLoadsRunTimelineForOwner(t *testing.T) {
 	db, mock := newRepositoryMock(t)
 	now := time.Date(2026, 8, 23, 10, 3, 0, 0, time.UTC)

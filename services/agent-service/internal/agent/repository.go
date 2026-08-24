@@ -186,6 +186,50 @@ func (r *MySQLRepository) SaveRecommendations(ctx context.Context, runDBID uint6
 	return nil
 }
 
+// CompleteRunWithRecommendations atomically saves verified snapshots and marks the run succeeded.
+func (r *MySQLRepository) CompleteRunWithRecommendations(ctx context.Context, result RunResult, items []RecommendationSnapshot) (err error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin recommendation completion transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	for _, item := range items {
+		execResult, execErr := tx.ExecContext(
+			ctx,
+			insertRecommendationSnapshot,
+			result.RunDBID,
+			item.RankNo,
+			item.SKUID,
+			item.ProductID,
+			item.ProductTitleSnapshot,
+			item.SKUCodeSnapshot,
+			[]byte(item.SKUSpecSnapshotJSON),
+			item.PriceSnapshot,
+			item.SaleableSnapshot,
+			[]byte(item.DiscountSnapshotJSON),
+			item.Reason,
+			item.ValidationStatus,
+			item.CreatedAt,
+		)
+		if err = requireOneRow(execResult, execErr, "insert recommendation snapshot"); err != nil {
+			return err
+		}
+	}
+	updateResult, updateErr := tx.ExecContext(ctx, updateAgentRunSucceeded, []byte(result.FinalResultJSON), result.StepCount, result.EndedAt, result.RunDBID)
+	if err = requireOneRow(updateResult, updateErr, "mark agent run succeeded"); err != nil {
+		return err
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit recommendation completion transaction: %w", err)
+	}
+	return nil
+}
+
 // ListRecommendations loads recommendation snapshots for a run in rank order.
 func (r *MySQLRepository) ListRecommendations(ctx context.Context, runDBID uint64) ([]RecommendationSnapshot, error) {
 	rows, err := r.db.QueryContext(ctx, queryRecommendationSnapshots, runDBID)

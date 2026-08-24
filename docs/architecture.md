@@ -59,6 +59,8 @@ MVP 可以把五个逻辑 schema 部署在同一 MySQL 实例，但物理同实�
 | `knowledge-service` | 文档、Chunk、Embedding 任务、向量索引 | 上传资料、查询状态、商品知识检索 | 同步等待解析或 Embedding 完成 |
 | `agent-service` | 会话、消息、Run/Step、推荐快照 | 运行 Agent、SSE 事件、Run 回放 | 直接改库存、余额、订单、优惠或执行 SQL |
 
+运营接口统一由 Gateway 暴露在 `/api/v1/ops/*` 下，MVP 阶段必须同时具备合法 JWT 与 `X-AI-Shopping-Operator: true` 请求头。该 header 只是本地最小 operator gate，不替代生产 RBAC；用户侧页面和 API client 不应发送该 header。
+
 `agent-service` 只能调用下列只读 Typed Tool。每个 Tool 必须声明 JSON Schema、最大返回数量、超时、授权来源和结构化输出 DTO：
 
 | Tool | 调用服务 | 作用 | 关键约束 |
@@ -161,7 +163,7 @@ knowledge.document.ingest
 | `inventory.reservation.confirm` | `order-service` Outbox | `reservation_id` | `event_id`、`reservation_id`、`order_no`、`payment_attempt_id`、`version` | product-service 确认预留；按事件 ID 去重 |
 | `inventory.reservation.confirm.deadletter` | product-service confirmation consumer | 原始消息 Key | `reason`、`raw_event_base64` | 畸形或确认重试耗尽的原始事件；仅 producer 确认后提交原消息 offset |
 
-所有需要可靠投递的事件都先在产生方本地 transaction 写入 `outbox_events`，再由 Worker 发布。消费者使用 `event_consumptions(event_id, consumer_group)` 唯一约束记录处理结果。失败消息进入同语义 retry topic，并用 `next_retry_at` 实施退避；超过阈值后进入 dead-letter topic，保留原始事件与失败原因以支持人工重放。
+所有需要可靠投递的事件都先在产生方本地 transaction 写入 Outbox，再由 Worker 发布。`review.events` 使用 order-service 交易 Outbox；`behavior.events` 使用 Gateway 的 `behavior_outbox_events`，只记录资源 ID、状态枚举和 trace，不写 JWT、手机号、地址、钱包余额、Prompt 或 Tool payload。消费者使用 `(event_id, consumer_group)` 唯一约束记录处理结果。失败消息进入同语义 retry topic，并用 `next_retry_at` 实施退避；超过阈值后进入 dead-letter topic，保留原始事件与失败原因以支持人工重放。
 
 ## 6. 数据与一致性边界
 
@@ -181,6 +183,7 @@ knowledge.document.ingest
 
 - Gateway 为每个请求生成或透传 `trace_id`，通过 HTTP、gRPC、Kafka Header 与日志上下文传递。
 - `AgentRun` 是一次导购的主记录，`AgentStep` 记录模型轮次与 Tool 执行，状态仅能为 `RUNNING`、`SUCCEEDED`、`FAILED`、`TIMEOUT`。
+- 运营 Run 诊断通过 `/api/v1/ops/agent-runs` 和 `/api/v1/ops/agent-runs/{run_id}` 查询；Step input/output 在 `agent-service` 返回前字段级脱敏，页面只展示脱敏 JSON。
 - 每个外部调用（gRPC、Redis、Kafka、Milvus、MinIO、LLM）均使用 `context.Context` 和明确超时；日志记录依赖名称、操作、耗时、错误分类和 `trace_id`。
 - 用户可见错误固定分为参数错误、未授权、资源不存在、库存不足、幂等冲突、依赖超时和内部错误；原始模型或 Provider 报文仅用于受限诊断。
 

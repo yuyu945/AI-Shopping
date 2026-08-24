@@ -152,6 +152,8 @@ flowchart LR
 
 资料页采用列表主视图与右侧详情抽屉。上传区选择关联商品和资料类型（DETAIL、SPEC、FAQ、AFTER_SALE），文件上传成功即显示版本和 `PENDING` 状态；不等待解析或 Embedding。
 
+已实现的前端入口为 `#/ops/documents`，对应 Gateway ops API：`GET/POST /api/v1/ops/knowledge/documents`、`GET /api/v1/ops/knowledge/documents/{document_no}`、`POST /api/v1/ops/knowledge/documents/{document_no}/retry`。所有 ops 调用必须由 ops client 发送 `X-AI-Shopping-Operator: true`，用户商城页面不能发送该 header。
+
 | 文档状态 | 列表标记 | 详情信息 | 可用操作 |
 | --- | --- | --- | --- |
 | `PENDING` | 等待处理 | 文件、版本、上传时间 | 查看 |
@@ -164,6 +166,8 @@ flowchart LR
 ### 5.2 Agent Run 时间线
 
 左侧为可按状态、用户、时间筛选的 Run 列表，右侧为单 Run 详情。详情头展示 `run_id`、状态、模型版本、开始结束时间、总耗时和 `trace_id`；时间线按 `step_no` 排序。
+
+已实现的前端入口为 `#/ops/agent-runs`，对应 `GET /api/v1/ops/agent-runs` 与 `GET /api/v1/ops/agent-runs/{run_id}`。事件概览入口为 `#/ops/events`，对应 `GET /api/v1/ops/events/overview`，只读展示 `behavior.events`、`review.events`、商品评分统计和 analytics dead-letter。
 
 ```text
 ┌─────────────────┬──────────────────────────────────────────────┐

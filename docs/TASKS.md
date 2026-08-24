@@ -2,10 +2,10 @@
 
 ## 1. 使用方式
 
-- 当前阶段：M4.2 已完成；下一里程碑为 M5 用户交互、运营排障与事件分析。
+- 当前阶段：M5 已完成；下一里程碑为 M6 可靠性验证与交付收口。
 - 任务按依赖顺序执行；每完成一个里程碑，先运行其验证命令、检查文档同步，再创建一个聚焦 commit。
 - 所有实现必须遵守 [AGENTS.md](../AGENTS.md)、[PRD.md](PRD.md)、[architecture.md](architecture.md)、[interaction.md](interaction.md) 和 [MVP 设计文档](智选购-ai导购-mvp-design.md)。设计与实现不一致时，先更新设计并说明取舍。
-- 状态标记：`[ ]` 未开始，`[-]` 进行中，`[x]` 已完成，`[!]` 受阻。M1.1、M1.2、M2.1、M2.2、M3.1、M3.2、M4.1、M4.2 已完成；M5-M6 尚未开始。
+- 状态标记：`[ ]` 未开始，`[-]` 进行中，`[x]` 已完成，`[!]` 受阻。M1.1、M1.2、M2.1、M2.2、M3.1、M3.2、M4.1、M4.2、M5.1、M5.2 已完成；M6 尚未开始。
 
 ## 2. 里程碑总览
 
@@ -142,10 +142,13 @@
 - [x] `review.events` consumer 使用 `(event_id, consumer_group)` 幂等，写入最小评价事件明细和商品评分统计。
 - [x] 畸形评价事件进入 `review.events.deadletter`；行为事件和运营 UI 留到后续阶段。
 
-- [ ] 实现资料列表、上传、版本详情、处理状态、失败原因和重试操作。
-- [ ] 实现 Agent Run 列表、状态筛选、Run 详情、Step 时间线、`trace_id` 展示与脱敏详情。
-- [ ] 实现评价提交后的 `review.events` 与用户行为 `behavior.events`，以 Outbox 投递 Kafka。
-- [ ] 实现统计 consumer 的幂等记录、retry/dead-letter 处理和最小只读事件概览。
+#### M5.2c Operations and Behavior Events（已完成）
+
+- [x] 实现资料列表、上传、版本详情、处理状态、失败原因和失败文档重试操作；ops 路由统一位于 `/api/v1/ops/knowledge/*`。
+- [x] 实现 Agent Run 列表、状态筛选、Run 详情、Step 时间线、`trace_id` 展示与 `agent-service` 侧脱敏详情。
+- [x] 实现用户行为 `behavior.events`，通过 Gateway behavior Outbox 投递 Kafka；评价 `review.events` 继续由 order-service Outbox 投递。
+- [x] 实现统计 consumer 的幂等记录、retry/dead-letter 处理和 `/api/v1/ops/events/overview` 最小只读事件概览。
+- [x] 实现 React/Vite 运营页：`#/ops/documents`、`#/ops/agent-runs`、`#/ops/events`；ops client 仅在运营调用中发送 `X-AI-Shopping-Operator: true`。
 
 测试：运营账户权限、非本人资源访问、Kafka 重复消费、retry 重放、dead-letter 记录；验证日志与页面不显示敏感数据。
 

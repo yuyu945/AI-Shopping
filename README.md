@@ -13,7 +13,7 @@ M1 已完成：Go-zero Gateway 与五个服务启动骨架、共享运行时基�
 
 ## Web app
 
-M5.1c 新增用户端 React/Vite app，位于 `apps/web`。它通过 `VITE_API_BASE_URL` 调用 Go-zero Gateway，默认本地地址为 `http://localhost:8080`。
+M5 新增 React/Vite app，位于 `apps/web`。它通过 `VITE_API_BASE_URL` 调用 Go-zero Gateway，默认本地地址为 `http://localhost:8080`。
 
 ```powershell
 npm --prefix apps/web install
@@ -23,6 +23,18 @@ npm --prefix apps/web run build
 ```
 
 用户端页面覆盖登录/注册、商品列表、商品详情与 SKU 切换、商品知识问答来源展示、AI Guide SSE/replay 推荐、购物车、订单确认、余额支付恢复、订单列表/详情和评价提交。前端只渲染 Gateway 返回的价格、库存、优惠、订单和推荐快照；支付超时或网络未知时先回查订单状态，不在浏览器本地推断支付结果。
+
+运营端页面覆盖：
+
+- `#/ops/documents`：资料上传、列表、版本详情、失败原因和失败重试。
+- `#/ops/agent-runs`：Agent Run 状态筛选、trace、Step timeline 和脱敏 JSON。
+- `#/ops/events`：behavior/review 事件、商品评分统计和 analytics dead-letter 概览。
+
+Gateway ops API 位于 `/api/v1/ops/*`，MVP 本地 guard 要求 JWT 与 `X-AI-Shopping-Operator: true`。`apps/web` 只有 ops client 会发送该 header，普通用户页面不会发送。
+
+## M5.2c Operations and behavior events
+
+M5.2c 增加 knowledge document ops、Agent Run ops redaction、Gateway behavior Outbox、order-service behavior analytics consumer，以及 `/api/v1/ops/events/overview` 只读概览。`behavior.events` 只记录资源 ID、事件类型、trace 和安全枚举，不写 JWT、手机号、地址、钱包余额、Prompt 或 Tool payload。
 
 ## M3.1 知识库上传与 Outbox
 

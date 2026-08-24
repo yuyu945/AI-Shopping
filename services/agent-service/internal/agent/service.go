@@ -36,6 +36,7 @@ type RunStore interface {
 	MarkStepFailed(context.Context, StepFailure) error
 	MarkRunSucceeded(context.Context, RunResult) error
 	MarkRunFailed(context.Context, RunFailure) error
+	SaveRecommendations(context.Context, uint64, []RecommendationSnapshot) error
 }
 
 // ChatModel is the model-provider boundary used by the Agent run loop.
@@ -46,6 +47,11 @@ type ChatModel interface {
 // ToolRunner executes a validated Tool invocation.
 type ToolRunner interface {
 	Execute(context.Context, ToolInvocation) (ToolResult, error)
+}
+
+// RecommendationVerification builds trusted recommendation snapshots from model candidates.
+type RecommendationVerification interface {
+	Verify(context.Context, FinalRecommendationOutput) ([]RecommendationSnapshot, error)
 }
 
 // ToolCall is one model-requested Tool invocation.
@@ -62,17 +68,19 @@ type ModelInput struct {
 	ToolResults []ToolResult
 }
 
-// ModelOutput contains either final text or one Tool call for M4.1.
+// ModelOutput contains either final output or one Tool call.
 type ModelOutput struct {
-	FinalText string    `json:"final_text,omitempty"`
-	ToolCall  *ToolCall `json:"tool_call,omitempty"`
+	FinalText string          `json:"final_text,omitempty"`
+	FinalJSON json.RawMessage `json:"final_json,omitempty"`
+	ToolCall  *ToolCall       `json:"tool_call,omitempty"`
 }
 
 // RunServiceOptions configures the bounded Agent run loop.
 type RunServiceOptions struct {
-	MaxSteps   uint32
-	RunTimeout time.Duration
-	Now        func() time.Time
+	MaxSteps               uint32
+	RunTimeout             time.Duration
+	Now                    func() time.Time
+	RecommendationVerifier RecommendationVerification
 }
 
 // RunOutcome is the synchronous M4.1 result of a bounded run.
@@ -143,6 +151,13 @@ func (s *RunService) StartRun(ctx context.Context, command StartRunCommand) (Run
 			})
 			return RunOutcome{RunID: run.RunID, Status: RunFailed, ErrorCode: errorCodeFor(err)}, err
 		}
+		if len(modelOutput.FinalJSON) > 0 {
+			outcome, err := s.completeRunWithRecommendations(ctx, runCtx, run, stepCount, modelOutput.FinalJSON)
+			if err != nil {
+				return outcome, err
+			}
+			return outcome, nil
+		}
 		if modelOutput.FinalText != "" {
 			finalJSON := mustMarshalJSON(map[string]string{"final_text": modelOutput.FinalText})
 			if err := s.store.MarkRunSucceeded(ctx, RunResult{RunDBID: run.ID, FinalResultJSON: finalJSON, StepCount: stepCount, EndedAt: s.options.Now()}); err != nil {
@@ -172,6 +187,47 @@ func (s *RunService) StartRun(ctx context.Context, command StartRunCommand) (Run
 		}
 		input.ToolResults = append(input.ToolResults, toolResult)
 	}
+}
+
+func (s *RunService) completeRunWithRecommendations(ctx context.Context, runCtx context.Context, run Run, stepCount uint32, raw json.RawMessage) (RunOutcome, error) {
+	finalOutput, err := ParseFinalRecommendations(raw)
+	if err != nil {
+		return s.failRun(ctx, run, stepCount, err)
+	}
+	if s.options.RecommendationVerifier == nil {
+		return s.failRun(ctx, run, stepCount, ErrNoValidRecommendation)
+	}
+	snapshots, err := s.options.RecommendationVerifier.Verify(runCtx, finalOutput)
+	if err != nil {
+		return s.failRun(ctx, run, stepCount, err)
+	}
+	if len(snapshots) == 0 {
+		return s.failRun(ctx, run, stepCount, ErrNoValidRecommendation)
+	}
+	now := s.options.Now()
+	for i := range snapshots {
+		snapshots[i].RunDBID = run.ID
+		if snapshots[i].CreatedAt.IsZero() {
+			snapshots[i].CreatedAt = now
+		}
+	}
+	if err := s.store.SaveRecommendations(ctx, run.ID, snapshots); err != nil {
+		return RunOutcome{}, err
+	}
+	finalJSON := mustMarshalJSON(finalOutput)
+	if err := s.store.MarkRunSucceeded(ctx, RunResult{RunDBID: run.ID, FinalResultJSON: finalJSON, StepCount: stepCount, EndedAt: s.options.Now()}); err != nil {
+		return RunOutcome{}, err
+	}
+	return RunOutcome{RunID: run.RunID, Status: RunSucceeded}, nil
+}
+
+func (s *RunService) failRun(ctx context.Context, run Run, stepCount uint32, err error) (RunOutcome, error) {
+	code := errorCodeFor(err)
+	_ = s.store.MarkRunFailed(ctx, RunFailure{
+		RunDBID: run.ID, Status: RunFailed, ErrorCode: code,
+		ErrorMessage: stableErrorMessage(err), StepCount: stepCount, EndedAt: s.options.Now(),
+	})
+	return RunOutcome{RunID: run.RunID, Status: RunFailed, ErrorCode: code}, err
 }
 
 func (s *RunService) executeModelStep(ctx context.Context, runDBID uint64, stepNo uint32, input ModelInput) (ModelOutput, error) {
@@ -247,6 +303,10 @@ func errorCodeFor(err error) string {
 		return ErrorCodeMaxStepsExceeded
 	case errors.Is(err, ErrModelFailed):
 		return ErrorCodeModelFailed
+	case errors.Is(err, ErrInvalidFinalRecommendation):
+		return ErrorCodeInvalidFinalRecommendation
+	case errors.Is(err, ErrNoValidRecommendation):
+		return ErrorCodeNoValidRecommendation
 	default:
 		return ErrorCodeToolFailed
 	}
@@ -264,6 +324,10 @@ func stableErrorMessage(err error) string {
 		return "agent run exceeded maximum steps"
 	case ErrorCodeModelFailed:
 		return "model request failed"
+	case ErrorCodeInvalidFinalRecommendation:
+		return "invalid final recommendation"
+	case ErrorCodeNoValidRecommendation:
+		return "no valid recommendation"
 	default:
 		return "tool execution failed"
 	}

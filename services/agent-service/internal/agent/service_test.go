@@ -38,6 +38,50 @@ func TestRunServiceCompletesAfterToolLoop(t *testing.T) {
 	}
 }
 
+func TestRunServiceCompletesWithVerifiedRecommendations(t *testing.T) {
+	store := newFakeRunStore()
+	model := &fakeChatModel{outputs: []ModelOutput{{FinalJSON: []byte(`{"recommendations":[{"sku_id":2001,"rank_no":1,"reason":"适合编程"}]}`)}}}
+	verifier := &fakeRecommendationVerifier{snapshots: []RecommendationSnapshot{{
+		RankNo: 1, SKUID: 2001, ProductID: 1001, ProductTitleSnapshot: "轻薄笔记本",
+		SKUCodeSnapshot: "LAPTOP-16G", SKUSpecSnapshotJSON: []byte(`{"memory":"16G"}`),
+		PriceSnapshot: "4999.00", SaleableSnapshot: true, DiscountSnapshotJSON: []byte(`[{"promotion_id":3001}]`),
+		Reason: "适合编程", ValidationStatus: RecommendationVerified,
+	}}}
+	service := NewRunService(store, model, NewDefaultToolRegistry(time.Second), &fakeToolRunner{}, RunServiceOptions{MaxSteps: 8, RunTimeout: time.Second, Now: fixedRunTime, RecommendationVerifier: verifier})
+
+	result, err := service.StartRun(context.Background(), validRunCommand())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != RunSucceeded || result.FinalText != "" {
+		t.Fatalf("result=%#v", result)
+	}
+	if len(verifier.output.Recommendations) != 1 || verifier.output.Recommendations[0].SKUID != 2001 {
+		t.Fatalf("verifier output=%#v", verifier.output)
+	}
+	if len(store.savedRecommendations) != 1 || store.savedRecommendations[0].RunDBID != 300 || store.savedRecommendations[0].CreatedAt.IsZero() {
+		t.Fatalf("saved recommendations=%#v", store.savedRecommendations)
+	}
+	if store.runSucceeded == nil || string(store.runSucceeded.FinalResultJSON) == "" {
+		t.Fatalf("run succeeded=%#v", store.runSucceeded)
+	}
+}
+
+func TestRunServiceFailsWhenNoValidRecommendation(t *testing.T) {
+	store := newFakeRunStore()
+	model := &fakeChatModel{outputs: []ModelOutput{{FinalJSON: []byte(`{"recommendations":[{"sku_id":9999,"rank_no":1,"reason":"不存在"}]}`)}}}
+	verifier := &fakeRecommendationVerifier{err: ErrNoValidRecommendation}
+	service := NewRunService(store, model, NewDefaultToolRegistry(time.Second), &fakeToolRunner{}, RunServiceOptions{MaxSteps: 8, RunTimeout: time.Second, Now: fixedRunTime, RecommendationVerifier: verifier})
+
+	_, err := service.StartRun(context.Background(), validRunCommand())
+	if !errors.Is(err, ErrNoValidRecommendation) {
+		t.Fatalf("error=%v, want ErrNoValidRecommendation", err)
+	}
+	if store.runFailed == nil || store.runFailed.ErrorCode != ErrorCodeNoValidRecommendation || len(store.savedRecommendations) != 0 {
+		t.Fatalf("run failure=%#v saved=%#v", store.runFailed, store.savedRecommendations)
+	}
+}
+
 func TestRunServiceRejectsInvalidToolArguments(t *testing.T) {
 	store := newFakeRunStore()
 	model := &fakeChatModel{outputs: []ModelOutput{
@@ -159,13 +203,25 @@ func (f *fakeToolRunner) Execute(ctx context.Context, invocation ToolInvocation)
 	return f.result, f.err
 }
 
+type fakeRecommendationVerifier struct {
+	output    FinalRecommendationOutput
+	snapshots []RecommendationSnapshot
+	err       error
+}
+
+func (f *fakeRecommendationVerifier) Verify(ctx context.Context, output FinalRecommendationOutput) ([]RecommendationSnapshot, error) {
+	f.output = output
+	return f.snapshots, f.err
+}
+
 type fakeRunStore struct {
-	run            Run
-	startedSteps   []StepStart
-	succeededSteps []StepResult
-	failedSteps    []StepFailure
-	runSucceeded   *RunResult
-	runFailed      *RunFailure
+	run                  Run
+	startedSteps         []StepStart
+	succeededSteps       []StepResult
+	failedSteps          []StepFailure
+	runSucceeded         *RunResult
+	runFailed            *RunFailure
+	savedRecommendations []RecommendationSnapshot
 }
 
 func newFakeRunStore() *fakeRunStore {
@@ -204,6 +260,11 @@ func (f *fakeRunStore) MarkRunSucceeded(ctx context.Context, result RunResult) e
 
 func (f *fakeRunStore) MarkRunFailed(ctx context.Context, failure RunFailure) error {
 	f.runFailed = &failure
+	return nil
+}
+
+func (f *fakeRunStore) SaveRecommendations(ctx context.Context, runDBID uint64, items []RecommendationSnapshot) error {
+	f.savedRecommendations = append(f.savedRecommendations, items...)
 	return nil
 }
 

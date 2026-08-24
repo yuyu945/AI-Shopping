@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/google/uuid"
 )
 
 const queryCart = `SELECT id, user_id FROM carts WHERE user_id = ?`
@@ -26,6 +28,10 @@ const queryOrders = `SELECT id, order_no, request_id, user_id, status, total_amo
 const queryOrderItems = `SELECT id, order_id, product_id, sku_id, product_title_snapshot, sku_code_snapshot, sku_spec_snapshot, candidate_promotions_snapshot, promotion_snapshot, unit_price, discount_amount, quantity, item_amount FROM order_items WHERE order_id = ? ORDER BY id`
 const insertOrder = `INSERT INTO orders (order_no, user_id, request_id, status, total_amount, paid_amount, shipping_name_snapshot, shipping_phone_snapshot, shipping_address_snapshot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON))`
 const insertOrderItem = `INSERT INTO order_items (order_id, product_id, sku_id, product_title_snapshot, sku_code_snapshot, sku_spec_snapshot, candidate_promotions_snapshot, promotion_snapshot, unit_price, discount_amount, quantity, item_amount) VALUES (?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?)`
+const queryReviewOrderForUpdate = `SELECT id, order_no, user_id, status FROM orders WHERE user_id = ? AND order_no = ? FOR UPDATE`
+const queryReviewOrderItemForUpdate = `SELECT id, product_id, sku_id FROM order_items WHERE order_id = ? AND sku_id = ? FOR UPDATE`
+const insertReview = `INSERT INTO reviews (review_no, order_id, order_item_id, order_no, user_id, product_id, sku_id, rating, content, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+const insertReviewOutbox = `INSERT INTO outbox_events (event_id, aggregate_type, aggregate_id, event_type, topic, event_key, payload) VALUES (?, 'review', ?, 'review.submitted', 'review.events', ?, CAST(? AS JSON))`
 
 // MySQLRepository persists only trade_db carts and immutable order snapshots.
 type MySQLRepository struct{ db *sql.DB }
@@ -249,6 +255,59 @@ func (r *MySQLRepository) CreateOrder(ctx context.Context, order Order) (created
 	return cloneOrder(created), nil
 }
 
+func (r *MySQLRepository) SubmitReview(ctx context.Context, review Review) (created Review, err error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Review{}, fmt.Errorf("begin review transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var orderStatus OrderStatus
+	if err = tx.QueryRowContext(ctx, queryReviewOrderForUpdate, review.UserID, review.OrderNo).Scan(&review.OrderID, &review.OrderNo, &review.UserID, &orderStatus); errors.Is(err, sql.ErrNoRows) {
+		return Review{}, ErrNotFound
+	} else if err != nil {
+		return Review{}, fmt.Errorf("lock review order: %w", err)
+	}
+	if orderStatus != Paid {
+		return Review{}, invalid("order must be paid before review")
+	}
+	if err = tx.QueryRowContext(ctx, queryReviewOrderItemForUpdate, review.OrderID, review.SKUID).Scan(&review.OrderItemID, &review.ProductID, &review.SKUID); errors.Is(err, sql.ErrNoRows) {
+		return Review{}, ErrNotFound
+	} else if err != nil {
+		return Review{}, fmt.Errorf("lock review order item: %w", err)
+	}
+
+	result, err := tx.ExecContext(ctx, insertReview, review.ReviewNo, review.OrderID, review.OrderItemID, review.OrderNo, review.UserID, review.ProductID, review.SKUID, review.Rating, review.Content, string(review.Status))
+	if err != nil {
+		if isDuplicate(err) {
+			return Review{}, &Error{Code: IdempotencyConflict, Message: "review already exists"}
+		}
+		return Review{}, fmt.Errorf("insert review: %w", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return Review{}, fmt.Errorf("read review id: %w", err)
+	}
+	review.ID = uint64(id)
+
+	eventID := uuid.NewString()
+	payload, err := reviewSubmittedPayload(eventID, review, time.Now().UTC())
+	if err != nil {
+		return Review{}, err
+	}
+	if _, err = tx.ExecContext(ctx, insertReviewOutbox, eventID, review.ReviewNo, review.OrderNo, payload); err != nil {
+		return Review{}, fmt.Errorf("insert review outbox: %w", err)
+	}
+	if err = tx.Commit(); err != nil {
+		return Review{}, fmt.Errorf("commit review transaction: %w", err)
+	}
+	return review, nil
+}
+
 type orderItemDocuments struct {
 	spec, candidates, promotion string
 }
@@ -374,6 +433,39 @@ func validOrderMoney(order Order) bool {
 		}
 	}
 	return true
+}
+
+func reviewSubmittedPayload(eventID string, review Review, occurredAt time.Time) (string, error) {
+	payload := struct {
+		EventID    string `json:"event_id"`
+		EventType  string `json:"event_type"`
+		ReviewNo   string `json:"review_no"`
+		OrderNo    string `json:"order_no"`
+		UserID     uint64 `json:"user_id"`
+		ProductID  uint64 `json:"product_id"`
+		SKUID      uint64 `json:"sku_id"`
+		Rating     uint32 `json:"rating"`
+		Content    string `json:"content"`
+		OccurredAt string `json:"occurred_at"`
+		Version    uint32 `json:"version"`
+	}{
+		EventID:    eventID,
+		EventType:  "review.submitted",
+		ReviewNo:   review.ReviewNo,
+		OrderNo:    review.OrderNo,
+		UserID:     review.UserID,
+		ProductID:  review.ProductID,
+		SKUID:      review.SKUID,
+		Rating:     review.Rating,
+		Content:    review.Content,
+		OccurredAt: occurredAt.UTC().Format(time.RFC3339Nano),
+		Version:    1,
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal review outbox payload: %w", err)
+	}
+	return string(encoded), nil
 }
 
 func validPromotion(p PromotionSnapshot) bool {

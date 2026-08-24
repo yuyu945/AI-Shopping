@@ -57,6 +57,10 @@ const (
 	Paid              OrderStatus = "PAID"
 )
 
+type ReviewStatus string
+
+const PublishedReview ReviewStatus = "PUBLISHED"
+
 // PaymentAttempt identifies the durable claim that owns an in-progress payment.
 type PaymentAttempt struct {
 	ID            string
@@ -103,6 +107,18 @@ type Order struct {
 type CreateOrderInput struct {
 	RequestID string
 	AddressID uint64
+}
+type Review struct {
+	ID, OrderID, OrderItemID, UserID, ProductID, SKUID uint64
+	ReviewNo, OrderNo, Content                         string
+	Status                                             ReviewStatus
+	Rating                                             uint32
+}
+type SubmitReviewInput struct {
+	OrderNo string
+	SKUID   uint64
+	Rating  uint32
+	Content string
 }
 
 func cloneOrder(order Order) Order {

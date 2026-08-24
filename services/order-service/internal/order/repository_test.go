@@ -375,6 +375,133 @@ func TestMySQLRepositoryCreateOrderReReadsAfterDuplicateRace(t *testing.T) {
 	}
 }
 
+func TestMySQLRepositorySubmitReviewPersistsReviewAndOutboxAtomically(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	review := Review{ReviewNo: "REV-1", OrderNo: "ORD-1", UserID: 7, SKUID: 101, Rating: 5, Content: "手感很好", Status: PublishedReview}
+
+	mock.ExpectBegin()
+	expectReviewOrderForUpdate(mock, review.UserID, review.OrderNo, Paid)
+	expectReviewOrderItemForUpdate(mock, uint64(40), review.SKUID)
+	mock.ExpectExec(regexp.QuoteMeta(insertReview)).
+		WithArgs(review.ReviewNo, uint64(40), uint64(60), review.OrderNo, review.UserID, uint64(21), review.SKUID, review.Rating, review.Content, string(PublishedReview)).
+		WillReturnResult(sqlmock.NewResult(81, 1))
+	mock.ExpectExec(regexp.QuoteMeta(insertReviewOutbox)).
+		WithArgs(sqlmock.AnyArg(), review.ReviewNo, review.OrderNo, reviewOutboxPayloadArgument{reviewNo: review.ReviewNo, orderNo: review.OrderNo, userID: review.UserID, productID: 21, skuID: review.SKUID, rating: review.Rating, content: review.Content}).
+		WillReturnResult(sqlmock.NewResult(91, 1))
+	mock.ExpectCommit()
+
+	created, err := NewMySQLRepository(db).SubmitReview(context.Background(), review)
+	if err != nil {
+		t.Fatalf("SubmitReview: %v", err)
+	}
+	if created.ID != 81 || created.OrderID != 40 || created.OrderItemID != 60 || created.ProductID != 21 || created.Status != PublishedReview {
+		t.Fatalf("created review = %#v, want persisted review facts", created)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMySQLRepositorySubmitReviewRejectsUnpaidOrder(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	review := Review{ReviewNo: "REV-1", OrderNo: "ORD-1", UserID: 7, SKUID: 101, Rating: 5, Content: "good", Status: PublishedReview}
+
+	mock.ExpectBegin()
+	expectReviewOrderForUpdate(mock, review.UserID, review.OrderNo, PendingPayment)
+	mock.ExpectRollback()
+
+	_, err = NewMySQLRepository(db).SubmitReview(context.Background(), review)
+	if !IsCode(err, InvalidArgument) {
+		t.Fatalf("SubmitReview error = %v, want INVALID_ARGUMENT", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMySQLRepositorySubmitReviewReturnsNotFoundForMissingSKU(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	review := Review{ReviewNo: "REV-1", OrderNo: "ORD-1", UserID: 7, SKUID: 999, Rating: 5, Content: "good", Status: PublishedReview}
+
+	mock.ExpectBegin()
+	expectReviewOrderForUpdate(mock, review.UserID, review.OrderNo, Paid)
+	mock.ExpectQuery(regexp.QuoteMeta(queryReviewOrderItemForUpdate)).WithArgs(uint64(40), review.SKUID).WillReturnRows(sqlmock.NewRows([]string{"id", "product_id", "sku_id"}))
+	mock.ExpectRollback()
+
+	_, err = NewMySQLRepository(db).SubmitReview(context.Background(), review)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("SubmitReview error = %v, want ErrNotFound", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMySQLRepositorySubmitReviewMapsDuplicateReview(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	review := Review{ReviewNo: "REV-1", OrderNo: "ORD-1", UserID: 7, SKUID: 101, Rating: 5, Content: "good", Status: PublishedReview}
+
+	mock.ExpectBegin()
+	expectReviewOrderForUpdate(mock, review.UserID, review.OrderNo, Paid)
+	expectReviewOrderItemForUpdate(mock, uint64(40), review.SKUID)
+	mock.ExpectExec(regexp.QuoteMeta(insertReview)).
+		WithArgs(review.ReviewNo, uint64(40), uint64(60), review.OrderNo, review.UserID, uint64(21), review.SKUID, review.Rating, review.Content, string(PublishedReview)).
+		WillReturnError(&mysql.MySQLError{Number: 1062, Message: "duplicate key"})
+	mock.ExpectRollback()
+
+	_, err = NewMySQLRepository(db).SubmitReview(context.Background(), review)
+	if !IsCode(err, IdempotencyConflict) {
+		t.Fatalf("SubmitReview error = %v, want IDEMPOTENCY_CONFLICT", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMySQLRepositorySubmitReviewRollsBackOutboxFailure(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	review := Review{ReviewNo: "REV-1", OrderNo: "ORD-1", UserID: 7, SKUID: 101, Rating: 5, Content: "good", Status: PublishedReview}
+
+	mock.ExpectBegin()
+	expectReviewOrderForUpdate(mock, review.UserID, review.OrderNo, Paid)
+	expectReviewOrderItemForUpdate(mock, uint64(40), review.SKUID)
+	mock.ExpectExec(regexp.QuoteMeta(insertReview)).
+		WithArgs(review.ReviewNo, uint64(40), uint64(60), review.OrderNo, review.UserID, uint64(21), review.SKUID, review.Rating, review.Content, string(PublishedReview)).
+		WillReturnResult(sqlmock.NewResult(81, 1))
+	mock.ExpectExec(regexp.QuoteMeta(insertReviewOutbox)).
+		WithArgs(sqlmock.AnyArg(), review.ReviewNo, review.OrderNo, sqlmock.AnyArg()).
+		WillReturnError(errors.New("outbox unavailable"))
+	mock.ExpectRollback()
+
+	_, err = NewMySQLRepository(db).SubmitReview(context.Background(), review)
+	if err == nil {
+		t.Fatal("SubmitReview error = nil, want outbox failure")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func persistedOrder() Order {
 	return Order{ID: 40, OrderNo: "ORD-1", RequestID: "request-1", UserID: 7, Status: PendingPayment, TotalAmount: "178.00", PaidAmount: "0.00", Shipping: AddressSnapshot{AddressID: 11, ReceiverName: "Ada", ReceiverPhone: "13800138000", Province: "Zhejiang", City: "Hangzhou", District: "Xihu", Detail: "No. 1"}, Items: []OrderItem{{ID: 60, ProductID: 21, SKUID: 101, ProductTitleSnapshot: "Keyboard", SKUCodeSnapshot: "KB-1", SpecSnapshot: []byte(`{"color":"black"}`), UnitPrice: "99.00", DiscountAmount: "20.00", Quantity: 2, ItemAmount: "178.00", CandidatePromotions: []PromotionSnapshot{{PromotionID: 5, RuleType: "DIRECT", DiscountAmount: "10.00"}, {PromotionID: 9, RuleType: "DIRECT", ThresholdAmount: "200.00", DiscountAmount: "5.00"}}, AppliedPromotion: &PromotionSnapshot{PromotionID: 5, RuleType: "DIRECT", DiscountAmount: "10.00"}}}}
 }
@@ -438,4 +565,56 @@ func orderItemRows(order Order) *sqlmock.Rows {
 		appliedJSON = `null`
 	}
 	return sqlmock.NewRows([]string{"id", "order_id", "product_id", "sku_id", "product_title_snapshot", "sku_code_snapshot", "sku_spec_snapshot", "candidate_promotions_snapshot", "promotion_snapshot", "unit_price", "discount_amount", "quantity", "item_amount"}).AddRow(item.ID, order.ID, item.ProductID, item.SKUID, item.ProductTitleSnapshot, item.SKUCodeSnapshot, item.SpecSnapshot, `[{"promotion_id":5,"rule_type":"DIRECT","discount_amount":"10.00"},{"promotion_id":9,"rule_type":"DIRECT","threshold_amount":"200.00","discount_amount":"5.00"}]`, appliedJSON, item.UnitPrice, item.DiscountAmount, item.Quantity, item.ItemAmount)
+}
+
+func expectReviewOrderForUpdate(mock sqlmock.Sqlmock, userID uint64, orderNo string, status OrderStatus) {
+	mock.ExpectQuery(regexp.QuoteMeta(queryReviewOrderForUpdate)).
+		WithArgs(userID, orderNo).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "order_no", "user_id", "status"}).AddRow(uint64(40), orderNo, userID, status))
+}
+
+func expectReviewOrderItemForUpdate(mock sqlmock.Sqlmock, orderID, skuID uint64) {
+	mock.ExpectQuery(regexp.QuoteMeta(queryReviewOrderItemForUpdate)).
+		WithArgs(orderID, skuID).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "product_id", "sku_id"}).AddRow(uint64(60), uint64(21), skuID))
+}
+
+type reviewOutboxPayloadArgument struct {
+	reviewNo, orderNo string
+	userID, productID uint64
+	skuID             uint64
+	rating            uint32
+	content           string
+}
+
+func (a reviewOutboxPayloadArgument) Match(value driver.Value) bool {
+	actual, ok := value.(string)
+	if !ok {
+		return false
+	}
+	var payload struct {
+		EventType  string `json:"event_type"`
+		ReviewNo   string `json:"review_no"`
+		OrderNo    string `json:"order_no"`
+		UserID     uint64 `json:"user_id"`
+		ProductID  uint64 `json:"product_id"`
+		SKUID      uint64 `json:"sku_id"`
+		Rating     uint32 `json:"rating"`
+		Content    string `json:"content"`
+		OccurredAt string `json:"occurred_at"`
+		Version    uint32 `json:"version"`
+	}
+	if err := json.Unmarshal([]byte(actual), &payload); err != nil {
+		return false
+	}
+	return payload.EventType == "review.submitted" &&
+		payload.ReviewNo == a.reviewNo &&
+		payload.OrderNo == a.orderNo &&
+		payload.UserID == a.userID &&
+		payload.ProductID == a.productID &&
+		payload.SKUID == a.skuID &&
+		payload.Rating == a.rating &&
+		payload.Content == a.content &&
+		payload.OccurredAt != "" &&
+		payload.Version == 1
 }

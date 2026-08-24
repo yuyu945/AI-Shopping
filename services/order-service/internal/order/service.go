@@ -22,6 +22,9 @@ type orderRepository interface {
 	ListOrders(context.Context, uint64) ([]Order, error)
 	CreateOrder(context.Context, Order) (Order, error)
 }
+type reviewRepository interface {
+	SubmitReview(context.Context, Review) (Review, error)
+}
 type addressReader interface {
 	GetAddress(context.Context, uint64, uint64) (AddressSnapshot, error)
 }
@@ -31,21 +34,33 @@ type productReader interface {
 
 // Service coordinates user-scoped carts and snapshot-only orders.
 type Service struct {
-	cart        cartRepository
-	orders      orderRepository
-	addresses   addressReader
-	products    productReader
-	nextOrderNo func() string
+	cart         cartRepository
+	orders       orderRepository
+	reviews      reviewRepository
+	addresses    addressReader
+	products     productReader
+	nextOrderNo  func() string
+	nextReviewNo func() string
 }
 
 func NewService(repository interface{}, addresses addressReader, products productReader) *Service {
 	var carts cartRepository
 	var orders orderRepository
+	var reviews reviewRepository
 	if repository != nil {
 		carts, _ = repository.(cartRepository)
 		orders, _ = repository.(orderRepository)
+		reviews, _ = repository.(reviewRepository)
 	}
-	return &Service{cart: carts, orders: orders, addresses: addresses, products: products, nextOrderNo: func() string { return "ORD-" + uuid.NewString() }}
+	return &Service{
+		cart:         carts,
+		orders:       orders,
+		reviews:      reviews,
+		addresses:    addresses,
+		products:     products,
+		nextOrderNo:  func() string { return "ORD-" + uuid.NewString() },
+		nextReviewNo: func() string { return "REV-" + uuid.NewString() },
+	}
 }
 func (s *Service) GetCart(ctx context.Context, userID uint64) (Cart, error) {
 	if userID == 0 {
@@ -145,6 +160,30 @@ func (s *Service) CreateOrder(ctx context.Context, userID uint64, input CreateOr
 	order := Order{OrderNo: s.nextOrderNo(), RequestID: input.RequestID, UserID: userID, Status: PendingPayment, TotalAmount: totalAmount, PaidAmount: "0.00", Shipping: address, Items: items}
 	created, err := s.orders.CreateOrder(ctx, order)
 	return created, repositoryError(err)
+}
+
+func (s *Service) SubmitReview(ctx context.Context, userID uint64, input SubmitReviewInput) (Review, error) {
+	orderNo := strings.TrimSpace(input.OrderNo)
+	content := strings.TrimSpace(input.Content)
+	if userID == 0 || orderNo == "" || input.SKUID == 0 {
+		return Review{}, invalid("order number and sku_id are required")
+	}
+	if input.Rating < 1 || input.Rating > 5 {
+		return Review{}, invalid("rating must be between 1 and 5")
+	}
+	if content == "" || len([]rune(content)) > 1000 {
+		return Review{}, invalid("content length must be between 1 and 1000")
+	}
+	review, err := s.reviews.SubmitReview(ctx, Review{
+		ReviewNo: s.nextReviewNo(),
+		OrderNo:  orderNo,
+		UserID:   userID,
+		SKUID:    input.SKUID,
+		Rating:   input.Rating,
+		Content:  content,
+		Status:   PublishedReview,
+	})
+	return review, repositoryError(err)
 }
 func orderItem(product ProductSnapshot, quantity uint32) (OrderItem, *big.Rat, error) {
 	unit, ok := parseMoney(product.UnitPrice)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -119,6 +120,65 @@ func TestCreateOrderMapsProductDependencyTimeoutToStableCode(t *testing.T) {
 	_, err := NewService(repository, repository, timeoutProductReader{}).CreateOrder(context.Background(), 7, CreateOrderInput{RequestID: "request-1", AddressID: 11})
 	if !IsCode(err, DependencyTimeout) {
 		t.Fatalf("CreateOrder() error = %v, want dependency timeout", err)
+	}
+}
+
+func TestSubmitReviewValidatesInput(t *testing.T) {
+	cases := []struct {
+		name  string
+		user  uint64
+		input SubmitReviewInput
+	}{
+		{name: "missing user", input: SubmitReviewInput{OrderNo: "ORD-1", SKUID: 101, Rating: 5, Content: "good"}},
+		{name: "missing order", user: 7, input: SubmitReviewInput{SKUID: 101, Rating: 5, Content: "good"}},
+		{name: "missing sku", user: 7, input: SubmitReviewInput{OrderNo: "ORD-1", Rating: 5, Content: "good"}},
+		{name: "zero rating", user: 7, input: SubmitReviewInput{OrderNo: "ORD-1", SKUID: 101, Rating: 0, Content: "good"}},
+		{name: "rating too high", user: 7, input: SubmitReviewInput{OrderNo: "ORD-1", SKUID: 101, Rating: 6, Content: "good"}},
+		{name: "blank content", user: 7, input: SubmitReviewInput{OrderNo: "ORD-1", SKUID: 101, Rating: 5, Content: "  \t\n"}},
+		{name: "content too long", user: 7, input: SubmitReviewInput{OrderNo: "ORD-1", SKUID: 101, Rating: 5, Content: strings.Repeat("好", 1001)}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := newMemoryRepository()
+			_, err := NewService(repo, nil, nil).SubmitReview(context.Background(), tc.user, tc.input)
+			if !IsCode(err, InvalidArgument) {
+				t.Fatalf("SubmitReview error = %v, want INVALID_ARGUMENT", err)
+			}
+			if repo.submittedReviews != 0 {
+				t.Fatalf("repository called %d times for invalid input", repo.submittedReviews)
+			}
+		})
+	}
+}
+
+func TestSubmitReviewTrimsContentAndGeneratesReviewNumber(t *testing.T) {
+	repo := newMemoryRepository()
+	service := NewService(repo, nil, nil)
+	service.nextReviewNo = func() string { return "REV-1" }
+
+	review, err := service.SubmitReview(context.Background(), 7, SubmitReviewInput{OrderNo: " ORD-1 ", SKUID: 101, Rating: 5, Content: "  手感很好  "})
+	if err != nil {
+		t.Fatalf("SubmitReview: %v", err)
+	}
+	if review.ReviewNo != "REV-1" || review.OrderNo != "ORD-1" || review.Content != "手感很好" || review.Status != PublishedReview {
+		t.Fatalf("review = %#v, want generated review with normalized content", review)
+	}
+	if repo.submittedReviews != 1 {
+		t.Fatalf("repository calls = %d, want 1", repo.submittedReviews)
+	}
+	if repo.lastReview.UserID != 7 || repo.lastReview.SKUID != 101 || repo.lastReview.Rating != 5 || repo.lastReview.ReviewNo != "REV-1" || repo.lastReview.Content != "手感很好" {
+		t.Fatalf("repository review = %#v, want normalized review", repo.lastReview)
+	}
+}
+
+func TestSubmitReviewMapsDuplicateToIdempotencyConflict(t *testing.T) {
+	repo := newMemoryRepository()
+	repo.submitReviewError = &Error{Code: IdempotencyConflict, Message: "review already exists"}
+
+	_, err := NewService(repo, nil, nil).SubmitReview(context.Background(), 7, SubmitReviewInput{OrderNo: "ORD-1", SKUID: 101, Rating: 5, Content: "good"})
+	if !IsCode(err, IdempotencyConflict) {
+		t.Fatalf("SubmitReview error = %v, want IDEMPOTENCY_CONFLICT", err)
 	}
 }
 
@@ -331,10 +391,13 @@ type memoryRepository struct {
 	carts                         map[uint64]uint64
 	items                         map[uint64]CartItem
 	orders                        map[string]Order
+	lastReview                    Review
 	address                       AddressSnapshot
 	product                       ProductSnapshot
+	submitReviewError             error
 	nextCart, nextItem, nextOrder uint64
 	createdOrders                 int
+	submittedReviews              int
 }
 
 func newMemoryRepository() *memoryRepository {
@@ -425,6 +488,17 @@ func (r *memoryRepository) CreateOrder(_ context.Context, order Order) (Order, e
 	r.orders[order.OrderNo] = cloneOrder(order)
 	r.createdOrders++
 	return order, nil
+}
+func (r *memoryRepository) SubmitReview(_ context.Context, review Review) (Review, error) {
+	r.submittedReviews++
+	r.lastReview = review
+	if r.submitReviewError != nil {
+		return Review{}, r.submitReviewError
+	}
+	if review.Status == "" {
+		review.Status = PublishedReview
+	}
+	return review, nil
 }
 func (r *memoryRepository) GetAddress(_ context.Context, userID, addressID uint64) (AddressSnapshot, error) {
 	if userID != 7 || addressID != r.address.AddressID {

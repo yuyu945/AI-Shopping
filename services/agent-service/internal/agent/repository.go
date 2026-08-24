@@ -19,6 +19,8 @@ const updateAgentRunSucceeded = `UPDATE agent_runs SET status = 'SUCCEEDED', fin
 const updateAgentRunFailed = `UPDATE agent_runs SET status = ?, step_count = ?, ended_at = ?, error_code = ?, error_message = ? WHERE id = ? AND status = 'RUNNING'`
 const queryAgentRunTimeline = `SELECT id, run_id, session_id, user_id, trace_id, user_input, status, model_name, prompt_version, step_count, final_result_json, error_code, error_message, started_at, ended_at, created_at FROM agent_runs WHERE user_id = ? AND run_id = ?`
 const queryAgentTimelineSteps = `SELECT id, run_id, step_no, step_type, tool_name, attempt, input_json, output_json, status, error_code, error_message, latency_ms, started_at, ended_at FROM agent_steps WHERE run_id = ? ORDER BY step_no ASC, attempt ASC`
+const insertRecommendationSnapshot = `INSERT INTO recommendations (run_id, rank_no, sku_id, product_id, product_title_snapshot, sku_code_snapshot, sku_spec_snapshot_json, price_snapshot, saleable_snapshot, discount_snapshot_json, reason, validation_status, created_at) VALUES (?, ?, ?, ?, ?, ?, CAST(? AS JSON), ?, ?, CAST(? AS JSON), ?, ?, ?)`
+const queryRecommendationSnapshots = `SELECT id, run_id, rank_no, sku_id, product_id, product_title_snapshot, sku_code_snapshot, sku_spec_snapshot_json, price_snapshot, saleable_snapshot, discount_snapshot_json, reason, validation_status, created_at FROM recommendations WHERE run_id = ? ORDER BY rank_no ASC`
 
 // ErrRunNotFound is returned when a run is missing or not owned by the user.
 var ErrRunNotFound = errors.New("agent run not found")
@@ -141,6 +143,70 @@ func (r *MySQLRepository) MarkRunFailed(ctx context.Context, failure RunFailure)
 	return requireOneRow(updateResult, err, "mark agent run failed")
 }
 
+// SaveRecommendations persists backend-verified recommendation snapshots for a run.
+func (r *MySQLRepository) SaveRecommendations(ctx context.Context, runDBID uint64, items []RecommendationSnapshot) (err error) {
+	if len(items) == 0 {
+		return nil
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin recommendation snapshot transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	for _, item := range items {
+		result, execErr := tx.ExecContext(
+			ctx,
+			insertRecommendationSnapshot,
+			runDBID,
+			item.RankNo,
+			item.SKUID,
+			item.ProductID,
+			item.ProductTitleSnapshot,
+			item.SKUCodeSnapshot,
+			[]byte(item.SKUSpecSnapshotJSON),
+			item.PriceSnapshot,
+			item.SaleableSnapshot,
+			[]byte(item.DiscountSnapshotJSON),
+			item.Reason,
+			item.ValidationStatus,
+			item.CreatedAt,
+		)
+		if err = requireOneRow(result, execErr, "insert recommendation snapshot"); err != nil {
+			return err
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit recommendation snapshot transaction: %w", err)
+	}
+	return nil
+}
+
+// ListRecommendations loads recommendation snapshots for a run in rank order.
+func (r *MySQLRepository) ListRecommendations(ctx context.Context, runDBID uint64) ([]RecommendationSnapshot, error) {
+	rows, err := r.db.QueryContext(ctx, queryRecommendationSnapshots, runDBID)
+	if err != nil {
+		return nil, fmt.Errorf("read recommendation snapshots: %w", err)
+	}
+	defer rows.Close()
+	items := make([]RecommendationSnapshot, 0)
+	for rows.Next() {
+		item, err := scanRecommendation(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read recommendation snapshot rows: %w", err)
+	}
+	return items, nil
+}
+
 // GetRunTimeline loads an owned run with ordered steps.
 func (r *MySQLRepository) GetRunTimeline(ctx context.Context, userID uint64, runID string) (RunTimeline, error) {
 	run, err := scanRun(r.db.QueryRowContext(ctx, queryAgentRunTimeline, userID, runID))
@@ -166,7 +232,11 @@ func (r *MySQLRepository) GetRunTimeline(ctx context.Context, userID uint64, run
 	if err := rows.Err(); err != nil {
 		return RunTimeline{}, fmt.Errorf("read agent timeline step rows: %w", err)
 	}
-	return RunTimeline{Run: run, Steps: steps}, nil
+	recommendations, err := r.ListRecommendations(ctx, run.ID)
+	if err != nil {
+		return RunTimeline{}, err
+	}
+	return RunTimeline{Run: run, Steps: steps, Recommendations: recommendations}, nil
 }
 
 type scanner interface {
@@ -227,12 +297,42 @@ func scanStep(row scanner) (Step, error) {
 	return step, nil
 }
 
+func scanRecommendation(row scanner) (RecommendationSnapshot, error) {
+	var item RecommendationSnapshot
+	var specJSON, discountJSON []byte
+	if err := row.Scan(
+		&item.ID,
+		&item.RunDBID,
+		&item.RankNo,
+		&item.SKUID,
+		&item.ProductID,
+		&item.ProductTitleSnapshot,
+		&item.SKUCodeSnapshot,
+		&specJSON,
+		&item.PriceSnapshot,
+		&item.SaleableSnapshot,
+		&discountJSON,
+		&item.Reason,
+		&item.ValidationStatus,
+		&item.CreatedAt,
+	); err != nil {
+		return RecommendationSnapshot{}, fmt.Errorf("scan recommendation snapshot: %w", err)
+	}
+	item.SKUSpecSnapshotJSON = copyJSON(specJSON)
+	item.DiscountSnapshotJSON = copyJSON(discountJSON)
+	return item, nil
+}
+
 func runTimelineColumns() []string {
 	return []string{"id", "run_id", "session_id", "user_id", "trace_id", "user_input", "status", "model_name", "prompt_version", "step_count", "final_result_json", "error_code", "error_message", "started_at", "ended_at", "created_at"}
 }
 
 func stepColumns() []string {
 	return []string{"id", "run_id", "step_no", "step_type", "tool_name", "attempt", "input_json", "output_json", "status", "error_code", "error_message", "latency_ms", "started_at", "ended_at"}
+}
+
+func recommendationColumns() []string {
+	return []string{"id", "run_id", "rank_no", "sku_id", "product_id", "product_title_snapshot", "sku_code_snapshot", "sku_spec_snapshot_json", "price_snapshot", "saleable_snapshot", "discount_snapshot_json", "reason", "validation_status", "created_at"}
 }
 
 func titleFromInput(input string) string {

@@ -89,6 +89,30 @@ func TestRepositoryMarksRunAndStepTerminal(t *testing.T) {
 	assertSQLExpectations(t, mock)
 }
 
+func TestRepositorySavesRecommendationSnapshots(t *testing.T) {
+	db, mock := newRepositoryMock(t)
+	now := time.Date(2026, 8, 24, 10, 0, 0, 0, time.UTC)
+	repository := NewMySQLRepository(db)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(insertRecommendationSnapshot)).
+		WithArgs(uint64(300), uint32(1), uint64(2001), uint64(1001), "轻薄笔记本", "LAPTOP-16G", []byte(`{"memory":"16G"}`), "4999.00", true, []byte(`[{"promotion_id":3001}]`), "适合编程", RecommendationVerified, now).
+		WillReturnResult(sqlmock.NewResult(500, 1))
+	mock.ExpectCommit()
+
+	err := repository.SaveRecommendations(context.Background(), 300, []RecommendationSnapshot{{
+		RunDBID: 300, RankNo: 1, SKUID: 2001, ProductID: 1001,
+		ProductTitleSnapshot: "轻薄笔记本", SKUCodeSnapshot: "LAPTOP-16G",
+		SKUSpecSnapshotJSON: []byte(`{"memory":"16G"}`), PriceSnapshot: "4999.00",
+		SaleableSnapshot: true, DiscountSnapshotJSON: []byte(`[{"promotion_id":3001}]`),
+		Reason: "适合编程", ValidationStatus: RecommendationVerified, CreatedAt: now,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSQLExpectations(t, mock)
+}
+
 func TestRepositoryLoadsRunTimelineForOwner(t *testing.T) {
 	db, mock := newRepositoryMock(t)
 	now := time.Date(2026, 8, 23, 10, 3, 0, 0, time.UTC)
@@ -100,12 +124,40 @@ func TestRepositoryLoadsRunTimelineForOwner(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(queryAgentTimelineSteps)).
 		WithArgs(uint64(300)).
 		WillReturnRows(sqlmock.NewRows(stepColumns()).AddRow(uint64(400), uint64(300), uint32(1), StepTypeTool, sql.NullString{String: "search_products", Valid: true}, uint32(1), []byte(`{"keyword":"laptop"}`), []byte(`{"count":3}`), StepSucceeded, nil, nil, uint32(25), now, now))
+	mock.ExpectQuery(regexp.QuoteMeta(queryRecommendationSnapshots)).
+		WithArgs(uint64(300)).
+		WillReturnRows(sqlmock.NewRows(recommendationColumns()))
 
 	timeline, err := repository.GetRunTimeline(context.Background(), 42, "run_1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if timeline.Run.RunID != "run_1" || len(timeline.Steps) != 1 || timeline.Steps[0].ToolName != "search_products" {
+		t.Fatalf("timeline=%#v", timeline)
+	}
+	assertSQLExpectations(t, mock)
+}
+
+func TestRepositoryLoadsRunTimelineWithRecommendations(t *testing.T) {
+	db, mock := newRepositoryMock(t)
+	now := time.Date(2026, 8, 24, 10, 1, 0, 0, time.UTC)
+	repository := NewMySQLRepository(db)
+
+	mock.ExpectQuery(regexp.QuoteMeta(queryAgentRunTimeline)).
+		WithArgs(uint64(42), "run_1").
+		WillReturnRows(sqlmock.NewRows(runTimelineColumns()).AddRow(uint64(300), "run_1", uint64(100), uint64(42), "trace_1", "input", RunSucceeded, "fake", "m4.2-v1", uint32(1), []byte(`{"recommendations":[{"sku_id":2001}]}`), nil, nil, now, now, now))
+	mock.ExpectQuery(regexp.QuoteMeta(queryAgentTimelineSteps)).
+		WithArgs(uint64(300)).
+		WillReturnRows(sqlmock.NewRows(stepColumns()))
+	mock.ExpectQuery(regexp.QuoteMeta(queryRecommendationSnapshots)).
+		WithArgs(uint64(300)).
+		WillReturnRows(sqlmock.NewRows(recommendationColumns()).AddRow(uint64(500), uint64(300), uint32(1), uint64(2001), uint64(1001), "轻薄笔记本", "LAPTOP-16G", []byte(`{"memory":"16G"}`), "4999.00", true, []byte(`[{"promotion_id":3001}]`), "适合编程", RecommendationVerified, now))
+
+	timeline, err := repository.GetRunTimeline(context.Background(), 42, "run_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(timeline.Recommendations) != 1 || timeline.Recommendations[0].SKUID != 2001 {
 		t.Fatalf("timeline=%#v", timeline)
 	}
 	assertSQLExpectations(t, mock)

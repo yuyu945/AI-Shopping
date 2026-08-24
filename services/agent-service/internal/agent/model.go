@@ -150,8 +150,9 @@ type RunFailure struct {
 
 // RunTimeline is a Run plus its ordered Step records.
 type RunTimeline struct {
-	Run   Run
-	Steps []Step
+	Run             Run
+	Steps           []Step
+	Recommendations []RecommendationSnapshot
 }
 
 // FinalRecommendationOutput is the only accepted model final recommendation shape.

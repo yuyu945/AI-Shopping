@@ -136,6 +136,12 @@
 - [x] 同一 transaction 写入 `review.events` Outbox，失败时评价与事件一起回滚。
 - [x] Gateway 暴露 `POST /api/v1/orders/{order_no}/items/{sku_id}/reviews`；Kafka 发布和分析消费留到后续阶段。
 
+#### M5.2b Review Events Kafka Analytics（已完成）
+
+- [x] `order-service` Outbox worker 支持发布 `review.events` 到 Kafka，保留库存确认事件发布语义。
+- [x] `review.events` consumer 使用 `(event_id, consumer_group)` 幂等，写入最小评价事件明细和商品评分统计。
+- [x] 畸形评价事件进入 `review.events.deadletter`；行为事件和运营 UI 留到后续阶段。
+
 - [ ] 实现资料列表、上传、版本详情、处理状态、失败原因和重试操作。
 - [ ] 实现 Agent Run 列表、状态筛选、Run 详情、Step 时间线、`trace_id` 展示与脱敏详情。
 - [ ] 实现评价提交后的 `review.events` 与用户行为 `behavior.events`，以 Outbox 投递 Kafka。

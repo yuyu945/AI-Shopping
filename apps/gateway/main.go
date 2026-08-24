@@ -1,11 +1,18 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
+	"strings"
+	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/agentclient"
+	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/behavior"
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/handler"
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/knowledgeclient"
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/middleware"
@@ -91,11 +98,36 @@ func main() {
 	if err != nil {
 		log.Fatalf("gateway jwt configuration: invalid")
 	}
-	productHandler := handler.NewProductHandler(productclient.NewGRPCClient(productRPC.Conn()))
+	var behaviorRecorder *behavior.MySQLRepository
+	var behaviorWorker *behavior.Worker
+	var behaviorPublisher *behavior.KafkaPublisher
+	if runtimeConfig.MySQLDSN != "" && runtimeConfig.KafkaBrokers != "" {
+		dsn, err := tradeDSN(runtimeConfig.MySQLDSN)
+		if err != nil {
+			log.Fatalf("gateway validate behavior database: invalid DSN")
+		}
+		behaviorDB, err := sql.Open("mysql", dsn)
+		if err != nil {
+			log.Fatalf("gateway open behavior database: %v", err)
+		}
+		defer behaviorDB.Close()
+		behaviorRecorder = behavior.NewMySQLRepository(behaviorDB)
+		behaviorPublisher = behavior.NewKafkaPublisher(strings.Split(runtimeConfig.KafkaBrokers, ","))
+		defer behaviorPublisher.Close()
+		behaviorWorker = behavior.NewWorker(behaviorRecorder, behaviorPublisher, behavior.Config{BatchSize: 20, LeaseDuration: 30 * time.Second, CallTimeout: time.Second})
+		workerCtx, cancelWorker := context.WithCancel(context.Background())
+		defer cancelWorker()
+		go func() {
+			if err := behaviorWorker.Run(workerCtx, time.Second); err != nil && err != context.Canceled {
+				log.Printf("gateway behavior outbox worker stopped")
+			}
+		}()
+	}
+	productHandler := handler.NewProductHandlerWithBehavior(productclient.NewGRPCClient(productRPC.Conn()), behaviorRecorder)
 	userHandler := handler.NewUserHandler(userclient.NewGRPCClient(userRPC.Conn()))
-	orderHandler := handler.NewOrderHandler(orderclient.NewGRPCClient(orderRPC.Conn()))
+	orderHandler := handler.NewOrderHandlerWithBehavior(orderclient.NewGRPCClient(orderRPC.Conn()), behaviorRecorder)
 	knowledgeHandler := handler.NewKnowledgeHandler(knowledgeclient.NewGRPCClient(knowledgeRPC.Conn()))
-	agentHandler := handler.NewAgentHandler(agentclient.NewGRPCClient(agentRPC.Conn()))
+	agentHandler := handler.NewAgentHandlerWithBehavior(agentclient.NewGRPCClient(agentRPC.Conn()), behaviorRecorder)
 	authMiddleware := middleware.NewAuthMiddleware(manager)
 
 	server := rest.MustNewServer(config.RestConf, rest.WithRouter(middleware.NewTraceRouter(router.NewRouter())))
@@ -137,4 +169,13 @@ func main() {
 	server.AddRoute(rest.Route{Method: http.MethodGet, Path: "/api/v1/ops/agent-runs/:run_id", Handler: authMiddleware.Wrap(handler.RequireOperatorHeader(agentHandler.OpsRun()))})
 	server.AddRoute(rest.Route{Method: http.MethodGet, Path: "/api/v1/ops/events/overview", Handler: authMiddleware.Wrap(handler.RequireOperatorHeader(orderHandler.OpsEventsOverview()))})
 	server.Start()
+}
+
+func tradeDSN(dsn string) (string, error) {
+	c, err := mysql.ParseDSN(dsn)
+	if err != nil {
+		return "", fmt.Errorf("parse mysql dsn: %w", err)
+	}
+	c.DBName = "trade_db"
+	return c.FormatDSN(), nil
 }

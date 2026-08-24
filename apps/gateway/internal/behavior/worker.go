@@ -18,6 +18,25 @@ type Publisher interface {
 	Publish(context.Context, kafka.Message) error
 }
 
+type KafkaPublisher struct {
+	writer *kafka.Writer
+}
+
+func NewKafkaPublisher(brokers []string) *KafkaPublisher {
+	return &KafkaPublisher{writer: &kafka.Writer{Addr: kafka.TCP(brokers...), RequiredAcks: kafka.RequireAll, Async: false}}
+}
+
+func (p *KafkaPublisher) Publish(ctx context.Context, message kafka.Message) error {
+	return p.writer.WriteMessages(ctx, message)
+}
+
+func (p *KafkaPublisher) Close() error {
+	if p == nil || p.writer == nil {
+		return nil
+	}
+	return p.writer.Close()
+}
+
 type Config struct {
 	BatchSize     int
 	LeaseDuration time.Duration

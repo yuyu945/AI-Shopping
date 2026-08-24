@@ -14,11 +14,16 @@ import (
 )
 
 type AgentHandler struct {
-	client agentclient.Client
+	client   agentclient.Client
+	behavior BehaviorRecorder
 }
 
 func NewAgentHandler(client agentclient.Client) *AgentHandler {
 	return &AgentHandler{client: client}
+}
+
+func NewAgentHandlerWithBehavior(client agentclient.Client, recorder BehaviorRecorder) *AgentHandler {
+	return &AgentHandler{client: client, behavior: recorder}
 }
 
 func (h *AgentHandler) Runs() http.HandlerFunc {
@@ -47,6 +52,9 @@ func (h *AgentHandler) Runs() http.HandlerFunc {
 		if err != nil {
 			writeAgentError(w, err)
 			return
+		}
+		if out.GetRun() != nil {
+			recordBehavior(r.Context(), h.behavior, "agent.run_started", "agent_run", out.GetRun().GetRunId(), requestStatusPayload(out.GetRun().GetStatus()))
 		}
 		writeJSONValue(w, http.StatusOK, map[string]any{"run": agentRunJSON(out.GetRun())})
 	}

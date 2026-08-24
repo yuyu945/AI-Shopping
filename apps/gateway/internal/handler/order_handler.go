@@ -11,9 +11,15 @@ import (
 	"strings"
 )
 
-type OrderHandler struct{ client orderclient.Client }
+type OrderHandler struct {
+	client   orderclient.Client
+	behavior BehaviorRecorder
+}
 
-func NewOrderHandler(c orderclient.Client) *OrderHandler { return &OrderHandler{c} }
+func NewOrderHandler(c orderclient.Client) *OrderHandler { return &OrderHandler{client: c} }
+func NewOrderHandlerWithBehavior(c orderclient.Client, recorder BehaviorRecorder) *OrderHandler {
+	return &OrderHandler{client: c, behavior: recorder}
+}
 func (h *OrderHandler) Cart() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if h.client == nil {
@@ -43,6 +49,7 @@ func (h *OrderHandler) Cart() http.HandlerFunc {
 			writeOrderError(w, e)
 			return
 		}
+		recordBehavior(r.Context(), h.behavior, "cart.item_added", "sku", uintResourceID(v.SKUID), map[string]any{"sku_id": v.SKUID, "quantity": v.Quantity, "version": 1})
 		writeJSONValue(w, http.StatusOK, map[string]any{"item": cartItemJSON(out.GetItem())})
 	}
 }
@@ -99,6 +106,9 @@ func (h *OrderHandler) Orders() http.HandlerFunc {
 			writeOrderError(w, e)
 			return
 		}
+		if out.GetOrder() != nil {
+			recordBehavior(r.Context(), h.behavior, "order.created", "order", out.GetOrder().GetOrderNo(), requestStatusPayload(out.GetOrder().GetStatus()))
+		}
 		writeJSONValue(w, http.StatusOK, map[string]any{"order": orderJSON(out.GetOrder())})
 	}
 }
@@ -132,6 +142,9 @@ func (h *OrderHandler) WalletPayment() http.HandlerFunc {
 		if err != nil {
 			writeOrderError(w, err)
 			return
+		}
+		if out.GetOrder() != nil {
+			recordBehavior(r.Context(), h.behavior, "payment.submitted", "order", out.GetOrder().GetOrderNo(), requestStatusPayload(out.GetOrder().GetStatus()))
 		}
 		writeJSONValue(w, http.StatusOK, map[string]any{"order": orderJSON(out.GetOrder())})
 	}

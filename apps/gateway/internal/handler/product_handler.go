@@ -12,10 +12,17 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type ProductHandler struct{ client productclient.Client }
+type ProductHandler struct {
+	client   productclient.Client
+	behavior BehaviorRecorder
+}
 
 func NewProductHandler(client productclient.Client) *ProductHandler {
 	return &ProductHandler{client: client}
+}
+
+func NewProductHandlerWithBehavior(client productclient.Client, recorder BehaviorRecorder) *ProductHandler {
+	return &ProductHandler{client: client, behavior: recorder}
 }
 
 func (h *ProductHandler) List() http.HandlerFunc {
@@ -81,6 +88,7 @@ func (h *ProductHandler) Get() http.HandlerFunc {
 			writeProductError(writer, err)
 			return
 		}
+		recordBehavior(request.Context(), h.behavior, "product.viewed", "product", uintResourceID(productID), map[string]any{"product_id": productID, "version": 1})
 		writeJSONValue(writer, http.StatusOK, map[string]any{"product": mapProductJSON(result.GetProduct())})
 	}
 }

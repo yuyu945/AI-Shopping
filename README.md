@@ -11,6 +11,19 @@ M1 已完成：Go-zero Gateway 与五个服务启动骨架、共享运行时基�
 
 应用运行时需要独立的 `AI_SHOPPING_MINIO_ACCESS_KEY` 和 `AI_SHOPPING_MINIO_SECRET_KEY` 连接 MinIO；Docker Compose 的 `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` 只负责本地依赖初始化。二者可以在本地开发环境中使用同一组临时值，但都必须来自本地环境或秘密管理，不能写入代码或日志。
 
+## Web app
+
+M5.1c 新增用户端 React/Vite app，位于 `apps/web`。它通过 `VITE_API_BASE_URL` 调用 Go-zero Gateway，默认本地地址为 `http://localhost:8080`。
+
+```powershell
+npm --prefix apps/web install
+npm --prefix apps/web run dev
+npm --prefix apps/web test -- --run
+npm --prefix apps/web run build
+```
+
+用户端页面覆盖登录/注册、商品列表、商品详情与 SKU 切换、商品知识问答来源展示、AI Guide SSE/replay 推荐、购物车、订单确认、余额支付恢复、订单列表/详情和评价提交。前端只渲染 Gateway 返回的价格、库存、优惠、订单和推荐快照；支付超时或网络未知时先回查订单状态，不在浏览器本地推断支付结果。
+
 ## M3.1 知识库上传与 Outbox
 
 已有 MySQL volume 不会重新执行 `deploy/mysql/init`。设置指向 `knowledge_db` 的 `AI_SHOPPING_MYSQL_DSN` 后，运行：

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { Product } from "../api/client";
 import App from "../App";
+import AuthPage from "./AuthPage";
 import CheckoutPage from "./CheckoutPage";
 import GuidePage from "./GuidePage";
 import OrdersPage from "./OrdersPage";
@@ -19,6 +20,24 @@ describe("App shell", () => {
     expect(screen.getByRole("link", { name: "Cart" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Orders" })).toBeInTheDocument();
     expect(screen.getByText("导购精选，正在更新")).toBeInTheDocument();
+  });
+});
+
+describe("Auth page", () => {
+  it("stores access token after login", async () => {
+    const api = {
+      login: vi.fn().mockResolvedValue({ access_token: "jwt-token" }),
+      register: vi.fn(),
+      setToken: vi.fn(),
+    };
+    render(<AuthPage api={api} />);
+
+    await userEvent.type(screen.getByLabelText("Email"), "user@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "secret-password");
+    await userEvent.click(screen.getByRole("button", { name: "Login" }));
+
+    expect(api.setToken).toHaveBeenCalledWith("jwt-token");
+    expect(await screen.findByText("已登录。")).toBeInTheDocument();
   });
 });
 

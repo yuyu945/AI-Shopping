@@ -506,6 +506,41 @@ textarea {
   gap: 8px;
 }
 
+.authPanel {
+  width: min(460px, 100%);
+  display: grid;
+  gap: 14px;
+  margin: 0 auto;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 4px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.segmented button {
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+}
+
+.segmented button.selected {
+  color: var(--accent-strong);
+  background: #ffffff;
+  border-color: var(--border);
+}
+
 .productCard {
   min-height: 244px;
   overflow: hidden;

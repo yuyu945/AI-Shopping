@@ -137,6 +137,218 @@ textarea {
   margin-top: 20px;
 }
 
+.pageStack {
+  display: grid;
+  gap: 18px;
+}
+
+.compactBanner {
+  min-height: 104px;
+}
+
+.compactBanner h1 {
+  font-size: clamp(24px, 3vw, 34px);
+}
+
+.toolbar {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: end;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.fieldLabel {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.fieldLabel input,
+.fieldLabel textarea,
+.fieldLabel select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: var(--ink);
+  background: #ffffff;
+}
+
+.productGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.cardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.cardFooter a,
+.secondaryButton,
+.primaryButton {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  padding: 0 12px;
+  font-weight: 700;
+}
+
+.cardFooter a,
+.secondaryButton {
+  border: 1px solid var(--border);
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.primaryButton {
+  border: 1px solid var(--accent-strong);
+  color: #ffffff;
+  background: var(--accent-strong);
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.statePanel {
+  padding: 16px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.skeletonCard {
+  pointer-events: none;
+}
+
+.skeletonLine {
+  height: 12px;
+  margin: 10px 0;
+  background: #e6edf5;
+  border-radius: 999px;
+}
+
+.skeletonLine.short {
+  width: 42%;
+}
+
+.detailLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.8fr);
+  gap: 18px;
+}
+
+.detailMain,
+.sidePanel,
+.textPanel {
+  padding: 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.detailMain h1,
+.sidePanel h2,
+.textPanel h2 {
+  margin: 0 0 10px;
+  letter-spacing: 0;
+}
+
+.skuPanel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0;
+}
+
+.skuButton {
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0 12px;
+  background: #ffffff;
+}
+
+.skuButton.selected {
+  border-color: var(--accent-strong);
+  color: var(--accent-strong);
+  background: #fff1ef;
+}
+
+.factGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.factGrid div {
+  min-height: 76px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  padding: 12px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.factGrid span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.successText {
+  color: var(--success);
+  font-weight: 700;
+}
+
+.textPanel {
+  margin-top: 16px;
+}
+
+.sidePanel {
+  align-self: start;
+  display: grid;
+  gap: 12px;
+}
+
+.sourceList {
+  display: grid;
+  gap: 10px;
+}
+
+.sourceItem {
+  padding: 12px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.sourceItem span {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .productCard {
   min-height: 244px;
   overflow: hidden;
@@ -206,6 +418,13 @@ textarea {
   }
 
   .prototypeGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .toolbar,
+  .detailLayout,
+  .factGrid,
+  .productGrid {
     grid-template-columns: 1fr;
   }
 }

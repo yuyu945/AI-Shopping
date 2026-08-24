@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/agentclient"
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/handler"
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/knowledgeclient"
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/middleware"
@@ -13,6 +14,7 @@ import (
 	"github.com/yuyu945/AI-Shopping/apps/gateway/internal/userclient"
 	platformauth "github.com/yuyu945/AI-Shopping/internal/platform/auth"
 	platformconfig "github.com/yuyu945/AI-Shopping/internal/platform/config"
+	agentpb "github.com/yuyu945/AI-Shopping/services/agent-service/gen"
 	knowledgepb "github.com/yuyu945/AI-Shopping/services/knowledge-service/gen"
 	orderpb "github.com/yuyu945/AI-Shopping/services/order-service/gen"
 	userpb "github.com/yuyu945/AI-Shopping/services/user-service/gen"
@@ -28,6 +30,7 @@ type gatewayConfig struct {
 	UserRPC      zrpc.RpcClientConf
 	OrderRPC     zrpc.RpcClientConf
 	KnowledgeRPC zrpc.RpcClientConf
+	AgentRPC     zrpc.RpcClientConf
 }
 
 func main() {
@@ -63,6 +66,11 @@ func main() {
 		log.Fatalf("gateway connect knowledge service: %v", err)
 	}
 	defer knowledgeRPC.Conn().Close()
+	agentRPC, err := zrpc.NewClient(config.AgentRPC)
+	if err != nil {
+		log.Fatalf("gateway connect agent service: %v", err)
+	}
+	defer agentRPC.Conn().Close()
 	zrpc.DontLogClientContentForMethod(userpb.UserService_Register_FullMethodName)
 	zrpc.DontLogClientContentForMethod(userpb.UserService_Login_FullMethodName)
 	zrpc.DontLogClientContentForMethod(orderpb.OrderService_CreateOrder_FullMethodName)
@@ -70,6 +78,8 @@ func main() {
 	zrpc.DontLogClientContentForMethod(orderpb.OrderService_GetOrder_FullMethodName)
 	zrpc.DontLogClientContentForMethod(orderpb.OrderService_ListOrders_FullMethodName)
 	zrpc.DontLogClientContentForMethod(knowledgepb.KnowledgeService_UploadDocument_FullMethodName)
+	zrpc.DontLogClientContentForMethod(agentpb.AgentService_StartRun_FullMethodName)
+	zrpc.DontLogClientContentForMethod(agentpb.AgentService_GetRun_FullMethodName)
 	manager, err := platformauth.NewManager([]byte(runtimeConfig.JWTSecret))
 	if err != nil {
 		log.Fatalf("gateway jwt configuration: invalid")
@@ -78,6 +88,7 @@ func main() {
 	userHandler := handler.NewUserHandler(userclient.NewGRPCClient(userRPC.Conn()))
 	orderHandler := handler.NewOrderHandler(orderclient.NewGRPCClient(orderRPC.Conn()))
 	knowledgeHandler := handler.NewKnowledgeHandler(knowledgeclient.NewGRPCClient(knowledgeRPC.Conn()))
+	agentHandler := handler.NewAgentHandler(agentclient.NewGRPCClient(agentRPC.Conn()))
 	authMiddleware := middleware.NewAuthMiddleware(manager)
 
 	server := rest.MustNewServer(config.RestConf, rest.WithRouter(middleware.NewTraceRouter(router.NewRouter())))
@@ -106,5 +117,8 @@ func main() {
 	server.AddRoute(rest.Route{Method: http.MethodGet, Path: "/api/v1/orders/:order_no", Handler: authMiddleware.Wrap(orderHandler.Order())})
 	server.AddRoute(rest.Route{Method: http.MethodPost, Path: "/api/v1/orders/:order_no/payments/wallet", Handler: authMiddleware.Wrap(orderHandler.WalletPayment())})
 	server.AddRoute(rest.Route{Method: http.MethodPost, Path: "/api/v1/knowledge/documents", Handler: authMiddleware.Wrap(knowledgeHandler.Documents())})
+	server.AddRoute(rest.Route{Method: http.MethodPost, Path: "/api/v1/agent/runs", Handler: authMiddleware.Wrap(agentHandler.Runs())})
+	server.AddRoute(rest.Route{Method: http.MethodGet, Path: "/api/v1/agent/runs/:run_id", Handler: authMiddleware.Wrap(agentHandler.Run())})
+	server.AddRoute(rest.Route{Method: http.MethodGet, Path: "/api/v1/agent/runs/:run_id/events", Handler: authMiddleware.Wrap(agentHandler.Events())})
 	server.Start()
 }

@@ -25,6 +25,20 @@ func TestOrderServiceConfigBuildsPaymentRecoveryWorkerConfig(t *testing.T) {
 	}
 }
 
+func TestOrderServiceConfigBuildsReviewAnalyticsConfig(t *testing.T) {
+	var serviceConfig orderServiceConfig
+	if err := conf.Load("../etc/order-service.yaml", &serviceConfig); err != nil {
+		t.Fatal(err)
+	}
+	got := serviceConfig.reviewAnalyticsConfig()
+	if !got.Enabled || got.CallTimeout != time.Second {
+		t.Fatalf("reviewAnalyticsConfig() = %#v", got)
+	}
+	if err := got.Validate(); err != nil {
+		t.Fatalf("reviewAnalyticsConfig().Validate() error = %v", err)
+	}
+}
+
 func TestOrderServicePaymentRecoveryConfigRejectsLeaseBelowBatchBudget(t *testing.T) {
 	config := orderServiceConfig{PaymentRecovery: paymentRecoveryConfig{
 		BatchSize:     20,

@@ -20,3 +20,6 @@ PaymentRecovery:
   BatchSize: 20
   LeaseDuration: 4m
   CallTimeout: 2s
+ReviewAnalytics:
+  Enabled: true
+  CallTimeout: 1s

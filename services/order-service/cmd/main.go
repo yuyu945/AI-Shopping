@@ -15,6 +15,7 @@ import (
 	platformauth "github.com/yuyu945/AI-Shopping/internal/platform/auth"
 	platformconfig "github.com/yuyu945/AI-Shopping/internal/platform/config"
 	orderpb "github.com/yuyu945/AI-Shopping/services/order-service/gen"
+	"github.com/yuyu945/AI-Shopping/services/order-service/internal/analytics"
 	orderclient "github.com/yuyu945/AI-Shopping/services/order-service/internal/client"
 	"github.com/yuyu945/AI-Shopping/services/order-service/internal/order"
 	"github.com/yuyu945/AI-Shopping/services/order-service/internal/outbox"
@@ -33,6 +34,7 @@ type orderServiceConfig struct {
 	ProductRPC         zrpc.RpcClientConf
 	ConfirmationOutbox confirmationOutboxConfig
 	PaymentRecovery    paymentRecoveryConfig
+	ReviewAnalytics    reviewAnalyticsConfig
 }
 
 type confirmationOutboxConfig struct {
@@ -49,6 +51,11 @@ type paymentRecoveryConfig struct {
 	CallTimeout   time.Duration
 }
 
+type reviewAnalyticsConfig struct {
+	Enabled     bool
+	CallTimeout time.Duration
+}
+
 func (c orderServiceConfig) confirmationOutboxWorkerConfig() outbox.Config {
 	return outbox.Config{
 		BatchSize:     c.ConfirmationOutbox.BatchSize,
@@ -63,6 +70,17 @@ func (c orderServiceConfig) paymentRecoveryWorkerConfig() recovery.Config {
 		LeaseDuration: c.PaymentRecovery.LeaseDuration,
 		CallTimeout:   c.PaymentRecovery.CallTimeout,
 	}
+}
+
+func (c orderServiceConfig) reviewAnalyticsConfig() reviewAnalyticsConfig {
+	return c.ReviewAnalytics
+}
+
+func (c reviewAnalyticsConfig) Validate() error {
+	if c.Enabled && c.CallTimeout <= 0 {
+		return errors.New("review analytics call timeout must be positive")
+	}
+	return nil
 }
 
 func (c orderServiceConfig) validatePaymentRecoveryStartupConfig() error {
@@ -88,6 +106,9 @@ func main() {
 	recoveryConfig := config.paymentRecoveryWorkerConfig()
 	if err := config.validatePaymentRecoveryStartupConfig(); err != nil {
 		log.Fatalf("%s startup: invalid payment recovery configuration", SERVICE_NAME)
+	}
+	if err := config.reviewAnalyticsConfig().Validate(); err != nil {
+		log.Fatalf("%s startup: invalid review analytics configuration", SERVICE_NAME)
 	}
 	runtimeConfig, err := platformconfig.Load()
 	if err != nil {
@@ -133,11 +154,17 @@ func main() {
 	publisher := outbox.NewKafkaPublisher(strings.Split(runtimeConfig.KafkaBrokers, ","))
 	defer publisher.Close()
 	confirmationWorker := outbox.NewWorker(outbox.NewMySQLRepository(db), publisher, outboxConfig)
+	var reviewConsumer *analytics.ReviewConsumer
+	if config.ReviewAnalytics.Enabled {
+		reviewConsumer = analytics.NewReviewConsumer(strings.Split(runtimeConfig.KafkaBrokers, ","), analytics.NewMySQLRepository(db), config.ReviewAnalytics.CallTimeout)
+		defer reviewConsumer.Close()
+	}
 	recoveryWorker := recovery.NewWorker(recovery.NewMySQLStore(db), orderclient.NewReservationClient(productRPC.Conn(), runtimeConfig.InternalServiceToken, config.PaymentRecovery.CallTimeout), recovery.PaymentServiceSettler{Service: payment}, recoveryConfig)
 	zrpc.DontLogContentForMethod(orderpb.OrderService_CreateOrder_FullMethodName)
 	zrpc.DontLogContentForMethod(orderpb.OrderService_PayWallet_FullMethodName)
 	zrpc.DontLogContentForMethod(orderpb.OrderService_GetOrder_FullMethodName)
 	zrpc.DontLogContentForMethod(orderpb.OrderService_ListOrders_FullMethodName)
+	zrpc.DontLogContentForMethod(orderpb.OrderService_SubmitReview_FullMethodName)
 	server, err := zrpc.NewServer(config.RpcServerConf, func(g *grpc.Server) {
 		orderpb.RegisterOrderServiceServer(g, orderserver.NewGRPCServerWithPaymentAndSettlement(service, payment, repository, manager, timeout, runtimeConfig.InternalServiceToken))
 	})
@@ -157,6 +184,13 @@ func main() {
 			log.Printf("%s payment recovery worker stopped", SERVICE_NAME)
 		}
 	}()
+	if reviewConsumer != nil {
+		go func() {
+			if err := reviewConsumer.Run(workerCtx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Printf("%s review analytics consumer stopped", SERVICE_NAME)
+			}
+		}()
+	}
 	server.Start()
 }
 

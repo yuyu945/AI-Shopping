@@ -16,6 +16,7 @@ const knowledgeCallTimeout = 2 * time.Second
 
 type Client interface {
 	UploadDocument(context.Context, *knowledgepb.UploadDocumentRequest) (*knowledgepb.UploadDocumentResponse, error)
+	SearchProductKnowledge(context.Context, *knowledgepb.SearchProductKnowledgeRequest) (*knowledgepb.SearchProductKnowledgeResponse, error)
 }
 
 type grpcClient struct {
@@ -27,15 +28,26 @@ func NewGRPCClient(conn grpc.ClientConnInterface) Client {
 }
 
 func (c *grpcClient) UploadDocument(parent context.Context, req *knowledgepb.UploadDocumentRequest) (*knowledgepb.UploadDocumentResponse, error) {
-	ctx, cancel := context.WithTimeout(parent, knowledgeCallTimeout)
+	ctx, cancel := c.auth(parent)
 	defer cancel()
+	return c.client.UploadDocument(ctx, req)
+}
+
+func (c *grpcClient) SearchProductKnowledge(parent context.Context, req *knowledgepb.SearchProductKnowledgeRequest) (*knowledgepb.SearchProductKnowledgeResponse, error) {
+	ctx, cancel := c.auth(parent)
+	defer cancel()
+	return c.client.SearchProductKnowledge(ctx, req)
+}
+
+func (c *grpcClient) auth(parent context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(parent, knowledgeCallTimeout)
 	if bearer, ok := platformauth.BearerFromContext(ctx); ok {
 		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", bearer)
 	}
 	if traceID := platformtrace.TraceID(ctx); validTraceID(traceID) {
 		ctx = metadata.AppendToOutgoingContext(ctx, "trace_id", traceID)
 	}
-	return c.client.UploadDocument(ctx, req)
+	return ctx, cancel
 }
 
 func validTraceID(value string) bool {

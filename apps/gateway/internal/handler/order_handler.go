@@ -136,6 +136,30 @@ func (h *OrderHandler) WalletPayment() http.HandlerFunc {
 		writeJSONValue(w, http.StatusOK, map[string]any{"order": orderJSON(out.GetOrder())})
 	}
 }
+func (h *OrderHandler) Review() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		orderNo := strings.TrimSpace(r.PathValue("order_no"))
+		skuID, err := strconv.ParseUint(r.PathValue("sku_id"), 10, 64)
+		if orderNo == "" || err != nil || skuID == 0 {
+			writeOrderError(w, status.Error(codes.InvalidArgument, "invalid review target"))
+			return
+		}
+		var input struct {
+			Rating  uint32 `json:"rating"`
+			Content string `json:"content"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			writeOrderError(w, status.Error(codes.InvalidArgument, "invalid request"))
+			return
+		}
+		out, err := h.client.SubmitReview(r.Context(), &orderpb.SubmitReviewRequest{OrderNo: orderNo, SkuId: skuID, Rating: input.Rating, Content: input.Content})
+		if err != nil {
+			writeOrderError(w, err)
+			return
+		}
+		writeJSONValue(w, http.StatusOK, map[string]any{"review": reviewJSON(out.GetReview())})
+	}
+}
 func cartJSON(v *orderpb.Cart) map[string]any {
 	out := map[string]any{"items": []any{}}
 	for _, i := range v.GetItems() {
@@ -175,6 +199,20 @@ func promotionJSON(value *orderpb.PromotionSnapshot) map[string]any {
 		result["discount_amount"] = value.GetDiscountAmount()
 	}
 	return result
+}
+func reviewJSON(value *orderpb.Review) map[string]any {
+	if value == nil {
+		return nil
+	}
+	return map[string]any{
+		"review_no":  value.GetReviewNo(),
+		"order_no":   value.GetOrderNo(),
+		"product_id": value.GetProductId(),
+		"sku_id":     value.GetSkuId(),
+		"rating":     value.GetRating(),
+		"content":    value.GetContent(),
+		"status":     value.GetStatus(),
+	}
 }
 func writeOrderError(w http.ResponseWriter, e error) {
 	code := codes.Internal

@@ -21,6 +21,7 @@ type fakeOrderClient struct {
 	list    func(context.Context, *orderpb.ListOrdersRequest) (*orderpb.ListOrdersResponse, error)
 	get     func(context.Context, *orderpb.GetOrderRequest) (*orderpb.OrderResponse, error)
 	pay     func(context.Context, *orderpb.PayWalletRequest) (*orderpb.OrderResponse, error)
+	review  func(context.Context, *orderpb.SubmitReviewRequest) (*orderpb.ReviewResponse, error)
 }
 
 func (f *fakeOrderClient) GetCart(c context.Context, r *orderpb.GetCartRequest) (*orderpb.GetCartResponse, error) {
@@ -65,6 +66,12 @@ func (f *fakeOrderClient) PayWallet(ctx context.Context, req *orderpb.PayWalletR
 	}
 	return &orderpb.OrderResponse{Order: &orderpb.Order{}}, nil
 }
+func (f *fakeOrderClient) SubmitReview(ctx context.Context, req *orderpb.SubmitReviewRequest) (*orderpb.ReviewResponse, error) {
+	if f.review != nil {
+		return f.review(ctx, req)
+	}
+	return &orderpb.ReviewResponse{Review: &orderpb.Review{}}, nil
+}
 
 func TestOrderHandlerServesAllRegisteredCartAndOrderMethods(t *testing.T) {
 	h := NewOrderHandler(&fakeOrderClient{getCart: func(context.Context, *orderpb.GetCartRequest) (*orderpb.GetCartResponse, error) {
@@ -83,12 +90,14 @@ func TestOrderHandlerServesAllRegisteredCartAndOrderMethods(t *testing.T) {
 		{"list orders", http.MethodGet, "/api/v1/orders", "", h.Orders()},
 		{"create order", http.MethodPost, "/api/v1/orders", `{"request_id":"request","address_id":1}`, h.Orders()},
 		{"get order", http.MethodGet, "/api/v1/orders/ORD-1", "", h.Order()},
+		{"submit review", http.MethodPost, "/api/v1/orders/ORD-1/items/101/reviews", `{"rating":5,"content":"good"}`, h.Review()},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
 			if strings.Contains(tc.path, "/items/") {
 				r.SetPathValue("id", "1")
+				r.SetPathValue("sku_id", "101")
 			}
 			if strings.Contains(tc.path, "/orders/") {
 				r.SetPathValue("order_no", "ORD-1")
@@ -99,6 +108,61 @@ func TestOrderHandlerServesAllRegisteredCartAndOrderMethods(t *testing.T) {
 				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+func TestOrderHandlerSubmitReview(t *testing.T) {
+	h := NewOrderHandler(&fakeOrderClient{review: func(_ context.Context, req *orderpb.SubmitReviewRequest) (*orderpb.ReviewResponse, error) {
+		if req.GetOrderNo() != "ORD-1" || req.GetSkuId() != 101 || req.GetRating() != 5 || req.GetContent() != "手感很好" {
+			t.Fatalf("request=%#v", req)
+		}
+		return &orderpb.ReviewResponse{Review: &orderpb.Review{ReviewNo: "REV-1", OrderNo: req.GetOrderNo(), ProductId: 21, SkuId: req.GetSkuId(), Rating: req.GetRating(), Content: req.GetContent(), Status: "PUBLISHED"}}, nil
+	}})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/orders/ORD-1/items/101/reviews", strings.NewReader(`{"rating":5,"content":"手感很好"}`))
+	request.SetPathValue("order_no", "ORD-1")
+	request.SetPathValue("sku_id", "101")
+	w := httptest.NewRecorder()
+
+	h.Review().ServeHTTP(w, request)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"review_no":"REV-1"`) || !strings.Contains(w.Body.String(), `"product_id":21`) {
+		t.Fatalf("response=%d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestOrderHandlerSubmitReviewRejectsInvalidInput(t *testing.T) {
+	h := NewOrderHandler(&fakeOrderClient{})
+	cases := []struct {
+		name, sku, body string
+	}{
+		{name: "invalid sku", sku: "bad", body: `{"rating":5,"content":"good"}`},
+		{name: "invalid json", sku: "101", body: `{`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/orders/ORD-1/items/"+tc.sku+"/reviews", strings.NewReader(tc.body))
+			request.SetPathValue("order_no", "ORD-1")
+			request.SetPathValue("sku_id", tc.sku)
+			w := httptest.NewRecorder()
+			h.Review().ServeHTTP(w, request)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("response=%d %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestOrderHandlerSubmitReviewMapsDuplicateWithoutDetails(t *testing.T) {
+	h := NewOrderHandler(&fakeOrderClient{review: func(context.Context, *orderpb.SubmitReviewRequest) (*orderpb.ReviewResponse, error) {
+		return nil, status.Error(codes.AlreadyExists, "duplicate key reviews.secret")
+	}})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/orders/ORD-1/items/101/reviews", strings.NewReader(`{"rating":5,"content":"good"}`))
+	request.SetPathValue("order_no", "ORD-1")
+	request.SetPathValue("sku_id", "101")
+	w := httptest.NewRecorder()
+
+	h.Review().ServeHTTP(w, request)
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), `"code":"IDEMPOTENCY_CONFLICT"`) || strings.Contains(w.Body.String(), "secret") {
+		t.Fatalf("response=%d %s", w.Code, w.Body.String())
 	}
 }
 

@@ -22,6 +22,7 @@ type Client interface {
 	PayWallet(context.Context, *orderpb.PayWalletRequest) (*orderpb.OrderResponse, error)
 	ListOrders(context.Context, *orderpb.ListOrdersRequest) (*orderpb.ListOrdersResponse, error)
 	GetOrder(context.Context, *orderpb.GetOrderRequest) (*orderpb.OrderResponse, error)
+	SubmitReview(context.Context, *orderpb.SubmitReviewRequest) (*orderpb.ReviewResponse, error)
 }
 type grpcClient struct{ client orderpb.OrderServiceClient }
 
@@ -82,4 +83,9 @@ func (c *grpcClient) GetOrder(x context.Context, r *orderpb.GetOrderRequest) (*o
 	ctx, cancel := c.auth(x)
 	defer cancel()
 	return c.client.GetOrder(ctx, r)
+}
+func (c *grpcClient) SubmitReview(x context.Context, r *orderpb.SubmitReviewRequest) (*orderpb.ReviewResponse, error) {
+	ctx, cancel := c.auth(x)
+	defer cancel()
+	return c.client.SubmitReview(ctx, r)
 }

@@ -11,11 +11,20 @@ import (
 	"time"
 )
 
-type recordingConn struct{ ctx context.Context }
+type recordingConn struct {
+	ctx    context.Context
+	method string
+}
 
-func (c *recordingConn) Invoke(ctx context.Context, _ string, _ any, reply any, _ ...grpc.CallOption) error {
+func (c *recordingConn) Invoke(ctx context.Context, method string, _ any, reply any, _ ...grpc.CallOption) error {
 	c.ctx = ctx
-	reply.(*orderpb.GetCartResponse).Cart = &orderpb.Cart{}
+	c.method = method
+	switch value := reply.(type) {
+	case *orderpb.GetCartResponse:
+		value.Cart = &orderpb.Cart{}
+	case *orderpb.ReviewResponse:
+		value.Review = &orderpb.Review{ReviewNo: "REV-1"}
+	}
 	return nil
 }
 func (*recordingConn) NewStream(context.Context, *grpc.StreamDesc, string, ...grpc.CallOption) (grpc.ClientStream, error) {
@@ -49,5 +58,28 @@ func TestClientAddsDeadlineBeforeForwardingMetadata(t *testing.T) {
 	}
 	if remaining := time.Until(deadline); remaining <= 0 || remaining > orderCallTimeout {
 		t.Fatalf("outgoing deadline remaining = %s, want (0,%s]", remaining, orderCallTimeout)
+	}
+}
+
+func TestClientSubmitReviewForwardsMethodBearerTraceAndDeadline(t *testing.T) {
+	conn := &recordingConn{}
+	ctx := platformtrace.WithTraceID(platformauth.ContextWithBearer(context.Background(), "Bearer token"), "4bf92f3577b34da6a3ce929d0e0e4736")
+
+	_, err := NewGRPCClient(conn).SubmitReview(ctx, &orderpb.SubmitReviewRequest{OrderNo: "ORD-1", SkuId: 101, Rating: 5, Content: "good"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conn.method != orderpb.OrderService_SubmitReview_FullMethodName {
+		t.Fatalf("method = %q, want %q", conn.method, orderpb.OrderService_SubmitReview_FullMethodName)
+	}
+	md, _ := metadata.FromOutgoingContext(conn.ctx)
+	if got := md.Get("authorization"); len(got) != 1 || got[0] != "Bearer token" {
+		t.Fatalf("authorization=%v", got)
+	}
+	if got := md.Get("trace_id"); len(got) != 1 || got[0] != "4bf92f3577b34da6a3ce929d0e0e4736" {
+		t.Fatalf("trace_id=%v", got)
+	}
+	if _, ok := conn.ctx.Deadline(); !ok {
+		t.Fatal("outgoing SubmitReview context has no deadline")
 	}
 }

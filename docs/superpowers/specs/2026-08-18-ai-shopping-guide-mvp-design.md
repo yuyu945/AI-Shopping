@@ -7,7 +7,7 @@
 - 目标：用 Go 重建一条可运行、可解释、可面试追问的 AI 导购主链路
 - 参考原型：视频中的用户商城、商品详情问答、商品知识库、Agent 执行记录页面
 - 预计周期：个人开发 4-6 周，每天 3-4 小时
-- 当前状态：M1-M3 与 M4.1 已实现；M4.2-M6 待实现
+- 当前状态：M1-M3、M4.1 与 M4.2 已实现；M5-M6 待实现
 
 本 MVP 不是原项目全部功能的等价复制，而是围绕 AI 导购完成最小业务闭环：
 
@@ -365,14 +365,15 @@ agent_steps(
   UNIQUE(run_id, step_no, attempt)
 )
 recommendations(
-  id PK, run_id FK, rank_no, sku_id FK, reason,
-  price_snapshot DECIMAL(12,2), stock_snapshot,
-  discount_snapshot_json, validation_status, created_at,
-  UNIQUE(run_id, rank_no)
+  id PK, run_id FK agent_runs.id, rank_no, sku_id, product_id,
+  product_title_snapshot, sku_code_snapshot, sku_spec_snapshot_json,
+  price_snapshot DECIMAL(12,2), saleable_snapshot,
+  discount_snapshot_json, reason, validation_status, created_at,
+  UNIQUE(run_id, rank_no), UNIQUE(run_id, sku_id)
 )
 ```
 
-`AgentRun` 表示一次完整导购任务，`AgentStep` 表示其中一轮模型决策或 Tool 调用。M4.1 已实现 Agent 会话、Run、Step、受控 Tool 和 `StartRun` / `GetRun` gRPC；`recommendations` 属于 M4.2，推荐表只保存后端二次校验后的价格、库存和优惠快照，不能直接使用模型输出的交易字段。
+`AgentRun` 表示一次完整导购任务，`AgentStep` 表示其中一轮模型决策或 Tool 调用。M4.1 已实现 Agent 会话、Run、Step、受控 Tool 和 `StartRun` / `GetRun` gRPC；M4.2 已实现 `recommendations` 可信快照。模型最终输出只接受 `sku_id`、`rank_no` 和 `reason`，未知字段会被拒绝；商品标题、SKU code、规格、价格、优惠和可售状态必须来自 product-service 后端快照。不存在或不可售 SKU 会被过滤，全部无有效推荐时 Run 失败为 `NO_VALID_RECOMMENDATION`。当前 runtime 仍使用 disabled model provider；真实 Eino/LLM provider 接入留到后续阶段。
 
 关键索引：
 
@@ -476,7 +477,7 @@ products 1--N knowledge_documents 1--N knowledge_chunks
 
 ### 10.1 创建 Agent Run
 
-M4.1 已先提供 agent-service gRPC：`StartRun(StartRunRequest)` 和 `GetRun(GetRunRequest)`。Gateway HTTP、SSE 和可信推荐快照留到 M4.2/M5。
+M4.1 已先提供 agent-service gRPC：`StartRun(StartRunRequest)` 和 `GetRun(GetRunRequest)`。M4.2 已扩展 `GetRunResponse`，可返回 Run、Step 和后端校验后的 `Recommendation` 快照。Gateway HTTP 与 SSE 用户体验留到 M5。
 
 计划中的 Gateway HTTP：
 

@@ -5,7 +5,7 @@
 - Repository: `D:\简历\AI-Shopping`
 - Repository branch: `main`
 - M2.1 购物车与不可变订单快照已完成；M2.2 余额支付与库存预留 Saga 已合入主线并通过 baseline 验证。
-- M3.1 文档上传与事件可靠投递已完成；M3.2 解析、向量化和版本检索已完成；M4.1 Agent 运行模型与受控 Tool 已完成。下一阶段是 M4.2 推荐二次校验与可回放记录。
+- M3.1 文档上传与事件可靠投递已完成；M3.2 解析、向量化和版本检索已完成；M4.1 Agent 运行模型与受控 Tool 已完成；M4.2 推荐二次校验与可回放记录已完成。下一阶段是 M5 用户交互、运营排障与事件分析。
 
 ## Completed
 
@@ -57,7 +57,14 @@ M4.1 完成内容：
 - 实现受控 Tool registry 与 executor：`search_products`、`get_user_profile`、`get_price_stock`、`get_discount`、`search_product_knowledge`。Tool 有 schema、timeout、max result 和权限来源；当前用户 ID 从服务端 JWT 注入，模型提供 `user_id` 会被拒绝。
 - 实现 product/user/knowledge gRPC Tool adapters；`search_product_knowledge` 对 `NO_READY_KNOWLEDGE` 等 fallback reason 只做受控返回，不生成资料外断言。
 - `services/agent-service/etc/agent-service.yaml` 已补 runtime、ProductRPC、UserRPC、KnowledgeRPC 配置。M4.1 不新增 secret；复用 `AI_SHOPPING_MYSQL_DSN` 和 `AI_SHOPPING_JWT_SECRET`。
-- M4.1 不写 `recommendations` 快照；真实 Eino/LLM provider、最终推荐 SKU schema、后端二次校验和可信推荐快照留到 M4.2。
+
+M4.2 完成内容：
+
+- 新增 `agent_db.recommendations` schema、migration 和 schema contract test；推荐快照引用内部 `agent_runs.id`，按 `(run_id, rank_no)` 和 `(run_id, sku_id)` 去重，只允许 `VERIFIED` 状态。
+- 新增严格 final recommendation parser：模型最终输出只接受 `sku_id`、`rank_no`、`reason`，拒绝未知字段、重复 SKU、重复排序、空理由和过量候选。
+- 新增 backend recommendation verifier：通过 product-service checkout SKU snapshot 重新取得商品标题、SKU code、规格 JSON、价格、优惠和可售状态；不存在或不可售 SKU 被过滤，全部无效时返回 `NO_VALID_RECOMMENDATION`。
+- `RunService` 优先处理 `ModelOutput.FinalJSON`，在 `MarkRunSucceeded` 前保存推荐快照；无效 final JSON 落为 `INVALID_FINAL_RECOMMENDATION`，无有效推荐落为 `NO_VALID_RECOMMENDATION`。
+- `GetRun` gRPC 已返回 Run、Step 和推荐快照；runtime wiring 已把真实 `RecommendationVerifier` 注入 RunService。当前模型仍是 disabled provider，真实 Eino/LLM provider 留到后续阶段。
 
 Key endpoints:
 
@@ -92,6 +99,16 @@ M4.1 targeted validation on 2026-08-23:
 - `go test ./services/agent-service/... -run 'TestAgentServer|TestAgentServiceConfig' -count=1` passed.
 - `go test ./services/agent-service/... -count=1` passed.
 
+M4.2 targeted validation on 2026-08-24:
+
+- `go test ./services/agent-service/internal/agent -run TestAgentRuntimeSchemaContract -count=1` passed.
+- `go test ./services/agent-service/internal/agent -run TestParseFinalRecommendations -count=1` passed.
+- `go test ./services/agent-service/internal/agent -run TestRecommendationVerifier -count=1` passed.
+- `go test ./services/agent-service/internal/agent -run 'TestRepositorySavesRecommendationSnapshots|TestRepositoryLoadsRunTimelineWithRecommendations|TestRepository' -count=1` passed.
+- `go test ./services/agent-service/internal/agent -run 'TestRunService' -count=1` passed.
+- `go test ./services/agent-service/internal/server -run TestAgentServerGetRunReturnsRecommendations -count=1` passed.
+- `go test ./services/agent-service/... -count=1` passed.
+
 M3.1 targeted validation on 2026-08-23:
 
 - `go test ./services/knowledge-service/... ./apps/gateway/... ./internal/platform/... -count=1` passed.
@@ -107,7 +124,7 @@ The `m12verify` and `m12cacheverify` Docker projects, their volumes, temporary p
 
 ## Next Milestone
 
-M4.2 后续开发。保持边界：Agent 只能在 `agent-service` 中使用 Eino 和模型 Provider；Tool 必须 typed、受控、有 schema/timeout/max result/权限来源；模型不能直接写订单、库存、余额或执行 SQL。M4.2 应定义模型最终推荐 SKU schema，并在写 `recommendations` 前通过后端 Tool 二次校验价格、库存、优惠和可售状态。
+M5 后续开发。保持边界：Agent 只能在 `agent-service` 中使用 Eino 和模型 Provider；Tool 必须 typed、受控、有 schema/timeout/max result/权限来源；模型不能直接写订单、库存、余额或执行 SQL。M5 应优先补 Gateway HTTP/SSE 用户体验、推荐卡片到购物车/订单路径、运营端 Run/Step 排障视图，以及评价/行为事件的 Outbox/Kafka 消费链路。
 
 ## Integration
 

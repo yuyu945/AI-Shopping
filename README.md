@@ -57,13 +57,15 @@ pwsh -File scripts/test_knowledge_m32_integration.ps1
 
 未设置 `AI_SHOPPING_KNOWLEDGE_M32_INTEGRATION=1` 时，harness 输出 `SKIP` 且不启动 Docker、不连接 MySQL/MinIO/Kafka/Milvus/DashScope。实际运行使用专用 Compose project `m32knowledge`、随机 UUID `run_id` 和 `knowledge_db.knowledge_integration_guards`，测试只接受 loopback 且非默认 `3306` 的 `knowledge_db` DSN；通过 guard 后才验证 MinIO put/get/delete、Kafka topic 可见、Milvus REST list collections 以及 DashScope 返回 `1024` 维 embedding。
 
-## M4.1 Agent 运行模型与受控 Tool
+## M4 Agent 运行、受控 Tool 与推荐快照
 
 M4.1 已建立 `agent-service` gRPC 契约、`agent_sessions` / `agent_messages` / `agent_runs` / `agent_steps` schema、MySQL persistence、Tool registry、Tool executor 和 bounded run loop。服务暴露 `StartRun` 与 `GetRun` RPC；JWT 从 gRPC metadata 的 `authorization` 读取，`GetRun` 会按当前用户 ID 查询，非本人 run 返回稳定 `NOT_FOUND`。
 
 M4.1 Tool 白名单为 `search_products`、`get_user_profile`、`get_price_stock`、`get_discount`、`search_product_knowledge`。每个 Tool 都有输入 schema、timeout、max result 和权限来源；`get_user_profile` / `get_discount` 拒绝模型提供的 `user_id`，当前用户 ID 只由服务端注入。Tool adapters 通过窄接口调用 product/user/knowledge gRPC；模型不能写订单、库存、余额或执行 SQL。
 
-当前 M4.1 runtime 使用 disabled model provider：真实 LLM/Eino provider 与最终推荐 SKU schema 留到 M4.2。M4.1 可以创建并回放 run/step 时间线，但还不能把模型最终推荐写入可信 `recommendations` 快照。
+M4.2 已新增 `agent_db.recommendations` 可信推荐快照。模型最终输出只允许包含 `sku_id`、`rank_no` 和 `reason`；未知字段、重复 SKU、重复排序或空理由都会被拒绝。`agent-service` 会通过 product-service 后端快照重新校验商品、价格、规格、优惠和可售状态，只保存 `VERIFIED` 推荐；不存在或不可售 SKU 会被过滤，全部无效时 Run 失败为 `NO_VALID_RECOMMENDATION`。`GetRun` 现在可回放 Run、Step 和推荐快照。
+
+当前 runtime 仍使用 disabled model provider；真实 Eino/LLM provider 接入留到后续阶段。M4.2 只完成可信 final JSON schema、后端二次校验、持久化和 gRPC replay，不引入模型 SDK 到业务服务。
 
 ## Trade schema upgrade
 

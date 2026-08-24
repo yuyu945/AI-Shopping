@@ -2,10 +2,10 @@
 
 ## 1. 使用方式
 
-- 当前阶段：M4.1 已完成；下一里程碑为 M4.2 推荐二次校验与可回放记录。
+- 当前阶段：M4.2 已完成；下一里程碑为 M5 用户交互、运营排障与事件分析。
 - 任务按依赖顺序执行；每完成一个里程碑，先运行其验证命令、检查文档同步，再创建一个聚焦 commit。
 - 所有实现必须遵守 [AGENTS.md](../AGENTS.md)、[PRD.md](PRD.md)、[architecture.md](architecture.md)、[interaction.md](interaction.md) 和 [MVP 设计文档](智选购-ai导购-mvp-design.md)。设计与实现不一致时，先更新设计并说明取舍。
-- 状态标记：`[ ]` 未开始，`[-]` 进行中，`[x]` 已完成，`[!]` 受阻。M1.1、M1.2、M2.1、M2.2、M3.1、M3.2、M4.1 已完成；M4.2-M6 尚未开始。
+- 状态标记：`[ ]` 未开始，`[-]` 进行中，`[x]` 已完成，`[!]` 受阻。M1.1、M1.2、M2.1、M2.2、M3.1、M3.2、M4.1、M4.2 已完成；M5-M6 尚未开始。
 
 ## 2. 里程碑总览
 
@@ -89,21 +89,21 @@
 
 ### M4.1 Agent 运行模型与受控 Tool（已完成）
 
-- [x] 创建会话、消息、`agent_runs`、`agent_steps` 迁移，固定 Run/Step 状态机、索引和可回放时间线；推荐快照迁移留到 M4.2。
-- [x] 建立 `ChatModel` provider boundary 和 disabled model adapter；真实 Eino/LLM provider 留到 M4.2，业务服务不依赖模型 SDK。
+- [x] 创建会话、消息、`agent_runs`、`agent_steps` 迁移，固定 Run/Step 状态机、索引和可回放时间线；推荐快照由 M4.2 补齐。
+- [x] 建立 `ChatModel` provider boundary 和 disabled model adapter；真实 Eino/LLM provider 留到后续阶段，业务服务不依赖模型 SDK。
 - [x] 实现 `search_products`、`get_user_profile`、`get_price_stock`、`get_discount`、`search_product_knowledge` Typed Tool，并为每个 Tool 配置输入 Schema、超时、最大返回数量与授权来源。
 - [x] 限制每次 Run 最多 8 个 Step、总超时 30 秒；所有外部调用使用带取消与超时的 `context.Context`。
 
 测试：无效 Tool 参数、伪造用户 ID、Tool 超时、超过最大 Step、模型供应商错误；每种失败均落为明确 Run/Step 状态并返回稳定错误码。
 
-### M4.2 推荐二次校验与可回放记录
+### M4.2 推荐二次校验与可回放记录（已完成）
 
-- [ ] 定义模型最终输出 Schema，仅接受 SKU ID、排序和理由。
-- [ ] 在写 `recommendations` 前并发但有界地重查价格、库存、优惠和可售状态，过滤无效 SKU，生成不可变快照。
-- [ ] 持久化脱敏的模型/Tool 入参出参、耗时、异常、模型版本、Prompt 版本和 `trace_id`。
-- [ ] 实现查询 Run 详情 API，返回最终推荐、校验状态和按步骤排序的时间线数据。
+- [x] 定义模型最终输出 Schema，仅接受 SKU ID、排序和理由；未知字段、重复 SKU、重复排序和空理由都会被拒绝。
+- [x] 在写 `recommendations` 前通过 product-service 后端快照重查商品、价格、规格、优惠和可售状态，过滤无效 SKU，生成不可变快照。
+- [x] 持久化脱敏的模型/Tool 入参出参、耗时、异常、模型版本、Prompt 版本和 `trace_id`；推荐快照只保存后端 `VERIFIED` 数据。
+- [x] 实现查询 Run 详情 gRPC，返回最终推荐、校验状态和按步骤排序的时间线数据。
 
-测试：模型返回不存在 SKU、下架 SKU、库存不足 SKU、伪造价格字段、优惠资格变化；确认最终推荐只包含后端校验成功的快照。
+测试：覆盖模型返回不存在 SKU、不可售 SKU、伪造价格字段、重复 SKU/排序、后端二次校验全部失败、推荐持久化和 `GetRun` replay；确认最终推荐只包含后端校验成功的快照。真实 Eino/LLM provider 和 Gateway HTTP/SSE 用户体验留到后续阶段。
 
 ## 7. M5：用户交互、运营排障与事件分析
 

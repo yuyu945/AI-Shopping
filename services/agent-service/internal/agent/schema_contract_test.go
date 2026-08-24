@@ -20,6 +20,13 @@ func TestAgentRuntimeSchemaContract(t *testing.T) {
 	assertContains(t, schema, "UNIQUE KEY uq_agent_step_attempt (run_id, step_no, attempt)")
 	assertContains(t, schema, "CONSTRAINT chk_agent_run_status CHECK (status IN ('RUNNING','SUCCEEDED','FAILED','TIMEOUT'))")
 	assertContains(t, schema, "CONSTRAINT chk_agent_step_status CHECK (status IN ('RUNNING','SUCCEEDED','FAILED','TIMEOUT'))")
+	assertContains(t, schema, "CREATE TABLE IF NOT EXISTS recommendations")
+	assertContains(t, schema, "price_snapshot DECIMAL(12,2) NOT NULL")
+	assertContains(t, schema, "sku_spec_snapshot_json JSON NOT NULL")
+	assertContains(t, schema, "discount_snapshot_json JSON NOT NULL")
+	assertContains(t, schema, "UNIQUE KEY uq_recommendation_rank (run_id, rank_no)")
+	assertContains(t, schema, "UNIQUE KEY uq_recommendation_sku (run_id, sku_id)")
+	assertContains(t, schema, "CONSTRAINT chk_recommendation_status CHECK (validation_status IN ('VERIFIED'))")
 }
 
 func repoRoot(t *testing.T) string {

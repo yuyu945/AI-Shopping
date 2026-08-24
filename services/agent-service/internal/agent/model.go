@@ -155,6 +155,24 @@ type RunTimeline struct {
 	Recommendations []RecommendationSnapshot
 }
 
+type RunOpsFilter struct {
+	Status    RunStatus
+	UserID    uint64
+	PageSize  uint32
+	PageToken string
+}
+
+type RunOpsList struct {
+	Runs          []Run
+	NextPageToken string
+}
+
+type RunOpsDetail struct {
+	Run             Run
+	Steps           []Step
+	Recommendations []RecommendationSnapshot
+}
+
 // FinalRecommendationOutput is the only accepted model final recommendation shape.
 type FinalRecommendationOutput struct {
 	Recommendations []ModelRecommendation `json:"recommendations"`

@@ -25,6 +25,11 @@ type RunLoader interface {
 	GetRunTimeline(context.Context, uint64, string) (agent.RunTimeline, error)
 }
 
+type OpsRunLoader interface {
+	ListRunsOps(context.Context, agent.RunOpsFilter) (agent.RunOpsList, error)
+	GetRunOps(context.Context, string) (agent.RunOpsDetail, error)
+}
+
 // GRPCServer exposes Agent run APIs over the generated contract.
 type GRPCServer struct {
 	agentpb.UnimplementedAgentServiceServer
@@ -98,6 +103,61 @@ func (s *GRPCServer) GetRun(ctx context.Context, req *agentpb.GetRunRequest) (*a
 	return &agentpb.GetRunResponse{Run: runWire(timeline.Run), Steps: stepWire(timeline.Steps), Recommendations: recommendationWire(timeline.Recommendations)}, nil
 }
 
+func (s *GRPCServer) ListRuns(ctx context.Context, req *agentpb.ListRunsRequest) (*agentpb.ListRunsResponse, error) {
+	if _, err := s.userID(ctx); err != nil {
+		return nil, err
+	}
+	ops, ok := s.loader.(OpsRunLoader)
+	if !ok {
+		return nil, status.Error(codes.Internal, "internal server error")
+	}
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid request")
+	}
+	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	result, err := ops.ListRunsOps(callCtx, agent.RunOpsFilter{
+		Status:    agent.RunStatus(req.GetStatus()),
+		UserID:    req.GetUserId(),
+		PageSize:  req.GetPageSize(),
+		PageToken: req.GetPageToken(),
+	})
+	if err != nil {
+		if errors.Is(callCtx.Err(), context.DeadlineExceeded) {
+			return nil, status.Error(codes.DeadlineExceeded, "dependency timeout")
+		}
+		return nil, toStatus(err)
+	}
+	runs := make([]*agentpb.AgentRun, 0, len(result.Runs))
+	for _, run := range result.Runs {
+		runs = append(runs, runWire(run))
+	}
+	return &agentpb.ListRunsResponse{Runs: runs, NextPageToken: result.NextPageToken}, nil
+}
+
+func (s *GRPCServer) GetRunOps(ctx context.Context, req *agentpb.GetRunOpsRequest) (*agentpb.GetRunOpsResponse, error) {
+	if _, err := s.userID(ctx); err != nil {
+		return nil, err
+	}
+	ops, ok := s.loader.(OpsRunLoader)
+	if !ok {
+		return nil, status.Error(codes.Internal, "internal server error")
+	}
+	if req == nil || strings.TrimSpace(req.GetRunId()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "invalid request")
+	}
+	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	detail, err := ops.GetRunOps(callCtx, strings.TrimSpace(req.GetRunId()))
+	if err != nil {
+		if errors.Is(callCtx.Err(), context.DeadlineExceeded) {
+			return nil, status.Error(codes.DeadlineExceeded, "dependency timeout")
+		}
+		return nil, toStatus(err)
+	}
+	return &agentpb.GetRunOpsResponse{Run: runWire(detail.Run), Steps: stepOpsWire(detail.Steps), Recommendations: recommendationWire(detail.Recommendations)}, nil
+}
+
 func (s *GRPCServer) userID(ctx context.Context) (uint64, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok || len(md.Get("authorization")) != 1 || s.auth == nil {
@@ -113,7 +173,9 @@ func (s *GRPCServer) userID(ctx context.Context) (uint64, error) {
 func runWire(run agent.Run) *agentpb.AgentRun {
 	return &agentpb.AgentRun{
 		RunId: run.RunID, UserId: run.UserID, Status: string(run.Status), ErrorCode: run.ErrorCode,
-		ErrorMessage: run.ErrorMessage, StepCount: run.StepCount,
+		ErrorMessage: run.ErrorMessage, StepCount: run.StepCount, TraceId: run.TraceID,
+		ModelName: run.ModelName, PromptVersion: run.PromptVersion, StartedAt: timeWire(run.StartedAt),
+		EndedAt: optionalTimeWire(run.EndedAt), CreatedAt: timeWire(run.CreatedAt),
 	}
 }
 
@@ -126,6 +188,32 @@ func stepWire(steps []agent.Step) []*agentpb.AgentStep {
 		})
 	}
 	return out
+}
+
+func stepOpsWire(steps []agent.Step) []*agentpb.AgentStep {
+	out := stepWire(steps)
+	for i, step := range steps {
+		out[i].Attempt = step.Attempt
+		out[i].InputJson = append([]byte(nil), step.InputJSON...)
+		out[i].OutputJson = append([]byte(nil), step.OutputJSON...)
+		out[i].StartedAt = timeWire(step.StartedAt)
+		out[i].EndedAt = optionalTimeWire(step.EndedAt)
+	}
+	return out
+}
+
+func timeWire(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func optionalTimeWire(value *time.Time) string {
+	if value == nil {
+		return ""
+	}
+	return timeWire(*value)
 }
 
 func recommendationWire(items []agent.RecommendationSnapshot) []*agentpb.Recommendation {

@@ -19,8 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AgentService_StartRun_FullMethodName = "/agent.v1.AgentService/StartRun"
-	AgentService_GetRun_FullMethodName   = "/agent.v1.AgentService/GetRun"
+	AgentService_StartRun_FullMethodName  = "/agent.v1.AgentService/StartRun"
+	AgentService_GetRun_FullMethodName    = "/agent.v1.AgentService/GetRun"
+	AgentService_ListRuns_FullMethodName  = "/agent.v1.AgentService/ListRuns"
+	AgentService_GetRunOps_FullMethodName = "/agent.v1.AgentService/GetRunOps"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -29,6 +31,8 @@ const (
 type AgentServiceClient interface {
 	StartRun(ctx context.Context, in *StartRunRequest, opts ...grpc.CallOption) (*StartRunResponse, error)
 	GetRun(ctx context.Context, in *GetRunRequest, opts ...grpc.CallOption) (*GetRunResponse, error)
+	ListRuns(ctx context.Context, in *ListRunsRequest, opts ...grpc.CallOption) (*ListRunsResponse, error)
+	GetRunOps(ctx context.Context, in *GetRunOpsRequest, opts ...grpc.CallOption) (*GetRunOpsResponse, error)
 }
 
 type agentServiceClient struct {
@@ -59,12 +63,34 @@ func (c *agentServiceClient) GetRun(ctx context.Context, in *GetRunRequest, opts
 	return out, nil
 }
 
+func (c *agentServiceClient) ListRuns(ctx context.Context, in *ListRunsRequest, opts ...grpc.CallOption) (*ListRunsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListRunsResponse)
+	err := c.cc.Invoke(ctx, AgentService_ListRuns_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) GetRunOps(ctx context.Context, in *GetRunOpsRequest, opts ...grpc.CallOption) (*GetRunOpsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetRunOpsResponse)
+	err := c.cc.Invoke(ctx, AgentService_GetRunOps_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility.
 type AgentServiceServer interface {
 	StartRun(context.Context, *StartRunRequest) (*StartRunResponse, error)
 	GetRun(context.Context, *GetRunRequest) (*GetRunResponse, error)
+	ListRuns(context.Context, *ListRunsRequest) (*ListRunsResponse, error)
+	GetRunOps(context.Context, *GetRunOpsRequest) (*GetRunOpsResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -80,6 +106,12 @@ func (UnimplementedAgentServiceServer) StartRun(context.Context, *StartRunReques
 }
 func (UnimplementedAgentServiceServer) GetRun(context.Context, *GetRunRequest) (*GetRunResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetRun not implemented")
+}
+func (UnimplementedAgentServiceServer) ListRuns(context.Context, *ListRunsRequest) (*ListRunsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListRuns not implemented")
+}
+func (UnimplementedAgentServiceServer) GetRunOps(context.Context, *GetRunOpsRequest) (*GetRunOpsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRunOps not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 func (UnimplementedAgentServiceServer) testEmbeddedByValue()                      {}
@@ -138,6 +170,42 @@ func _AgentService_GetRun_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_ListRuns_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListRunsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ListRuns(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ListRuns_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ListRuns(ctx, req.(*ListRunsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_GetRunOps_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRunOpsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).GetRunOps(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_GetRunOps_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).GetRunOps(ctx, req.(*GetRunOpsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -152,6 +220,14 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetRun",
 			Handler:    _AgentService_GetRun_Handler,
+		},
+		{
+			MethodName: "ListRuns",
+			Handler:    _AgentService_ListRuns_Handler,
+		},
+		{
+			MethodName: "GetRunOps",
+			Handler:    _AgentService_GetRunOps_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

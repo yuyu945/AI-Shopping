@@ -75,6 +75,25 @@ func TestAgentServerGetRunMapsNonOwnerToNotFound(t *testing.T) {
 	}
 }
 
+func TestAgentServerGetRunOpsReturnsRedactedStepDetails(t *testing.T) {
+	loader := &fakeRunLoader{opsTimeline: agent.RunOpsDetail{
+		Run: agent.Run{RunID: "run_1", UserID: 42, TraceID: "trace_1", Status: agent.RunSucceeded, ModelName: "qwen-plus", PromptVersion: "m4.2-v1"},
+		Steps: []agent.Step{{
+			StepNo: 1, StepType: agent.StepTypeTool, ToolName: "get_user_profile", Attempt: 1,
+			InputJSON: []byte(`{"phone":"[REDACTED]"}`), OutputJSON: []byte(`{"ok":true}`), Status: agent.StepSucceeded, LatencyMS: 25,
+		}},
+	}}
+	server := NewGRPCServer(&fakeRunStarter{}, loader, testAuthManager(t), time.Second)
+
+	resp, err := server.GetRunOps(authContext(t, 7), &agentpb.GetRunOpsRequest{RunId: "run_1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.GetRun().GetTraceId() != "trace_1" || len(resp.GetSteps()) != 1 || string(resp.GetSteps()[0].GetInputJson()) != `{"phone":"[REDACTED]"}` {
+		t.Fatalf("response=%#v", resp)
+	}
+}
+
 func TestAgentServerStartRunMapsRecommendationFailures(t *testing.T) {
 	tests := map[string]error{
 		"invalid final recommendation": agent.ErrInvalidFinalRecommendation,
@@ -110,16 +129,26 @@ func (f *fakeRunStarter) StartRun(ctx context.Context, command agent.StartRunCom
 }
 
 type fakeRunLoader struct {
-	userID   uint64
-	runID    string
-	timeline agent.RunTimeline
-	err      error
+	userID      uint64
+	runID       string
+	timeline    agent.RunTimeline
+	opsTimeline agent.RunOpsDetail
+	err         error
 }
 
 func (f *fakeRunLoader) GetRunTimeline(ctx context.Context, userID uint64, runID string) (agent.RunTimeline, error) {
 	f.userID = userID
 	f.runID = runID
 	return f.timeline, f.err
+}
+
+func (f *fakeRunLoader) ListRunsOps(ctx context.Context, filter agent.RunOpsFilter) (agent.RunOpsList, error) {
+	return agent.RunOpsList{Runs: []agent.Run{f.opsTimeline.Run}}, f.err
+}
+
+func (f *fakeRunLoader) GetRunOps(ctx context.Context, runID string) (agent.RunOpsDetail, error) {
+	f.runID = runID
+	return f.opsTimeline, f.err
 }
 
 func testAuthManager(t *testing.T) *platformauth.Manager {

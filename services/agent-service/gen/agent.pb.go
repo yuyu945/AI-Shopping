@@ -231,6 +231,12 @@ type AgentRun struct {
 	ErrorCode     string                 `protobuf:"bytes,6,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
 	ErrorMessage  string                 `protobuf:"bytes,7,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
 	StepCount     uint32                 `protobuf:"varint,8,opt,name=step_count,json=stepCount,proto3" json:"step_count,omitempty"`
+	TraceId       string                 `protobuf:"bytes,9,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
+	ModelName     string                 `protobuf:"bytes,10,opt,name=model_name,json=modelName,proto3" json:"model_name,omitempty"`
+	PromptVersion string                 `protobuf:"bytes,11,opt,name=prompt_version,json=promptVersion,proto3" json:"prompt_version,omitempty"`
+	StartedAt     string                 `protobuf:"bytes,12,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	EndedAt       string                 `protobuf:"bytes,13,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
+	CreatedAt     string                 `protobuf:"bytes,14,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -321,6 +327,48 @@ func (x *AgentRun) GetStepCount() uint32 {
 	return 0
 }
 
+func (x *AgentRun) GetTraceId() string {
+	if x != nil {
+		return x.TraceId
+	}
+	return ""
+}
+
+func (x *AgentRun) GetModelName() string {
+	if x != nil {
+		return x.ModelName
+	}
+	return ""
+}
+
+func (x *AgentRun) GetPromptVersion() string {
+	if x != nil {
+		return x.PromptVersion
+	}
+	return ""
+}
+
+func (x *AgentRun) GetStartedAt() string {
+	if x != nil {
+		return x.StartedAt
+	}
+	return ""
+}
+
+func (x *AgentRun) GetEndedAt() string {
+	if x != nil {
+		return x.EndedAt
+	}
+	return ""
+}
+
+func (x *AgentRun) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
 type AgentStep struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	StepNo        uint32                 `protobuf:"varint,1,opt,name=step_no,json=stepNo,proto3" json:"step_no,omitempty"`
@@ -330,6 +378,11 @@ type AgentStep struct {
 	ErrorCode     string                 `protobuf:"bytes,5,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
 	ErrorMessage  string                 `protobuf:"bytes,6,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
 	LatencyMs     uint32                 `protobuf:"varint,7,opt,name=latency_ms,json=latencyMs,proto3" json:"latency_ms,omitempty"`
+	Attempt       uint32                 `protobuf:"varint,8,opt,name=attempt,proto3" json:"attempt,omitempty"`
+	InputJson     []byte                 `protobuf:"bytes,9,opt,name=input_json,json=inputJson,proto3" json:"input_json,omitempty"`
+	OutputJson    []byte                 `protobuf:"bytes,10,opt,name=output_json,json=outputJson,proto3" json:"output_json,omitempty"`
+	StartedAt     string                 `protobuf:"bytes,11,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	EndedAt       string                 `protobuf:"bytes,12,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -413,6 +466,265 @@ func (x *AgentStep) GetLatencyMs() uint32 {
 	return 0
 }
 
+func (x *AgentStep) GetAttempt() uint32 {
+	if x != nil {
+		return x.Attempt
+	}
+	return 0
+}
+
+func (x *AgentStep) GetInputJson() []byte {
+	if x != nil {
+		return x.InputJson
+	}
+	return nil
+}
+
+func (x *AgentStep) GetOutputJson() []byte {
+	if x != nil {
+		return x.OutputJson
+	}
+	return nil
+}
+
+func (x *AgentStep) GetStartedAt() string {
+	if x != nil {
+		return x.StartedAt
+	}
+	return ""
+}
+
+func (x *AgentStep) GetEndedAt() string {
+	if x != nil {
+		return x.EndedAt
+	}
+	return ""
+}
+
+type ListRunsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Status        string                 `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	UserId        uint64                 `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	PageSize      uint32                 `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken     string                 `protobuf:"bytes,4,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRunsRequest) Reset() {
+	*x = ListRunsRequest{}
+	mi := &file_api_agent_agent_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRunsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRunsRequest) ProtoMessage() {}
+
+func (x *ListRunsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_agent_agent_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRunsRequest.ProtoReflect.Descriptor instead.
+func (*ListRunsRequest) Descriptor() ([]byte, []int) {
+	return file_api_agent_agent_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ListRunsRequest) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ListRunsRequest) GetUserId() uint64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *ListRunsRequest) GetPageSize() uint32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListRunsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+type ListRunsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Runs          []*AgentRun            `protobuf:"bytes,1,rep,name=runs,proto3" json:"runs,omitempty"`
+	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRunsResponse) Reset() {
+	*x = ListRunsResponse{}
+	mi := &file_api_agent_agent_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRunsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRunsResponse) ProtoMessage() {}
+
+func (x *ListRunsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_agent_agent_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRunsResponse.ProtoReflect.Descriptor instead.
+func (*ListRunsResponse) Descriptor() ([]byte, []int) {
+	return file_api_agent_agent_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ListRunsResponse) GetRuns() []*AgentRun {
+	if x != nil {
+		return x.Runs
+	}
+	return nil
+}
+
+func (x *ListRunsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+type GetRunOpsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetRunOpsRequest) Reset() {
+	*x = GetRunOpsRequest{}
+	mi := &file_api_agent_agent_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetRunOpsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetRunOpsRequest) ProtoMessage() {}
+
+func (x *GetRunOpsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_agent_agent_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetRunOpsRequest.ProtoReflect.Descriptor instead.
+func (*GetRunOpsRequest) Descriptor() ([]byte, []int) {
+	return file_api_agent_agent_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *GetRunOpsRequest) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+type GetRunOpsResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Run             *AgentRun              `protobuf:"bytes,1,opt,name=run,proto3" json:"run,omitempty"`
+	Steps           []*AgentStep           `protobuf:"bytes,2,rep,name=steps,proto3" json:"steps,omitempty"`
+	Recommendations []*Recommendation      `protobuf:"bytes,3,rep,name=recommendations,proto3" json:"recommendations,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *GetRunOpsResponse) Reset() {
+	*x = GetRunOpsResponse{}
+	mi := &file_api_agent_agent_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetRunOpsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetRunOpsResponse) ProtoMessage() {}
+
+func (x *GetRunOpsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_agent_agent_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetRunOpsResponse.ProtoReflect.Descriptor instead.
+func (*GetRunOpsResponse) Descriptor() ([]byte, []int) {
+	return file_api_agent_agent_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *GetRunOpsResponse) GetRun() *AgentRun {
+	if x != nil {
+		return x.Run
+	}
+	return nil
+}
+
+func (x *GetRunOpsResponse) GetSteps() []*AgentStep {
+	if x != nil {
+		return x.Steps
+	}
+	return nil
+}
+
+func (x *GetRunOpsResponse) GetRecommendations() []*Recommendation {
+	if x != nil {
+		return x.Recommendations
+	}
+	return nil
+}
+
 type Recommendation struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	RankNo           uint32                 `protobuf:"varint,1,opt,name=rank_no,json=rankNo,proto3" json:"rank_no,omitempty"`
@@ -432,7 +744,7 @@ type Recommendation struct {
 
 func (x *Recommendation) Reset() {
 	*x = Recommendation{}
-	mi := &file_api_agent_agent_proto_msgTypes[6]
+	mi := &file_api_agent_agent_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -444,7 +756,7 @@ func (x *Recommendation) String() string {
 func (*Recommendation) ProtoMessage() {}
 
 func (x *Recommendation) ProtoReflect() protoreflect.Message {
-	mi := &file_api_agent_agent_proto_msgTypes[6]
+	mi := &file_api_agent_agent_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -457,7 +769,7 @@ func (x *Recommendation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Recommendation.ProtoReflect.Descriptor instead.
 func (*Recommendation) Descriptor() ([]byte, []int) {
-	return file_api_agent_agent_proto_rawDescGZIP(), []int{6}
+	return file_api_agent_agent_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Recommendation) GetRankNo() uint32 {
@@ -554,7 +866,7 @@ const file_api_agent_agent_proto_rawDesc = "" +
 	"\x0eGetRunResponse\x12$\n" +
 	"\x03run\x18\x01 \x01(\v2\x12.agent.v1.AgentRunR\x03run\x12)\n" +
 	"\x05steps\x18\x02 \x03(\v2\x13.agent.v1.AgentStepR\x05steps\x12B\n" +
-	"\x0frecommendations\x18\x03 \x03(\v2\x18.agent.v1.RecommendationR\x0frecommendations\"\xf3\x01\n" +
+	"\x0frecommendations\x18\x03 \x03(\v2\x18.agent.v1.RecommendationR\x0frecommendations\"\xad\x03\n" +
 	"\bAgentRun\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1d\n" +
 	"\n" +
@@ -567,7 +879,17 @@ const file_api_agent_agent_proto_rawDesc = "" +
 	"error_code\x18\x06 \x01(\tR\terrorCode\x12#\n" +
 	"\rerror_message\x18\a \x01(\tR\ferrorMessage\x12\x1d\n" +
 	"\n" +
-	"step_count\x18\b \x01(\rR\tstepCount\"\xd9\x01\n" +
+	"step_count\x18\b \x01(\rR\tstepCount\x12\x19\n" +
+	"\btrace_id\x18\t \x01(\tR\atraceId\x12\x1d\n" +
+	"\n" +
+	"model_name\x18\n" +
+	" \x01(\tR\tmodelName\x12%\n" +
+	"\x0eprompt_version\x18\v \x01(\tR\rpromptVersion\x12\x1d\n" +
+	"\n" +
+	"started_at\x18\f \x01(\tR\tstartedAt\x12\x19\n" +
+	"\bended_at\x18\r \x01(\tR\aendedAt\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x0e \x01(\tR\tcreatedAt\"\xed\x02\n" +
 	"\tAgentStep\x12\x17\n" +
 	"\astep_no\x18\x01 \x01(\rR\x06stepNo\x12\x1b\n" +
 	"\tstep_type\x18\x02 \x01(\tR\bstepType\x12\x1b\n" +
@@ -577,7 +899,31 @@ const file_api_agent_agent_proto_rawDesc = "" +
 	"error_code\x18\x05 \x01(\tR\terrorCode\x12#\n" +
 	"\rerror_message\x18\x06 \x01(\tR\ferrorMessage\x12\x1d\n" +
 	"\n" +
-	"latency_ms\x18\a \x01(\rR\tlatencyMs\"\xdf\x02\n" +
+	"latency_ms\x18\a \x01(\rR\tlatencyMs\x12\x18\n" +
+	"\aattempt\x18\b \x01(\rR\aattempt\x12\x1d\n" +
+	"\n" +
+	"input_json\x18\t \x01(\fR\tinputJson\x12\x1f\n" +
+	"\voutput_json\x18\n" +
+	" \x01(\fR\n" +
+	"outputJson\x12\x1d\n" +
+	"\n" +
+	"started_at\x18\v \x01(\tR\tstartedAt\x12\x19\n" +
+	"\bended_at\x18\f \x01(\tR\aendedAt\"~\n" +
+	"\x0fListRunsRequest\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status\x12\x17\n" +
+	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12\x1b\n" +
+	"\tpage_size\x18\x03 \x01(\rR\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x04 \x01(\tR\tpageToken\"b\n" +
+	"\x10ListRunsResponse\x12&\n" +
+	"\x04runs\x18\x01 \x03(\v2\x12.agent.v1.AgentRunR\x04runs\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\")\n" +
+	"\x10GetRunOpsRequest\x12\x15\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\"\xa8\x01\n" +
+	"\x11GetRunOpsResponse\x12$\n" +
+	"\x03run\x18\x01 \x01(\v2\x12.agent.v1.AgentRunR\x03run\x12)\n" +
+	"\x05steps\x18\x02 \x03(\v2\x13.agent.v1.AgentStepR\x05steps\x12B\n" +
+	"\x0frecommendations\x18\x03 \x03(\v2\x18.agent.v1.RecommendationR\x0frecommendations\"\xdf\x02\n" +
 	"\x0eRecommendation\x12\x17\n" +
 	"\arank_no\x18\x01 \x01(\rR\x06rankNo\x12\x15\n" +
 	"\x06sku_id\x18\x02 \x01(\x04R\x05skuId\x12\x1d\n" +
@@ -591,10 +937,12 @@ const file_api_agent_agent_proto_rawDesc = "" +
 	"\rdiscount_json\x18\t \x01(\fR\fdiscountJson\x12\x16\n" +
 	"\x06reason\x18\n" +
 	" \x01(\tR\x06reason\x12+\n" +
-	"\x11validation_status\x18\v \x01(\tR\x10validationStatus2\x8e\x01\n" +
+	"\x11validation_status\x18\v \x01(\tR\x10validationStatus2\x97\x02\n" +
 	"\fAgentService\x12A\n" +
 	"\bStartRun\x12\x19.agent.v1.StartRunRequest\x1a\x1a.agent.v1.StartRunResponse\x12;\n" +
-	"\x06GetRun\x12\x17.agent.v1.GetRunRequest\x1a\x18.agent.v1.GetRunResponseBCZAgithub.com/yuyu945/AI-Shopping/services/agent-service/gen;agentpbb\x06proto3"
+	"\x06GetRun\x12\x17.agent.v1.GetRunRequest\x1a\x18.agent.v1.GetRunResponse\x12A\n" +
+	"\bListRuns\x12\x19.agent.v1.ListRunsRequest\x1a\x1a.agent.v1.ListRunsResponse\x12D\n" +
+	"\tGetRunOps\x12\x1a.agent.v1.GetRunOpsRequest\x1a\x1b.agent.v1.GetRunOpsResponseBCZAgithub.com/yuyu945/AI-Shopping/services/agent-service/gen;agentpbb\x06proto3"
 
 var (
 	file_api_agent_agent_proto_rawDescOnce sync.Once
@@ -608,30 +956,42 @@ func file_api_agent_agent_proto_rawDescGZIP() []byte {
 	return file_api_agent_agent_proto_rawDescData
 }
 
-var file_api_agent_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_api_agent_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_api_agent_agent_proto_goTypes = []any{
-	(*StartRunRequest)(nil),  // 0: agent.v1.StartRunRequest
-	(*StartRunResponse)(nil), // 1: agent.v1.StartRunResponse
-	(*GetRunRequest)(nil),    // 2: agent.v1.GetRunRequest
-	(*GetRunResponse)(nil),   // 3: agent.v1.GetRunResponse
-	(*AgentRun)(nil),         // 4: agent.v1.AgentRun
-	(*AgentStep)(nil),        // 5: agent.v1.AgentStep
-	(*Recommendation)(nil),   // 6: agent.v1.Recommendation
+	(*StartRunRequest)(nil),   // 0: agent.v1.StartRunRequest
+	(*StartRunResponse)(nil),  // 1: agent.v1.StartRunResponse
+	(*GetRunRequest)(nil),     // 2: agent.v1.GetRunRequest
+	(*GetRunResponse)(nil),    // 3: agent.v1.GetRunResponse
+	(*AgentRun)(nil),          // 4: agent.v1.AgentRun
+	(*AgentStep)(nil),         // 5: agent.v1.AgentStep
+	(*ListRunsRequest)(nil),   // 6: agent.v1.ListRunsRequest
+	(*ListRunsResponse)(nil),  // 7: agent.v1.ListRunsResponse
+	(*GetRunOpsRequest)(nil),  // 8: agent.v1.GetRunOpsRequest
+	(*GetRunOpsResponse)(nil), // 9: agent.v1.GetRunOpsResponse
+	(*Recommendation)(nil),    // 10: agent.v1.Recommendation
 }
 var file_api_agent_agent_proto_depIdxs = []int32{
-	4, // 0: agent.v1.StartRunResponse.run:type_name -> agent.v1.AgentRun
-	4, // 1: agent.v1.GetRunResponse.run:type_name -> agent.v1.AgentRun
-	5, // 2: agent.v1.GetRunResponse.steps:type_name -> agent.v1.AgentStep
-	6, // 3: agent.v1.GetRunResponse.recommendations:type_name -> agent.v1.Recommendation
-	0, // 4: agent.v1.AgentService.StartRun:input_type -> agent.v1.StartRunRequest
-	2, // 5: agent.v1.AgentService.GetRun:input_type -> agent.v1.GetRunRequest
-	1, // 6: agent.v1.AgentService.StartRun:output_type -> agent.v1.StartRunResponse
-	3, // 7: agent.v1.AgentService.GetRun:output_type -> agent.v1.GetRunResponse
-	6, // [6:8] is the sub-list for method output_type
-	4, // [4:6] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	4,  // 0: agent.v1.StartRunResponse.run:type_name -> agent.v1.AgentRun
+	4,  // 1: agent.v1.GetRunResponse.run:type_name -> agent.v1.AgentRun
+	5,  // 2: agent.v1.GetRunResponse.steps:type_name -> agent.v1.AgentStep
+	10, // 3: agent.v1.GetRunResponse.recommendations:type_name -> agent.v1.Recommendation
+	4,  // 4: agent.v1.ListRunsResponse.runs:type_name -> agent.v1.AgentRun
+	4,  // 5: agent.v1.GetRunOpsResponse.run:type_name -> agent.v1.AgentRun
+	5,  // 6: agent.v1.GetRunOpsResponse.steps:type_name -> agent.v1.AgentStep
+	10, // 7: agent.v1.GetRunOpsResponse.recommendations:type_name -> agent.v1.Recommendation
+	0,  // 8: agent.v1.AgentService.StartRun:input_type -> agent.v1.StartRunRequest
+	2,  // 9: agent.v1.AgentService.GetRun:input_type -> agent.v1.GetRunRequest
+	6,  // 10: agent.v1.AgentService.ListRuns:input_type -> agent.v1.ListRunsRequest
+	8,  // 11: agent.v1.AgentService.GetRunOps:input_type -> agent.v1.GetRunOpsRequest
+	1,  // 12: agent.v1.AgentService.StartRun:output_type -> agent.v1.StartRunResponse
+	3,  // 13: agent.v1.AgentService.GetRun:output_type -> agent.v1.GetRunResponse
+	7,  // 14: agent.v1.AgentService.ListRuns:output_type -> agent.v1.ListRunsResponse
+	9,  // 15: agent.v1.AgentService.GetRunOps:output_type -> agent.v1.GetRunOpsResponse
+	12, // [12:16] is the sub-list for method output_type
+	8,  // [8:12] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_api_agent_agent_proto_init() }
@@ -645,7 +1005,7 @@ func file_api_agent_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_agent_agent_proto_rawDesc), len(file_api_agent_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

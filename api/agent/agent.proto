@@ -7,6 +7,8 @@ option go_package = "github.com/yuyu945/AI-Shopping/services/agent-service/gen;a
 service AgentService {
   rpc StartRun(StartRunRequest) returns (StartRunResponse);
   rpc GetRun(GetRunRequest) returns (GetRunResponse);
+  rpc ListRuns(ListRunsRequest) returns (ListRunsResponse);
+  rpc GetRunOps(GetRunOpsRequest) returns (GetRunOpsResponse);
 }
 
 message StartRunRequest {
@@ -37,6 +39,12 @@ message AgentRun {
   string error_code = 6;
   string error_message = 7;
   uint32 step_count = 8;
+  string trace_id = 9;
+  string model_name = 10;
+  string prompt_version = 11;
+  string started_at = 12;
+  string ended_at = 13;
+  string created_at = 14;
 }
 
 message AgentStep {
@@ -47,6 +55,33 @@ message AgentStep {
   string error_code = 5;
   string error_message = 6;
   uint32 latency_ms = 7;
+  uint32 attempt = 8;
+  bytes input_json = 9;
+  bytes output_json = 10;
+  string started_at = 11;
+  string ended_at = 12;
+}
+
+message ListRunsRequest {
+  string status = 1;
+  uint64 user_id = 2;
+  uint32 page_size = 3;
+  string page_token = 4;
+}
+
+message ListRunsResponse {
+  repeated AgentRun runs = 1;
+  string next_page_token = 2;
+}
+
+message GetRunOpsRequest {
+  string run_id = 1;
+}
+
+message GetRunOpsResponse {
+  AgentRun run = 1;
+  repeated AgentStep steps = 2;
+  repeated Recommendation recommendations = 3;
 }
 
 message Recommendation {

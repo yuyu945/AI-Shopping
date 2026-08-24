@@ -18,6 +18,7 @@ const updateAgentStepFailed = `UPDATE agent_steps SET status = ?, error_code = ?
 const updateAgentRunSucceeded = `UPDATE agent_runs SET status = 'SUCCEEDED', final_result_json = CAST(? AS JSON), step_count = ?, ended_at = ?, error_code = NULL, error_message = NULL WHERE id = ? AND status = 'RUNNING'`
 const updateAgentRunFailed = `UPDATE agent_runs SET status = ?, step_count = ?, ended_at = ?, error_code = ?, error_message = ? WHERE id = ? AND status = 'RUNNING'`
 const queryAgentRunTimeline = `SELECT id, run_id, session_id, user_id, trace_id, user_input, status, model_name, prompt_version, step_count, final_result_json, error_code, error_message, started_at, ended_at, created_at FROM agent_runs WHERE user_id = ? AND run_id = ?`
+const queryAgentRunOpsByID = `SELECT id, run_id, session_id, user_id, trace_id, user_input, status, model_name, prompt_version, step_count, final_result_json, error_code, error_message, started_at, ended_at, created_at FROM agent_runs WHERE run_id = ?`
 const queryAgentTimelineSteps = `SELECT id, run_id, step_no, step_type, tool_name, attempt, input_json, output_json, status, error_code, error_message, latency_ms, started_at, ended_at FROM agent_steps WHERE run_id = ? ORDER BY step_no ASC, attempt ASC`
 const insertRecommendationSnapshot = `INSERT INTO recommendations (run_id, rank_no, sku_id, product_id, product_title_snapshot, sku_code_snapshot, sku_spec_snapshot_json, price_snapshot, saleable_snapshot, discount_snapshot_json, reason, validation_status, created_at) VALUES (?, ?, ?, ?, ?, ?, CAST(? AS JSON), ?, ?, CAST(? AS JSON), ?, ?, ?)`
 const queryRecommendationSnapshots = `SELECT id, run_id, rank_no, sku_id, product_id, product_title_snapshot, sku_code_snapshot, sku_spec_snapshot_json, price_snapshot, saleable_snapshot, discount_snapshot_json, reason, validation_status, created_at FROM recommendations WHERE run_id = ? ORDER BY rank_no ASC`
@@ -283,6 +284,60 @@ func (r *MySQLRepository) GetRunTimeline(ctx context.Context, userID uint64, run
 	return RunTimeline{Run: run, Steps: steps, Recommendations: recommendations}, nil
 }
 
+func (r *MySQLRepository) ListRunsOps(ctx context.Context, filter RunOpsFilter) (RunOpsList, error) {
+	filter = normalizeRunOpsFilter(filter)
+	rows, err := r.db.QueryContext(ctx, queryListRunsOps(filter), runOpsArgs(filter)...)
+	if err != nil {
+		return RunOpsList{}, fmt.Errorf("read agent ops runs: %w", err)
+	}
+	defer rows.Close()
+	runs := make([]Run, 0)
+	for rows.Next() {
+		run, err := scanRun(rows)
+		if err != nil {
+			return RunOpsList{}, fmt.Errorf("scan agent ops run: %w", err)
+		}
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return RunOpsList{}, fmt.Errorf("read agent ops run rows: %w", err)
+	}
+	return RunOpsList{Runs: runs}, nil
+}
+
+func (r *MySQLRepository) GetRunOps(ctx context.Context, runID string) (RunOpsDetail, error) {
+	run, err := scanRun(r.db.QueryRowContext(ctx, queryAgentRunOpsByID, runID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return RunOpsDetail{}, ErrRunNotFound
+	}
+	if err != nil {
+		return RunOpsDetail{}, fmt.Errorf("read agent ops run: %w", err)
+	}
+	rows, err := r.db.QueryContext(ctx, queryAgentTimelineSteps, run.ID)
+	if err != nil {
+		return RunOpsDetail{}, fmt.Errorf("read agent ops steps: %w", err)
+	}
+	defer rows.Close()
+	steps := make([]Step, 0)
+	for rows.Next() {
+		step, err := scanStep(rows)
+		if err != nil {
+			return RunOpsDetail{}, err
+		}
+		step.InputJSON = RedactJSON(step.InputJSON)
+		step.OutputJSON = RedactJSON(step.OutputJSON)
+		steps = append(steps, step)
+	}
+	if err := rows.Err(); err != nil {
+		return RunOpsDetail{}, fmt.Errorf("read agent ops step rows: %w", err)
+	}
+	recommendations, err := r.ListRecommendations(ctx, run.ID)
+	if err != nil {
+		return RunOpsDetail{}, err
+	}
+	return RunOpsDetail{Run: run, Steps: steps, Recommendations: recommendations}, nil
+}
+
 type scanner interface {
 	Scan(...any) error
 }
@@ -377,6 +432,38 @@ func stepColumns() []string {
 
 func recommendationColumns() []string {
 	return []string{"id", "run_id", "rank_no", "sku_id", "product_id", "product_title_snapshot", "sku_code_snapshot", "sku_spec_snapshot_json", "price_snapshot", "saleable_snapshot", "discount_snapshot_json", "reason", "validation_status", "created_at"}
+}
+
+func queryListRunsOps(filter RunOpsFilter) string {
+	clauses := []string{"1 = 1"}
+	if filter.Status != "" {
+		clauses = append(clauses, "status = ?")
+	}
+	if filter.UserID != 0 {
+		clauses = append(clauses, "user_id = ?")
+	}
+	return `SELECT id, run_id, session_id, user_id, trace_id, user_input, status, model_name, prompt_version, step_count, final_result_json, error_code, error_message, started_at, ended_at, created_at FROM agent_runs WHERE ` + strings.Join(clauses, " AND ") + ` ORDER BY created_at DESC, id DESC LIMIT ?`
+}
+
+func runOpsArgs(filter RunOpsFilter) []any {
+	filter = normalizeRunOpsFilter(filter)
+	args := make([]any, 0, 3)
+	if filter.Status != "" {
+		args = append(args, filter.Status)
+	}
+	if filter.UserID != 0 {
+		args = append(args, filter.UserID)
+	}
+	args = append(args, int(filter.PageSize))
+	return args
+}
+
+func normalizeRunOpsFilter(filter RunOpsFilter) RunOpsFilter {
+	if filter.PageSize == 0 || filter.PageSize > 100 {
+		filter.PageSize = 50
+	}
+	filter.PageToken = strings.TrimSpace(filter.PageToken)
+	return filter
 }
 
 func titleFromInput(input string) string {

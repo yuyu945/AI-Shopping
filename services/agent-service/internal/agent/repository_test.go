@@ -192,6 +192,51 @@ func TestRepositoryLoadsRunTimelineWithRecommendations(t *testing.T) {
 	assertSQLExpectations(t, mock)
 }
 
+func TestRepositoryListsRunsOpsByStatusAndUser(t *testing.T) {
+	db, mock := newRepositoryMock(t)
+	now := time.Date(2026, 8, 24, 11, 0, 0, 0, time.UTC)
+	repository := NewMySQLRepository(db)
+	filter := RunOpsFilter{Status: RunFailed, UserID: 42, PageSize: 20}
+
+	mock.ExpectQuery(regexp.QuoteMeta(queryListRunsOps(filter))).
+		WithArgs(RunFailed, uint64(42), 20).
+		WillReturnRows(sqlmock.NewRows(runTimelineColumns()).
+			AddRow(uint64(300), "run_1", uint64(100), uint64(42), "trace_1", "input", RunFailed, "qwen-plus", "m4.2-v1", uint32(2), nil, "MODEL_FAILED", "model request failed", now, now, now))
+
+	got, err := repository.ListRunsOps(context.Background(), filter)
+	if err != nil || len(got.Runs) != 1 || got.Runs[0].TraceID != "trace_1" || got.Runs[0].ErrorCode != "MODEL_FAILED" {
+		t.Fatalf("ListRunsOps() = %#v, %v", got, err)
+	}
+	assertSQLExpectations(t, mock)
+}
+
+func TestRepositoryLoadsRunOpsWithRedactedSteps(t *testing.T) {
+	db, mock := newRepositoryMock(t)
+	now := time.Date(2026, 8, 24, 11, 0, 0, 0, time.UTC)
+	repository := NewMySQLRepository(db)
+
+	mock.ExpectQuery(regexp.QuoteMeta(queryAgentRunOpsByID)).
+		WithArgs("run_1").
+		WillReturnRows(sqlmock.NewRows(runTimelineColumns()).
+			AddRow(uint64(300), "run_1", uint64(100), uint64(42), "trace_1", "input", RunSucceeded, "qwen-plus", "m4.2-v1", uint32(1), []byte(`{"final_text":"ok"}`), nil, nil, now, now, now))
+	mock.ExpectQuery(regexp.QuoteMeta(queryAgentTimelineSteps)).
+		WithArgs(uint64(300)).
+		WillReturnRows(sqlmock.NewRows(stepColumns()).
+			AddRow(uint64(400), uint64(300), uint32(1), StepTypeTool, sql.NullString{String: "get_user_profile", Valid: true}, uint32(1), []byte(`{"phone":"13800000000"}`), []byte(`{"address":"secret","ok":true}`), StepSucceeded, nil, nil, uint32(25), now, now))
+	mock.ExpectQuery(regexp.QuoteMeta(queryRecommendationSnapshots)).
+		WithArgs(uint64(300)).
+		WillReturnRows(sqlmock.NewRows(recommendationColumns()))
+
+	got, err := repository.GetRunOps(context.Background(), "run_1")
+	if err != nil || got.Run.TraceID != "trace_1" || len(got.Steps) != 1 {
+		t.Fatalf("GetRunOps() = %#v, %v", got, err)
+	}
+	if string(got.Steps[0].InputJSON) != `{"phone":"[REDACTED]"}` || string(got.Steps[0].OutputJSON) != `{"address":"[REDACTED]","ok":true}` {
+		t.Fatalf("step=%s %s", got.Steps[0].InputJSON, got.Steps[0].OutputJSON)
+	}
+	assertSQLExpectations(t, mock)
+}
+
 func TestRepositoryRejectsNonOwnerRunLookup(t *testing.T) {
 	db, mock := newRepositoryMock(t)
 	repository := NewMySQLRepository(db)

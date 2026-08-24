@@ -158,6 +158,60 @@ export type KnowledgeSnippet = {
   score: number;
 };
 
+export type KnowledgeDocument = {
+  document_no: string;
+  product_id: number;
+  doc_type: string;
+  version: number;
+  status: string;
+  file_name?: string;
+  content_type?: string;
+  file_size_bytes?: number;
+  chunk_count?: number;
+  embedding_model?: string;
+  is_current_ready?: boolean;
+  error_code?: string;
+  error_message?: string;
+  created_at?: string;
+  updated_at?: string;
+  processed_at?: string;
+  ready_at?: string;
+};
+
+export type KnowledgeDocumentChunk = {
+  chunk_id: number;
+  chunk_index: number;
+  section?: string;
+  source_page?: number;
+  content_hash: string;
+  status: string;
+  vector_ref?: string;
+};
+
+export type OpsAgentRun = AgentRun & {
+  trace_id?: string;
+  model_name?: string;
+  prompt_version?: string;
+  started_at?: string;
+  ended_at?: string;
+  created_at?: string;
+};
+
+export type OpsAgentStep = AgentStep & {
+  attempt?: number;
+  input_json?: Record<string, unknown>;
+  output_json?: Record<string, unknown>;
+  started_at?: string;
+  ended_at?: string;
+};
+
+export type EventOverview = {
+  behavior_events: Array<{ event_id: string; user_id: number; event_type: string; trace_id: string; resource_type: string; resource_id: string; occurred_at?: string }>;
+  review_events: Array<{ event_id: string; review_no: string; product_id: number; sku_id: number; rating: number; occurred_at?: string }>;
+  product_stats: Array<{ product_id: number; review_count: number; rating_avg: string }>;
+  dead_letters: Array<{ topic: string; event_key: string; reason: string; created_at?: string }>;
+};
+
 export type AgentTimeline = {
   run: AgentRun;
   steps: AgentStep[];
@@ -197,6 +251,12 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, fetch
   }
 }
 
+export function opsFetch<T>(path: string, options: RequestInit = {}, fetcher: Fetcher = fetch): Promise<T> {
+  const headers = headersToRecord(options.headers);
+  headers["X-AI-Shopping-Operator"] = "true";
+  return apiFetch<T>(path, { ...options, headers }, fetcher);
+}
+
 export const api = {
   login: (input: { email: string; password: string }) =>
     apiFetch<{ access_token?: string; token?: string }>("/api/v1/auth/login", jsonRequest("POST", input)),
@@ -228,6 +288,19 @@ export const api = {
       `/api/v1/products/${productID}/knowledge/questions`,
       jsonRequest("POST", input),
     ),
+  listKnowledgeDocuments: (params: { product_id?: number; doc_type?: string; status?: string } = {}) =>
+    opsFetch<{ documents: KnowledgeDocument[] }>(withQuery("/api/v1/ops/knowledge/documents", params)),
+  uploadKnowledgeDocument: (input: { product_id: number; doc_type: string; file_name: string; content_type: string; content_base64: string }) =>
+    opsFetch<{ document: KnowledgeDocument }>("/api/v1/ops/knowledge/documents", jsonRequest("POST", input)),
+  getKnowledgeDocument: (documentNo: string) =>
+    opsFetch<{ document: KnowledgeDocument; chunks: KnowledgeDocumentChunk[] }>(`/api/v1/ops/knowledge/documents/${documentNo}`),
+  retryKnowledgeDocument: (documentNo: string) =>
+    opsFetch<{ document: KnowledgeDocument }>(`/api/v1/ops/knowledge/documents/${documentNo}/retry`, { method: "POST" }),
+  listAgentRunsOps: (params: { status?: string; user_id?: number } = {}) =>
+    opsFetch<{ runs: OpsAgentRun[] }>(withQuery("/api/v1/ops/agent-runs", params)),
+  getAgentRunOps: (runID: string) =>
+    opsFetch<{ run: OpsAgentRun; steps: OpsAgentStep[]; recommendations: Recommendation[] }>(`/api/v1/ops/agent-runs/${runID}`),
+  getEventOverview: () => opsFetch<EventOverview>("/api/v1/ops/events/overview"),
 };
 
 export type AgentEvent = {

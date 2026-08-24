@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { apiFetch, clearToken, setToken } from "./client";
+import { apiFetch, clearToken, opsFetch, setToken } from "./client";
 
 describe("apiFetch", () => {
   beforeEach(() => {
@@ -41,5 +41,26 @@ describe("apiFetch", () => {
     await expect(apiFetch("/api/v1/orders", {}, fetcher)).rejects.toMatchObject({
       code: "REQUEST_TIMEOUT",
     });
+  });
+
+  it("sends operator header only through opsFetch", async () => {
+    setToken("jwt-token");
+    const normalFetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    await apiFetch("/api/v1/products", {}, normalFetcher);
+    expect(normalFetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/products",
+      expect.objectContaining({
+        headers: expect.not.objectContaining({ "X-AI-Shopping-Operator": "true" }),
+      }),
+    );
+
+    const opsFetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ documents: [] }), { status: 200 }));
+    await opsFetch("/api/v1/ops/knowledge/documents", {}, opsFetcher);
+    expect(opsFetcher).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/ops/knowledge/documents",
+      expect.objectContaining({
+        headers: expect.objectContaining({ "X-AI-Shopping-Operator": "true", Authorization: "Bearer jwt-token" }),
+      }),
+    );
   });
 });

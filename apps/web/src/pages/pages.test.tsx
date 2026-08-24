@@ -7,6 +7,9 @@ import AuthPage from "./AuthPage";
 import CheckoutPage from "./CheckoutPage";
 import GuidePage from "./GuidePage";
 import OrdersPage from "./OrdersPage";
+import OpsAgentRunsPage from "./OpsAgentRunsPage";
+import OpsDocumentsPage from "./OpsDocumentsPage";
+import OpsEventsPage from "./OpsEventsPage";
 import ProductDetailPage from "./ProductDetailPage";
 import ProductListPage from "./ProductListPage";
 
@@ -115,6 +118,66 @@ describe("Commerce pages", () => {
     await userEvent.click(screen.getByRole("button", { name: "Submit review" }));
 
     expect(api.submitReview).toHaveBeenCalledWith("order_1", 2001, { rating: 5, content: "体验稳定" });
+  });
+});
+
+describe("Operations pages", () => {
+  it("renders failed knowledge document and retries it", async () => {
+    const api = {
+      listKnowledgeDocuments: async () => ({ documents: [{ document_no: "doc_failed", product_id: 1001, doc_type: "FAQ", version: 2, status: "FAILED", error_code: "EMBEDDING_FAILED" }] }),
+      getKnowledgeDocument: async () => ({ document: { document_no: "doc_failed", product_id: 1001, doc_type: "FAQ", version: 2, status: "FAILED" }, chunks: [] }),
+      retryKnowledgeDocument: vi.fn().mockResolvedValue({ document: { document_no: "doc_failed", product_id: 1001, doc_type: "FAQ", version: 2, status: "PENDING" } }),
+      uploadKnowledgeDocument: vi.fn().mockResolvedValue({ document: { document_no: "doc_uploaded", product_id: 1001, doc_type: "FAQ", version: 3, status: "PENDING" } }),
+    };
+    render(<OpsDocumentsPage api={api} />);
+
+    await userEvent.upload(screen.getByLabelText("Upload file"), new File(["faq"], "faq.txt", { type: "text/plain" }));
+    await userEvent.click(screen.getByRole("button", { name: "Upload" }));
+    expect(api.uploadKnowledgeDocument).toHaveBeenCalledWith(expect.objectContaining({ product_id: 1001, doc_type: "FAQ", file_name: "faq.txt" }));
+    expect(await screen.findByText("Upload submitted")).toBeInTheDocument();
+
+    await userEvent.click(await screen.findByRole("button", { name: "doc_failed" }));
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(api.retryKnowledgeDocument).toHaveBeenCalledWith("doc_failed");
+    expect(await screen.findByText("Retry submitted")).toBeInTheDocument();
+    expect(screen.getAllByText("PENDING").length).toBeGreaterThan(0);
+  });
+
+  it("renders agent ops timeline with trace and redacted JSON", async () => {
+    const api = {
+      listAgentRunsOps: async () => ({ runs: [{ run_id: "run_1", status: "SUCCEEDED", trace_id: "trace_1", step_count: 1 }] }),
+      getAgentRunOps: async () => ({
+        run: { run_id: "run_1", status: "SUCCEEDED", trace_id: "trace_1", model_name: "qwen-plus" },
+        steps: [{ step_no: 1, tool_name: "get_user_profile", status: "SUCCEEDED", input_json: { phone: "[REDACTED]" }, output_json: { user_id: 7 }, latency_ms: 12 }],
+        recommendations: [],
+      }),
+    };
+    render(<OpsAgentRunsPage api={api} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "run_1" }));
+
+    expect((await screen.findAllByText("trace_1")).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText(/REDACTED/)).toBeInTheDocument();
+    expect(screen.getByText(/12ms/)).toBeInTheDocument();
+  });
+
+  it("renders event overview behavior and dead letters", async () => {
+    render(
+      <OpsEventsPage
+        api={{
+          getEventOverview: async () => ({
+            behavior_events: [{ event_id: "event_1", user_id: 7, event_type: "product.viewed", trace_id: "trace_1", resource_type: "product", resource_id: "1001" }],
+            review_events: [],
+            product_stats: [],
+            dead_letters: [{ topic: "behavior.events", event_key: "7", reason: "invalid_behavior_event" }],
+          }),
+        }}
+      />,
+    );
+
+    expect(await screen.findByText("product.viewed")).toBeInTheDocument();
+    expect(screen.getByText("invalid_behavior_event")).toBeInTheDocument();
   });
 });
 

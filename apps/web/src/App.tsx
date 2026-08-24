@@ -5,6 +5,9 @@ import CartPage from "./pages/CartPage";
 import CheckoutPage from "./pages/CheckoutPage";
 import GuidePage from "./pages/GuidePage";
 import OrdersPage from "./pages/OrdersPage";
+import OpsAgentRunsPage from "./pages/OpsAgentRunsPage";
+import OpsDocumentsPage from "./pages/OpsDocumentsPage";
+import OpsEventsPage from "./pages/OpsEventsPage";
 import ProductDetailPage from "./pages/ProductDetailPage";
 import ProductListPage from "./pages/ProductListPage";
 
@@ -22,6 +25,7 @@ export default function App() {
           <a href="#/guide">AI Guide</a>
           <a href="#/cart">Cart</a>
           <a href="#/orders">Orders</a>
+          <a href="#/ops/documents">Ops</a>
         </nav>
         <a className="accountLink" href="#/login">
           Login
@@ -51,6 +55,15 @@ function RouteView({ route }: { route: URL }) {
   }
   if (path === "/orders") {
     return <OrdersPage />;
+  }
+  if (path === "/ops/documents") {
+    return <OpsDocumentsPage />;
+  }
+  if (path === "/ops/agent-runs") {
+    return <OpsAgentRunsPage />;
+  }
+  if (path === "/ops/events") {
+    return <OpsEventsPage />;
   }
   const productMatch = path.match(/^\/products\/(\d+)$/);
   if (productMatch) {

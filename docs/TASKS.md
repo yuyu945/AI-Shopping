@@ -115,6 +115,12 @@
 - [x] Gateway 透传 JWT bearer 与合法 `trace_id`，并对 Agent gRPC 错误做稳定 HTTP taxonomy。
 - [x] SSE 以 `GetRun` 持久化状态生成 replay/polling events；真实 live streaming 与真实 LLM provider 留到后续阶段。
 
+#### M5.1b 商品知识问答 Gateway 接入（已完成）
+
+- [x] 暴露 `POST /api/v1/products/{product_id}/knowledge/questions`，通过 Gateway 调用 `SearchProductKnowledge`。
+- [x] 返回带来源的 snippets 与 `fallback_reason`，不生成无来源答案文本。
+- [x] 保留真实前端商品详情页与自然语言答案生成到后续阶段。
+
 - [ ] 实现商品列表、商品详情、SKU 切换、购物车、订单确认、余额支付、订单详情和评价页面，状态遵循 [interaction.md](interaction.md)。
 - [ ] 实现 AI 导购页：发送自然语言需求、建立 SSE 订阅、渲染 Run 进度、推荐卡片和受控失败提示。
 - [ ] 实现商品知识问答及来源展示；RAG 不可用时呈现受控降级，不生成无来源断言。

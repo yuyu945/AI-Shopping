@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,6 +68,52 @@ func (h *AgentHandler) Run() http.HandlerFunc {
 	}
 }
 
+func (h *AgentHandler) OpsRuns() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pageSize, _ := strconv.ParseUint(r.URL.Query().Get("page_size"), 10, 32)
+		userID, _ := strconv.ParseUint(r.URL.Query().Get("user_id"), 10, 64)
+		out, err := h.client.ListRuns(r.Context(), &agentpb.ListRunsRequest{
+			Status:    strings.TrimSpace(r.URL.Query().Get("status")),
+			UserId:    userID,
+			PageSize:  uint32(pageSize),
+			PageToken: strings.TrimSpace(r.URL.Query().Get("page_token")),
+		})
+		if err != nil {
+			writeAgentError(w, err)
+			return
+		}
+		runs := make([]any, 0, len(out.GetRuns()))
+		for _, run := range out.GetRuns() {
+			runs = append(runs, agentRunJSON(run))
+		}
+		writeJSONValue(w, http.StatusOK, map[string]any{"runs": runs, "next_page_token": out.GetNextPageToken()})
+	}
+}
+
+func (h *AgentHandler) OpsRun() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		runID := strings.TrimSpace(r.PathValue("run_id"))
+		if runID == "" {
+			writeAgentError(w, status.Error(codes.InvalidArgument, "invalid request"))
+			return
+		}
+		out, err := h.client.GetRunOps(r.Context(), &agentpb.GetRunOpsRequest{RunId: runID})
+		if err != nil {
+			writeAgentError(w, err)
+			return
+		}
+		steps := make([]any, 0, len(out.GetSteps()))
+		for _, step := range out.GetSteps() {
+			steps = append(steps, agentStepOpsJSON(step))
+		}
+		recommendations := make([]any, 0, len(out.GetRecommendations()))
+		for _, recommendation := range out.GetRecommendations() {
+			recommendations = append(recommendations, recommendationJSON(recommendation))
+		}
+		writeJSONValue(w, http.StatusOK, map[string]any{"run": agentRunJSON(out.GetRun()), "steps": steps, "recommendations": recommendations})
+	}
+}
+
 func (h *AgentHandler) Events() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		runID := strings.TrimSpace(r.PathValue("run_id"))
@@ -126,13 +173,19 @@ func agentRunJSON(run *agentpb.AgentRun) map[string]any {
 		return nil
 	}
 	return map[string]any{
-		"run_id":     run.GetRunId(),
-		"session_no": run.GetSessionNo(),
-		"status":     run.GetStatus(),
-		"final_text": run.GetFinalText(),
-		"error_code": run.GetErrorCode(),
-		"step_count": run.GetStepCount(),
-		"stream_url": "/api/v1/agent/runs/" + run.GetRunId() + "/events",
+		"run_id":         run.GetRunId(),
+		"session_no":     run.GetSessionNo(),
+		"status":         run.GetStatus(),
+		"final_text":     run.GetFinalText(),
+		"error_code":     run.GetErrorCode(),
+		"step_count":     run.GetStepCount(),
+		"stream_url":     "/api/v1/agent/runs/" + run.GetRunId() + "/events",
+		"trace_id":       run.GetTraceId(),
+		"model_name":     run.GetModelName(),
+		"prompt_version": run.GetPromptVersion(),
+		"started_at":     run.GetStartedAt(),
+		"ended_at":       run.GetEndedAt(),
+		"created_at":     run.GetCreatedAt(),
 	}
 }
 
@@ -148,6 +201,19 @@ func agentStepJSON(step *agentpb.AgentStep) map[string]any {
 		"error_code": step.GetErrorCode(),
 		"latency_ms": step.GetLatencyMs(),
 	}
+}
+
+func agentStepOpsJSON(step *agentpb.AgentStep) map[string]any {
+	base := agentStepJSON(step)
+	if base == nil {
+		return nil
+	}
+	base["attempt"] = step.GetAttempt()
+	base["input_json"] = rawJSONOrDefault(step.GetInputJson(), "{}")
+	base["output_json"] = rawJSONOrDefault(step.GetOutputJson(), "{}")
+	base["started_at"] = step.GetStartedAt()
+	base["ended_at"] = step.GetEndedAt()
+	return base
 }
 
 func recommendationJSON(value *agentpb.Recommendation) map[string]any {

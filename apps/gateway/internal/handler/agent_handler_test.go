@@ -16,6 +16,8 @@ import (
 type fakeAgentClient struct {
 	start func(context.Context, *agentpb.StartRunRequest) (*agentpb.StartRunResponse, error)
 	get   func(context.Context, *agentpb.GetRunRequest) (*agentpb.GetRunResponse, error)
+	list  func(context.Context, *agentpb.ListRunsRequest) (*agentpb.ListRunsResponse, error)
+	ops   func(context.Context, *agentpb.GetRunOpsRequest) (*agentpb.GetRunOpsResponse, error)
 }
 
 func (f *fakeAgentClient) StartRun(ctx context.Context, req *agentpb.StartRunRequest) (*agentpb.StartRunResponse, error) {
@@ -30,6 +32,20 @@ func (f *fakeAgentClient) GetRun(ctx context.Context, req *agentpb.GetRunRequest
 		return f.get(ctx, req)
 	}
 	return &agentpb.GetRunResponse{Run: &agentpb.AgentRun{RunId: req.GetRunId(), Status: "SUCCEEDED"}}, nil
+}
+
+func (f *fakeAgentClient) ListRuns(ctx context.Context, req *agentpb.ListRunsRequest) (*agentpb.ListRunsResponse, error) {
+	if f.list != nil {
+		return f.list(ctx, req)
+	}
+	return &agentpb.ListRunsResponse{}, nil
+}
+
+func (f *fakeAgentClient) GetRunOps(ctx context.Context, req *agentpb.GetRunOpsRequest) (*agentpb.GetRunOpsResponse, error) {
+	if f.ops != nil {
+		return f.ops(ctx, req)
+	}
+	return &agentpb.GetRunOpsResponse{}, nil
 }
 
 func TestAgentHandlerCreateRunMapsRequestAndResponse(t *testing.T) {
@@ -147,5 +163,26 @@ func TestAgentHandlerSSEEmitsReplayEvents(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q in %s", want, body)
 		}
+	}
+}
+
+func TestAgentOpsHandlerReturnsRunDetailsWithRedactedJSON(t *testing.T) {
+	client := &fakeAgentClient{ops: func(_ context.Context, req *agentpb.GetRunOpsRequest) (*agentpb.GetRunOpsResponse, error) {
+		if req.GetRunId() != "run_1" {
+			t.Fatalf("req=%#v", req)
+		}
+		return &agentpb.GetRunOpsResponse{
+			Run:   &agentpb.AgentRun{RunId: "run_1", Status: "SUCCEEDED", TraceId: "trace_1", ModelName: "qwen-plus"},
+			Steps: []*agentpb.AgentStep{{StepNo: 1, ToolName: "get_user_profile", Status: "SUCCEEDED", InputJson: []byte(`{"phone":"[REDACTED]"}`)}},
+		}, nil
+	}}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/ops/agent-runs/run_1", nil)
+	r.SetPathValue("run_id", "run_1")
+
+	NewAgentHandler(client).OpsRun().ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"trace_id":"trace_1"`) || !strings.Contains(w.Body.String(), `"[REDACTED]"`) {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 }

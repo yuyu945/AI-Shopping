@@ -17,6 +17,8 @@ const agentCallTimeout = 2 * time.Second
 type Client interface {
 	StartRun(context.Context, *agentpb.StartRunRequest) (*agentpb.StartRunResponse, error)
 	GetRun(context.Context, *agentpb.GetRunRequest) (*agentpb.GetRunResponse, error)
+	ListRuns(context.Context, *agentpb.ListRunsRequest) (*agentpb.ListRunsResponse, error)
+	GetRunOps(context.Context, *agentpb.GetRunOpsRequest) (*agentpb.GetRunOpsResponse, error)
 }
 
 type grpcClient struct {
@@ -37,6 +39,18 @@ func (c *grpcClient) GetRun(parent context.Context, req *agentpb.GetRunRequest) 
 	ctx, cancel := c.auth(parent)
 	defer cancel()
 	return c.client.GetRun(ctx, req)
+}
+
+func (c *grpcClient) ListRuns(parent context.Context, req *agentpb.ListRunsRequest) (*agentpb.ListRunsResponse, error) {
+	ctx, cancel := c.auth(parent)
+	defer cancel()
+	return c.client.ListRuns(ctx, req)
+}
+
+func (c *grpcClient) GetRunOps(parent context.Context, req *agentpb.GetRunOpsRequest) (*agentpb.GetRunOpsResponse, error) {
+	ctx, cancel := c.auth(parent)
+	defer cancel()
+	return c.client.GetRunOps(ctx, req)
 }
 
 func (c *grpcClient) auth(parent context.Context) (context.Context, context.CancelFunc) {

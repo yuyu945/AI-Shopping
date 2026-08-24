@@ -160,9 +160,47 @@ func TestKnowledgeQuestionHandlerMapsStableSearchErrors(t *testing.T) {
 	}
 }
 
+func TestKnowledgeOpsListDocumentsReturnsOperationalFields(t *testing.T) {
+	client := &fakeKnowledgeClient{list: func(_ context.Context, req *knowledgepb.ListDocumentsRequest) (*knowledgepb.ListDocumentsResponse, error) {
+		if req.GetProductId() != 1001 || req.GetDocType() != "FAQ" || req.GetStatus() != "FAILED" {
+			t.Fatalf("req=%#v", req)
+		}
+		return &knowledgepb.ListDocumentsResponse{Documents: []*knowledgepb.Document{{DocumentNo: "doc_failed", ProductId: 1001, DocType: "FAQ", Status: "FAILED", ErrorCode: "EMBEDDING_FAILED"}}}, nil
+	}}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/ops/knowledge/documents?product_id=1001&doc_type=FAQ&status=FAILED", nil)
+
+	NewKnowledgeHandler(client).OpsDocuments().ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"error_code":"EMBEDDING_FAILED"`) {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestKnowledgeOpsRetryDocument(t *testing.T) {
+	client := &fakeKnowledgeClient{retry: func(_ context.Context, req *knowledgepb.RetryDocumentRequest) (*knowledgepb.RetryDocumentResponse, error) {
+		if req.GetDocumentNo() != "doc_failed" {
+			t.Fatalf("req=%#v", req)
+		}
+		return &knowledgepb.RetryDocumentResponse{Document: &knowledgepb.Document{DocumentNo: "doc_failed", Status: "PENDING"}}, nil
+	}}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/ops/knowledge/documents/doc_failed/retry", nil)
+	r.SetPathValue("document_no", "doc_failed")
+
+	NewKnowledgeHandler(client).OpsRetryDocument().ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"status":"PENDING"`) {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
 type fakeKnowledgeClient struct {
 	upload func(context.Context, *knowledgepb.UploadDocumentRequest) (*knowledgepb.UploadDocumentResponse, error)
 	search func(context.Context, *knowledgepb.SearchProductKnowledgeRequest) (*knowledgepb.SearchProductKnowledgeResponse, error)
+	list   func(context.Context, *knowledgepb.ListDocumentsRequest) (*knowledgepb.ListDocumentsResponse, error)
+	get    func(context.Context, *knowledgepb.GetDocumentRequest) (*knowledgepb.GetDocumentResponse, error)
+	retry  func(context.Context, *knowledgepb.RetryDocumentRequest) (*knowledgepb.RetryDocumentResponse, error)
 }
 
 func (f *fakeKnowledgeClient) UploadDocument(ctx context.Context, req *knowledgepb.UploadDocumentRequest) (*knowledgepb.UploadDocumentResponse, error) {
@@ -177,4 +215,25 @@ func (f *fakeKnowledgeClient) SearchProductKnowledge(ctx context.Context, req *k
 		return &knowledgepb.SearchProductKnowledgeResponse{}, nil
 	}
 	return f.search(ctx, req)
+}
+
+func (f *fakeKnowledgeClient) ListDocuments(ctx context.Context, req *knowledgepb.ListDocumentsRequest) (*knowledgepb.ListDocumentsResponse, error) {
+	if f.list == nil {
+		return &knowledgepb.ListDocumentsResponse{}, nil
+	}
+	return f.list(ctx, req)
+}
+
+func (f *fakeKnowledgeClient) GetDocument(ctx context.Context, req *knowledgepb.GetDocumentRequest) (*knowledgepb.GetDocumentResponse, error) {
+	if f.get == nil {
+		return &knowledgepb.GetDocumentResponse{}, nil
+	}
+	return f.get(ctx, req)
+}
+
+func (f *fakeKnowledgeClient) RetryDocument(ctx context.Context, req *knowledgepb.RetryDocumentRequest) (*knowledgepb.RetryDocumentResponse, error) {
+	if f.retry == nil {
+		return &knowledgepb.RetryDocumentResponse{}, nil
+	}
+	return f.retry(ctx, req)
 }

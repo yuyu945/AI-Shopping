@@ -16,6 +16,9 @@ const knowledgeCallTimeout = 2 * time.Second
 
 type Client interface {
 	UploadDocument(context.Context, *knowledgepb.UploadDocumentRequest) (*knowledgepb.UploadDocumentResponse, error)
+	ListDocuments(context.Context, *knowledgepb.ListDocumentsRequest) (*knowledgepb.ListDocumentsResponse, error)
+	GetDocument(context.Context, *knowledgepb.GetDocumentRequest) (*knowledgepb.GetDocumentResponse, error)
+	RetryDocument(context.Context, *knowledgepb.RetryDocumentRequest) (*knowledgepb.RetryDocumentResponse, error)
 	SearchProductKnowledge(context.Context, *knowledgepb.SearchProductKnowledgeRequest) (*knowledgepb.SearchProductKnowledgeResponse, error)
 }
 
@@ -31,6 +34,24 @@ func (c *grpcClient) UploadDocument(parent context.Context, req *knowledgepb.Upl
 	ctx, cancel := c.auth(parent)
 	defer cancel()
 	return c.client.UploadDocument(ctx, req)
+}
+
+func (c *grpcClient) ListDocuments(parent context.Context, req *knowledgepb.ListDocumentsRequest) (*knowledgepb.ListDocumentsResponse, error) {
+	ctx, cancel := c.auth(parent)
+	defer cancel()
+	return c.client.ListDocuments(ctx, req)
+}
+
+func (c *grpcClient) GetDocument(parent context.Context, req *knowledgepb.GetDocumentRequest) (*knowledgepb.GetDocumentResponse, error) {
+	ctx, cancel := c.auth(parent)
+	defer cancel()
+	return c.client.GetDocument(ctx, req)
+}
+
+func (c *grpcClient) RetryDocument(parent context.Context, req *knowledgepb.RetryDocumentRequest) (*knowledgepb.RetryDocumentResponse, error) {
+	ctx, cancel := c.auth(parent)
+	defer cancel()
+	return c.client.RetryDocument(ctx, req)
 }
 
 func (c *grpcClient) SearchProductKnowledge(parent context.Context, req *knowledgepb.SearchProductKnowledgeRequest) (*knowledgepb.SearchProductKnowledgeResponse, error) {

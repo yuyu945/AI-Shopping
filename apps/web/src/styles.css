@@ -1,0 +1,211 @@
+:root {
+  color: #1f2933;
+  background: #f5f7fb;
+  font-family:
+    Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+  line-height: 1.5;
+  --surface: #ffffff;
+  --surface-muted: #f7f9fc;
+  --ink: #1f2933;
+  --muted: #65758b;
+  --accent: #ef5b50;
+  --accent-strong: #d94339;
+  --border: #dbe3ee;
+  --success: #0f8f61;
+  --shadow: 0 12px 32px rgba(31, 41, 51, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.appShell {
+  min-height: 100vh;
+}
+
+.topBar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 24px;
+  padding: 14px clamp(16px, 4vw, 48px);
+  background: rgba(255, 255, 255, 0.94);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+}
+
+.brand {
+  font-weight: 800;
+  color: var(--accent-strong);
+}
+
+.navLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+
+.navLinks a,
+.accountLink,
+.bannerAction {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0 12px;
+  font-size: 14px;
+}
+
+.navLinks a:hover,
+.accountLink:hover {
+  border-color: var(--border);
+  background: var(--surface-muted);
+}
+
+.mainSurface {
+  width: min(1120px, calc(100vw - 32px));
+  margin: 0 auto;
+  padding: 24px 0 48px;
+}
+
+.statusBanner {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 24px;
+  align-items: center;
+  min-height: 132px;
+  padding: clamp(18px, 3vw, 28px);
+  color: white;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+
+.statusBanner h1 {
+  margin: 4px 0 8px;
+  font-size: clamp(26px, 4vw, 42px);
+  line-height: 1.12;
+  letter-spacing: 0;
+}
+
+.statusBanner p {
+  margin: 0;
+  max-width: 680px;
+}
+
+.eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  opacity: 0.84;
+}
+
+.bannerAction {
+  color: var(--accent-strong);
+  background: #ffffff;
+  font-weight: 700;
+}
+
+.prototypeGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.productCard {
+  min-height: 244px;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.imageSlot {
+  min-height: 128px;
+  background:
+    linear-gradient(135deg, rgba(239, 91, 80, 0.18), rgba(31, 41, 51, 0.04)),
+    repeating-linear-gradient(45deg, #edf2f7, #edf2f7 8px, #f8fafc 8px, #f8fafc 16px);
+}
+
+.cardMeta {
+  padding: 12px;
+}
+
+.stockBadge {
+  width: fit-content;
+  margin: 0 0 8px;
+  padding: 2px 8px;
+  color: var(--success);
+  background: #eaf8f1;
+  border: 1px solid #c9efdc;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.productCard h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  line-height: 1.35;
+  letter-spacing: 0;
+}
+
+.muted {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+:focus-visible {
+  outline: 3px solid rgba(239, 91, 80, 0.36);
+  outline-offset: 2px;
+}
+
+@media (max-width: 760px) {
+  .topBar {
+    grid-template-columns: 1fr;
+    justify-items: start;
+    gap: 10px;
+  }
+
+  .navLinks {
+    justify-content: flex-start;
+  }
+
+  .statusBanner {
+    grid-template-columns: 1fr;
+  }
+
+  .bannerAction {
+    width: fit-content;
+  }
+
+  .prototypeGrid {
+    grid-template-columns: 1fr;
+  }
+}

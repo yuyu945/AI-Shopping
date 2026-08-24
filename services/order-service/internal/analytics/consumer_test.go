@@ -62,6 +62,33 @@ func TestReviewConsumerDoesNotCommitDeadLetterFailure(t *testing.T) {
 	}
 }
 
+func TestBehaviorConsumerCommitsAfterHandlerSuccess(t *testing.T) {
+	reader := &fakeReviewReader{message: kafka.Message{Topic: BehaviorEventsTopic, Key: []byte("7"), Value: []byte(validBehaviorEventJSON(t))}}
+	handler := &fakeBehaviorHandler{}
+	consumer := newBehaviorConsumer(reader, handler, &fakeDeadLetterPublisher{}, time.Second)
+
+	if err := consumer.handleMessage(context.Background(), reader.message); err != nil {
+		t.Fatal(err)
+	}
+	if handler.calls != 1 || reader.commits != 1 {
+		t.Fatalf("handler=%d commits=%d", handler.calls, reader.commits)
+	}
+}
+
+func TestBehaviorConsumerDeadLettersInvalidMessageBeforeCommit(t *testing.T) {
+	reader := &fakeReviewReader{message: kafka.Message{Topic: BehaviorEventsTopic, Key: []byte("7"), Value: []byte(`{"event_id":"bad"}`)}}
+	handler := &fakeBehaviorHandler{}
+	dlq := &fakeDeadLetterPublisher{}
+	consumer := newBehaviorConsumer(reader, handler, dlq, time.Second)
+
+	if err := consumer.handleMessage(context.Background(), reader.message); err != nil {
+		t.Fatal(err)
+	}
+	if handler.deadLetters != 1 || dlq.publishes != 1 || dlq.lastMessage.Topic != BehaviorEventsDeadTopic || reader.commits != 1 {
+		t.Fatalf("dead=%d dlq=%d topic=%q commits=%d", handler.deadLetters, dlq.publishes, dlq.lastMessage.Topic, reader.commits)
+	}
+}
+
 type fakeReviewReader struct {
 	message kafka.Message
 	commits int
@@ -105,6 +132,31 @@ func (h *fakeReviewHandler) HandleReviewEvent(context.Context, ReviewEvent) erro
 func validReviewEventJSON(t *testing.T) string {
 	t.Helper()
 	payload, err := json.Marshal(validReviewEvent())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(payload)
+}
+
+type fakeBehaviorHandler struct {
+	err         error
+	calls       int
+	deadLetters int
+}
+
+func (h *fakeBehaviorHandler) HandleBehaviorEvent(context.Context, BehaviorEvent) error {
+	h.calls++
+	return h.err
+}
+
+func (h *fakeBehaviorHandler) RecordDeadLetter(context.Context, DeadLetterRecord) error {
+	h.deadLetters++
+	return h.err
+}
+
+func validBehaviorEventJSON(t *testing.T) string {
+	t.Helper()
+	payload, err := json.Marshal(validBehaviorEvent())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -153,6 +153,91 @@ func TestMySQLRepositoryRollsBackReviewEventOnStatsFailure(t *testing.T) {
 	}
 }
 
+func TestBehaviorEventValidation(t *testing.T) {
+	event := validBehaviorEvent()
+	if err := event.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	event.Payload = []byte(`{"phone":"13800000000"}`)
+	if err := event.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want pii rejection")
+	}
+}
+
+func TestMySQLRepositoryHandlesNewBehaviorEvent(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	event := validBehaviorEvent()
+	occurredAt := event.OccurredAt.UTC().Truncate(time.Millisecond)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(insertBehaviorAnalyticsConsumption)).
+		WithArgs(event.EventID, BehaviorConsumerGroup).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(insertBehaviorEventRecord)).
+		WithArgs(event.EventID, event.UserID, event.EventType, event.TraceID, event.ResourceType, event.ResourceID, string(event.Payload), occurredAt).
+		WillReturnResult(sqlmock.NewResult(11, 1))
+	mock.ExpectExec(regexp.QuoteMeta(updateBehaviorAnalyticsConsumptionSucceeded)).
+		WithArgs(event.EventID, BehaviorConsumerGroup).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	if err := NewMySQLRepository(db).HandleBehaviorEvent(context.Background(), event); err != nil {
+		t.Fatalf("HandleBehaviorEvent() error = %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMySQLRepositorySkipsAlreadySucceededBehaviorEvent(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	event := validBehaviorEvent()
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(insertBehaviorAnalyticsConsumption)).
+		WithArgs(event.EventID, BehaviorConsumerGroup).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta(queryBehaviorAnalyticsConsumption)).
+		WithArgs(event.EventID, BehaviorConsumerGroup).
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("SUCCEEDED"))
+	mock.ExpectCommit()
+
+	if err := NewMySQLRepository(db).HandleBehaviorEvent(context.Background(), event); err != nil {
+		t.Fatalf("HandleBehaviorEvent() error = %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMySQLRepositoryRecordsAnalyticsDeadLetter(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	record := DeadLetterRecord{Topic: BehaviorEventsTopic, EventKey: "7", Reason: "invalid_behavior_event", RawEventBase64: "e30="}
+
+	mock.ExpectExec(regexp.QuoteMeta(insertAnalyticsDeadLetter)).
+		WithArgs(record.Topic, record.EventKey, record.Reason, record.RawEventBase64).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	if err := NewMySQLRepository(db).RecordDeadLetter(context.Background(), record); err != nil {
+		t.Fatalf("RecordDeadLetter() error = %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func validReviewEvent() ReviewEvent {
 	return ReviewEvent{
 		EventID:    "11111111-1111-4111-8111-111111111111",
@@ -166,5 +251,19 @@ func validReviewEvent() ReviewEvent {
 		Content:    "good",
 		OccurredAt: time.Date(2026, time.August, 24, 12, 0, 0, 123000000, time.UTC),
 		Version:    1,
+	}
+}
+
+func validBehaviorEvent() BehaviorEvent {
+	return BehaviorEvent{
+		EventID:      "22222222-2222-4222-8222-222222222222",
+		EventType:    "product.viewed",
+		UserID:       7,
+		TraceID:      "trace-1",
+		ResourceType: "product",
+		ResourceID:   "1001",
+		Payload:      []byte(`{"product_id":1001,"version":1}`),
+		OccurredAt:   time.Date(2026, time.August, 24, 12, 1, 0, 123000000, time.UTC),
+		Version:      1,
 	}
 }

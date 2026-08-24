@@ -15,6 +15,11 @@ const insertReviewEventRecord = `INSERT INTO review_event_records (event_id, rev
 const queryProductReviewStatsForUpdate = `SELECT review_count, rating_sum FROM product_review_stats WHERE product_id = ? FOR UPDATE`
 const insertProductReviewStats = `INSERT INTO product_review_stats (product_id, review_count, rating_sum, rating_avg, last_review_at) VALUES (?, ?, ?, ?, ?)`
 const updateProductReviewStats = `UPDATE product_review_stats SET review_count = ?, rating_sum = ?, rating_avg = ?, last_review_at = GREATEST(COALESCE(last_review_at, ?), ?) WHERE product_id = ?`
+const insertBehaviorAnalyticsConsumption = `INSERT IGNORE INTO behavior_event_consumptions (event_id, consumer_group, status) VALUES (?, ?, 'PROCESSING')`
+const queryBehaviorAnalyticsConsumption = `SELECT status FROM behavior_event_consumptions WHERE event_id = ? AND consumer_group = ?`
+const updateBehaviorAnalyticsConsumptionSucceeded = `UPDATE behavior_event_consumptions SET status = 'SUCCEEDED', consumed_at = CURRENT_TIMESTAMP(3) WHERE event_id = ? AND consumer_group = ?`
+const insertBehaviorEventRecord = `INSERT INTO behavior_event_records (event_id, user_id, event_type, trace_id, resource_type, resource_id, payload, occurred_at) VALUES (?, ?, ?, ?, ?, ?, CAST(? AS JSON), ?)`
+const insertAnalyticsDeadLetter = `INSERT INTO analytics_dead_letters (topic, event_key, reason, raw_event_base64) VALUES (?, ?, ?, ?)`
 
 type MySQLRepository struct {
 	db *sql.DB
@@ -78,6 +83,67 @@ func (r *MySQLRepository) HandleReviewEvent(ctx context.Context, event ReviewEve
 		return fmt.Errorf("commit review analytics transaction: %w", err)
 	}
 	return nil
+}
+
+func (r *MySQLRepository) HandleBehaviorEvent(ctx context.Context, event BehaviorEvent) (err error) {
+	if r == nil || r.db == nil {
+		return errors.New("behavior analytics database is required")
+	}
+	if err := event.Validate(); err != nil {
+		return err
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin behavior analytics transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	result, err := tx.ExecContext(ctx, insertBehaviorAnalyticsConsumption, event.EventID, BehaviorConsumerGroup)
+	if err != nil {
+		return fmt.Errorf("insert behavior event consumption: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read behavior event consumption rows: %w", err)
+	}
+	if rows == 0 {
+		var status string
+		if err = tx.QueryRowContext(ctx, queryBehaviorAnalyticsConsumption, event.EventID, BehaviorConsumerGroup).Scan(&status); err != nil {
+			return fmt.Errorf("read behavior event consumption status: %w", err)
+		}
+		if status == "SUCCEEDED" {
+			if err = tx.Commit(); err != nil {
+				return fmt.Errorf("commit skipped behavior analytics transaction: %w", err)
+			}
+			return nil
+		}
+		return errors.New("behavior event consumption is already processing")
+	}
+
+	occurredAt := event.OccurredAt.UTC().Truncate(time.Millisecond)
+	if _, err = tx.ExecContext(ctx, insertBehaviorEventRecord, event.EventID, event.UserID, event.EventType, event.TraceID, event.ResourceType, event.ResourceID, string(event.Payload), occurredAt); err != nil {
+		return fmt.Errorf("insert behavior event record: %w", err)
+	}
+	result, err = tx.ExecContext(ctx, updateBehaviorAnalyticsConsumptionSucceeded, event.EventID, BehaviorConsumerGroup)
+	if err = requireSingleRow(result, err, "mark behavior event consumption succeeded"); err != nil {
+		return err
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit behavior analytics transaction: %w", err)
+	}
+	return nil
+}
+
+func (r *MySQLRepository) RecordDeadLetter(ctx context.Context, record DeadLetterRecord) error {
+	if r == nil || r.db == nil {
+		return errors.New("analytics database is required")
+	}
+	result, err := r.db.ExecContext(ctx, insertAnalyticsDeadLetter, record.Topic, record.EventKey, record.Reason, record.RawEventBase64)
+	return requireSingleRow(result, err, "insert analytics dead letter")
 }
 
 func (r *MySQLRepository) updateProductStats(ctx context.Context, tx *sql.Tx, productID, rating uint64, occurredAt time.Time) error {

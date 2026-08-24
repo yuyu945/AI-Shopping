@@ -479,6 +479,33 @@ textarea {
   gap: 8px;
 }
 
+.checkoutLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(360px, 1.1fr);
+  gap: 18px;
+}
+
+.rowPanel,
+.orderCard {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.rowPanel {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+}
+
+.rowPanel label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .productCard {
   min-height: 244px;
   overflow: hidden;
@@ -554,9 +581,11 @@ textarea {
   .toolbar,
   .detailLayout,
   .guideLayout,
+  .checkoutLayout,
   .factGrid,
   .productGrid,
-  .snapshotList {
+  .snapshotList,
+  .rowPanel {
     grid-template-columns: 1fr;
   }
 }

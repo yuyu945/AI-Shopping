@@ -1,9 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Product } from "../api/client";
 import App from "../App";
+import CheckoutPage from "./CheckoutPage";
 import GuidePage from "./GuidePage";
+import OrdersPage from "./OrdersPage";
 import ProductDetailPage from "./ProductDetailPage";
 import ProductListPage from "./ProductListPage";
 
@@ -64,6 +66,93 @@ describe("Product pages", () => {
     expect(await screen.findByText("资料中没有足够信息回答该问题。")).toBeInTheDocument();
   });
 });
+
+describe("Commerce pages", () => {
+  it("creates an order with a stable request id from checkout", async () => {
+    const api = fakeCheckoutApi();
+    render(<CheckoutPage api={api} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Create order" }));
+
+    expect(api.createOrder).toHaveBeenCalledWith(expect.objectContaining({ request_id: expect.any(String) }));
+    expect(await screen.findByText("PENDING_PAYMENT")).toBeInTheDocument();
+  });
+
+  it("replays order after payment timeout", async () => {
+    render(<CheckoutPage api={fakePaymentTimeoutApi()} initialOrder={pendingOrder()} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Pay wallet" }));
+
+    expect(await screen.findByText("PAID")).toBeInTheDocument();
+  });
+
+  it("submits a review for a paid order item", async () => {
+    const api = fakeReviewApi();
+    render(<OrdersPage api={api} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Review item 2001" }));
+    await userEvent.selectOptions(screen.getByLabelText("Rating"), "5");
+    await userEvent.type(screen.getByLabelText("Review content"), "体验稳定");
+    await userEvent.click(screen.getByRole("button", { name: "Submit review" }));
+
+    expect(api.submitReview).toHaveBeenCalledWith("order_1", 2001, { rating: 5, content: "体验稳定" });
+  });
+});
+
+function fakeCheckoutApi() {
+  const createOrder = vi.fn().mockResolvedValue({ order: pendingOrder() });
+  return {
+    listAddresses: async () => ({ addresses: [{ address_id: 7, receiver_name: "张三", receiver_phone: "13800000000", province: "上海", city: "上海", district: "浦东", detail: "测试路 1 号" }] }),
+    createOrder,
+    payWallet: vi.fn(),
+    getOrder: vi.fn(),
+  };
+}
+
+function fakePaymentTimeoutApi() {
+  return {
+    listAddresses: async () => ({ addresses: [] }),
+    createOrder: vi.fn(),
+    payWallet: vi.fn().mockRejectedValue({ code: "DEPENDENCY_TIMEOUT" }),
+    getOrder: vi.fn().mockResolvedValue(paidOrder()),
+  };
+}
+
+function fakeReviewApi() {
+  return {
+    listOrders: async () => ({ orders: [paidOrder()] }),
+    getOrder: async () => ({ order: paidOrder() }),
+    submitReview: vi.fn().mockResolvedValue({ review: { review_no: "review_1", order_no: "order_1", product_id: 1001, sku_id: 2001, rating: 5, content: "体验稳定", status: "PUBLISHED" } }),
+  };
+}
+
+function paidOrder() {
+  return { ...pendingOrder(), status: "PAID", paid_amount: "4999.00" };
+}
+
+function pendingOrder() {
+  return {
+    order_no: "order_1",
+    request_id: "req_1",
+    status: "PENDING_PAYMENT",
+    total_amount: "4999.00",
+    paid_amount: "0.00",
+    shipping_address: { receiver_name: "张三", receiver_phone: "13800000000", province: "上海", city: "上海", district: "浦东", detail: "测试路 1 号" },
+    items: [
+      {
+        product_id: 1001,
+        sku_id: 2001,
+        product_title: "Laptop",
+        sku_code: "LAPTOP-16G",
+        sku_spec_json: { memory: "16GB" },
+        unit_price: "4999.00",
+        discount_amount: "0.00",
+        quantity: 1,
+        item_amount: "4999.00",
+      },
+    ],
+  };
+}
 
 describe("Guide page", () => {
   it("starts an agent run and renders verified recommendations", async () => {

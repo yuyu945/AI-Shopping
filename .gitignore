@@ -30,3 +30,6 @@ deploy/volumes/
 
 # Local Git worktrees
 .worktrees/
+
+# Local brainstorming and visual companion artifacts
+.superpowers/

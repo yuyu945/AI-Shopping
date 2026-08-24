@@ -142,14 +142,26 @@ func (x *UploadDocumentResponse) GetDocument() *Document {
 }
 
 type Document struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	DocumentNo    string                 `protobuf:"bytes,1,opt,name=document_no,json=documentNo,proto3" json:"document_no,omitempty"`
-	ProductId     uint64                 `protobuf:"varint,2,opt,name=product_id,json=productId,proto3" json:"product_id,omitempty"`
-	DocType       string                 `protobuf:"bytes,3,opt,name=doc_type,json=docType,proto3" json:"doc_type,omitempty"`
-	Version       uint32                 `protobuf:"varint,4,opt,name=version,proto3" json:"version,omitempty"`
-	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	DocumentNo     string                 `protobuf:"bytes,1,opt,name=document_no,json=documentNo,proto3" json:"document_no,omitempty"`
+	ProductId      uint64                 `protobuf:"varint,2,opt,name=product_id,json=productId,proto3" json:"product_id,omitempty"`
+	DocType        string                 `protobuf:"bytes,3,opt,name=doc_type,json=docType,proto3" json:"doc_type,omitempty"`
+	Version        uint32                 `protobuf:"varint,4,opt,name=version,proto3" json:"version,omitempty"`
+	Status         string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
+	FileName       string                 `protobuf:"bytes,6,opt,name=file_name,json=fileName,proto3" json:"file_name,omitempty"`
+	ContentType    string                 `protobuf:"bytes,7,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
+	FileSizeBytes  uint64                 `protobuf:"varint,8,opt,name=file_size_bytes,json=fileSizeBytes,proto3" json:"file_size_bytes,omitempty"`
+	ChunkCount     uint32                 `protobuf:"varint,9,opt,name=chunk_count,json=chunkCount,proto3" json:"chunk_count,omitempty"`
+	EmbeddingModel string                 `protobuf:"bytes,10,opt,name=embedding_model,json=embeddingModel,proto3" json:"embedding_model,omitempty"`
+	IsCurrentReady bool                   `protobuf:"varint,11,opt,name=is_current_ready,json=isCurrentReady,proto3" json:"is_current_ready,omitempty"`
+	ErrorCode      string                 `protobuf:"bytes,12,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	ErrorMessage   string                 `protobuf:"bytes,13,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	CreatedAt      string                 `protobuf:"bytes,14,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt      string                 `protobuf:"bytes,15,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	ProcessedAt    string                 `protobuf:"bytes,16,opt,name=processed_at,json=processedAt,proto3" json:"processed_at,omitempty"`
+	ReadyAt        string                 `protobuf:"bytes,17,opt,name=ready_at,json=readyAt,proto3" json:"ready_at,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Document) Reset() {
@@ -217,6 +229,494 @@ func (x *Document) GetStatus() string {
 	return ""
 }
 
+func (x *Document) GetFileName() string {
+	if x != nil {
+		return x.FileName
+	}
+	return ""
+}
+
+func (x *Document) GetContentType() string {
+	if x != nil {
+		return x.ContentType
+	}
+	return ""
+}
+
+func (x *Document) GetFileSizeBytes() uint64 {
+	if x != nil {
+		return x.FileSizeBytes
+	}
+	return 0
+}
+
+func (x *Document) GetChunkCount() uint32 {
+	if x != nil {
+		return x.ChunkCount
+	}
+	return 0
+}
+
+func (x *Document) GetEmbeddingModel() string {
+	if x != nil {
+		return x.EmbeddingModel
+	}
+	return ""
+}
+
+func (x *Document) GetIsCurrentReady() bool {
+	if x != nil {
+		return x.IsCurrentReady
+	}
+	return false
+}
+
+func (x *Document) GetErrorCode() string {
+	if x != nil {
+		return x.ErrorCode
+	}
+	return ""
+}
+
+func (x *Document) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *Document) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *Document) GetUpdatedAt() string {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return ""
+}
+
+func (x *Document) GetProcessedAt() string {
+	if x != nil {
+		return x.ProcessedAt
+	}
+	return ""
+}
+
+func (x *Document) GetReadyAt() string {
+	if x != nil {
+		return x.ReadyAt
+	}
+	return ""
+}
+
+type ListDocumentsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ProductId     uint64                 `protobuf:"varint,1,opt,name=product_id,json=productId,proto3" json:"product_id,omitempty"`
+	DocType       string                 `protobuf:"bytes,2,opt,name=doc_type,json=docType,proto3" json:"doc_type,omitempty"`
+	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	PageSize      uint32                 `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken     string                 `protobuf:"bytes,5,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDocumentsRequest) Reset() {
+	*x = ListDocumentsRequest{}
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDocumentsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDocumentsRequest) ProtoMessage() {}
+
+func (x *ListDocumentsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDocumentsRequest.ProtoReflect.Descriptor instead.
+func (*ListDocumentsRequest) Descriptor() ([]byte, []int) {
+	return file_api_knowledge_knowledge_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ListDocumentsRequest) GetProductId() uint64 {
+	if x != nil {
+		return x.ProductId
+	}
+	return 0
+}
+
+func (x *ListDocumentsRequest) GetDocType() string {
+	if x != nil {
+		return x.DocType
+	}
+	return ""
+}
+
+func (x *ListDocumentsRequest) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ListDocumentsRequest) GetPageSize() uint32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListDocumentsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+type ListDocumentsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Documents     []*Document            `protobuf:"bytes,1,rep,name=documents,proto3" json:"documents,omitempty"`
+	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDocumentsResponse) Reset() {
+	*x = ListDocumentsResponse{}
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDocumentsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDocumentsResponse) ProtoMessage() {}
+
+func (x *ListDocumentsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDocumentsResponse.ProtoReflect.Descriptor instead.
+func (*ListDocumentsResponse) Descriptor() ([]byte, []int) {
+	return file_api_knowledge_knowledge_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ListDocumentsResponse) GetDocuments() []*Document {
+	if x != nil {
+		return x.Documents
+	}
+	return nil
+}
+
+func (x *ListDocumentsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+type GetDocumentRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DocumentNo    string                 `protobuf:"bytes,1,opt,name=document_no,json=documentNo,proto3" json:"document_no,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDocumentRequest) Reset() {
+	*x = GetDocumentRequest{}
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDocumentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDocumentRequest) ProtoMessage() {}
+
+func (x *GetDocumentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDocumentRequest.ProtoReflect.Descriptor instead.
+func (*GetDocumentRequest) Descriptor() ([]byte, []int) {
+	return file_api_knowledge_knowledge_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *GetDocumentRequest) GetDocumentNo() string {
+	if x != nil {
+		return x.DocumentNo
+	}
+	return ""
+}
+
+type GetDocumentResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Document      *Document              `protobuf:"bytes,1,opt,name=document,proto3" json:"document,omitempty"`
+	Chunks        []*DocumentChunk       `protobuf:"bytes,2,rep,name=chunks,proto3" json:"chunks,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDocumentResponse) Reset() {
+	*x = GetDocumentResponse{}
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDocumentResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDocumentResponse) ProtoMessage() {}
+
+func (x *GetDocumentResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDocumentResponse.ProtoReflect.Descriptor instead.
+func (*GetDocumentResponse) Descriptor() ([]byte, []int) {
+	return file_api_knowledge_knowledge_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *GetDocumentResponse) GetDocument() *Document {
+	if x != nil {
+		return x.Document
+	}
+	return nil
+}
+
+func (x *GetDocumentResponse) GetChunks() []*DocumentChunk {
+	if x != nil {
+		return x.Chunks
+	}
+	return nil
+}
+
+type RetryDocumentRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DocumentNo    string                 `protobuf:"bytes,1,opt,name=document_no,json=documentNo,proto3" json:"document_no,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RetryDocumentRequest) Reset() {
+	*x = RetryDocumentRequest{}
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RetryDocumentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RetryDocumentRequest) ProtoMessage() {}
+
+func (x *RetryDocumentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RetryDocumentRequest.ProtoReflect.Descriptor instead.
+func (*RetryDocumentRequest) Descriptor() ([]byte, []int) {
+	return file_api_knowledge_knowledge_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *RetryDocumentRequest) GetDocumentNo() string {
+	if x != nil {
+		return x.DocumentNo
+	}
+	return ""
+}
+
+type RetryDocumentResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Document      *Document              `protobuf:"bytes,1,opt,name=document,proto3" json:"document,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RetryDocumentResponse) Reset() {
+	*x = RetryDocumentResponse{}
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RetryDocumentResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RetryDocumentResponse) ProtoMessage() {}
+
+func (x *RetryDocumentResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RetryDocumentResponse.ProtoReflect.Descriptor instead.
+func (*RetryDocumentResponse) Descriptor() ([]byte, []int) {
+	return file_api_knowledge_knowledge_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *RetryDocumentResponse) GetDocument() *Document {
+	if x != nil {
+		return x.Document
+	}
+	return nil
+}
+
+type DocumentChunk struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ChunkId       uint64                 `protobuf:"varint,1,opt,name=chunk_id,json=chunkId,proto3" json:"chunk_id,omitempty"`
+	ChunkIndex    uint32                 `protobuf:"varint,2,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index,omitempty"`
+	Section       string                 `protobuf:"bytes,3,opt,name=section,proto3" json:"section,omitempty"`
+	SourcePage    uint32                 `protobuf:"varint,4,opt,name=source_page,json=sourcePage,proto3" json:"source_page,omitempty"`
+	ContentHash   string                 `protobuf:"bytes,5,opt,name=content_hash,json=contentHash,proto3" json:"content_hash,omitempty"`
+	Status        string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
+	VectorRef     string                 `protobuf:"bytes,7,opt,name=vector_ref,json=vectorRef,proto3" json:"vector_ref,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DocumentChunk) Reset() {
+	*x = DocumentChunk{}
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DocumentChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DocumentChunk) ProtoMessage() {}
+
+func (x *DocumentChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DocumentChunk.ProtoReflect.Descriptor instead.
+func (*DocumentChunk) Descriptor() ([]byte, []int) {
+	return file_api_knowledge_knowledge_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *DocumentChunk) GetChunkId() uint64 {
+	if x != nil {
+		return x.ChunkId
+	}
+	return 0
+}
+
+func (x *DocumentChunk) GetChunkIndex() uint32 {
+	if x != nil {
+		return x.ChunkIndex
+	}
+	return 0
+}
+
+func (x *DocumentChunk) GetSection() string {
+	if x != nil {
+		return x.Section
+	}
+	return ""
+}
+
+func (x *DocumentChunk) GetSourcePage() uint32 {
+	if x != nil {
+		return x.SourcePage
+	}
+	return 0
+}
+
+func (x *DocumentChunk) GetContentHash() string {
+	if x != nil {
+		return x.ContentHash
+	}
+	return ""
+}
+
+func (x *DocumentChunk) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *DocumentChunk) GetVectorRef() string {
+	if x != nil {
+		return x.VectorRef
+	}
+	return ""
+}
+
 type SearchProductKnowledgeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ProductId     uint64                 `protobuf:"varint,1,opt,name=product_id,json=productId,proto3" json:"product_id,omitempty"`
@@ -229,7 +729,7 @@ type SearchProductKnowledgeRequest struct {
 
 func (x *SearchProductKnowledgeRequest) Reset() {
 	*x = SearchProductKnowledgeRequest{}
-	mi := &file_api_knowledge_knowledge_proto_msgTypes[3]
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -241,7 +741,7 @@ func (x *SearchProductKnowledgeRequest) String() string {
 func (*SearchProductKnowledgeRequest) ProtoMessage() {}
 
 func (x *SearchProductKnowledgeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_knowledge_knowledge_proto_msgTypes[3]
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -254,7 +754,7 @@ func (x *SearchProductKnowledgeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchProductKnowledgeRequest.ProtoReflect.Descriptor instead.
 func (*SearchProductKnowledgeRequest) Descriptor() ([]byte, []int) {
-	return file_api_knowledge_knowledge_proto_rawDescGZIP(), []int{3}
+	return file_api_knowledge_knowledge_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *SearchProductKnowledgeRequest) GetProductId() uint64 {
@@ -295,7 +795,7 @@ type SearchProductKnowledgeResponse struct {
 
 func (x *SearchProductKnowledgeResponse) Reset() {
 	*x = SearchProductKnowledgeResponse{}
-	mi := &file_api_knowledge_knowledge_proto_msgTypes[4]
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -307,7 +807,7 @@ func (x *SearchProductKnowledgeResponse) String() string {
 func (*SearchProductKnowledgeResponse) ProtoMessage() {}
 
 func (x *SearchProductKnowledgeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_knowledge_knowledge_proto_msgTypes[4]
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -320,7 +820,7 @@ func (x *SearchProductKnowledgeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchProductKnowledgeResponse.ProtoReflect.Descriptor instead.
 func (*SearchProductKnowledgeResponse) Descriptor() ([]byte, []int) {
-	return file_api_knowledge_knowledge_proto_rawDescGZIP(), []int{4}
+	return file_api_knowledge_knowledge_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *SearchProductKnowledgeResponse) GetSnippets() []*KnowledgeSnippet {
@@ -354,7 +854,7 @@ type KnowledgeSnippet struct {
 
 func (x *KnowledgeSnippet) Reset() {
 	*x = KnowledgeSnippet{}
-	mi := &file_api_knowledge_knowledge_proto_msgTypes[5]
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -366,7 +866,7 @@ func (x *KnowledgeSnippet) String() string {
 func (*KnowledgeSnippet) ProtoMessage() {}
 
 func (x *KnowledgeSnippet) ProtoReflect() protoreflect.Message {
-	mi := &file_api_knowledge_knowledge_proto_msgTypes[5]
+	mi := &file_api_knowledge_knowledge_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -379,7 +879,7 @@ func (x *KnowledgeSnippet) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KnowledgeSnippet.ProtoReflect.Descriptor instead.
 func (*KnowledgeSnippet) Descriptor() ([]byte, []int) {
-	return file_api_knowledge_knowledge_proto_rawDescGZIP(), []int{5}
+	return file_api_knowledge_knowledge_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *KnowledgeSnippet) GetChunkId() uint64 {
@@ -458,7 +958,7 @@ const file_api_knowledge_knowledge_proto_rawDesc = "" +
 	"\fcontent_type\x18\x04 \x01(\tR\vcontentType\x12%\n" +
 	"\x0econtent_base64\x18\x05 \x01(\tR\rcontentBase64\"L\n" +
 	"\x16UploadDocumentResponse\x122\n" +
-	"\bdocument\x18\x01 \x01(\v2\x16.knowledge.v1.DocumentR\bdocument\"\x97\x01\n" +
+	"\bdocument\x18\x01 \x01(\v2\x16.knowledge.v1.DocumentR\bdocument\"\xb3\x04\n" +
 	"\bDocument\x12\x1f\n" +
 	"\vdocument_no\x18\x01 \x01(\tR\n" +
 	"documentNo\x12\x1d\n" +
@@ -466,7 +966,57 @@ const file_api_knowledge_knowledge_proto_rawDesc = "" +
 	"product_id\x18\x02 \x01(\x04R\tproductId\x12\x19\n" +
 	"\bdoc_type\x18\x03 \x01(\tR\adocType\x12\x18\n" +
 	"\aversion\x18\x04 \x01(\rR\aversion\x12\x16\n" +
-	"\x06status\x18\x05 \x01(\tR\x06status\"\x86\x01\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\x12\x1b\n" +
+	"\tfile_name\x18\x06 \x01(\tR\bfileName\x12!\n" +
+	"\fcontent_type\x18\a \x01(\tR\vcontentType\x12&\n" +
+	"\x0ffile_size_bytes\x18\b \x01(\x04R\rfileSizeBytes\x12\x1f\n" +
+	"\vchunk_count\x18\t \x01(\rR\n" +
+	"chunkCount\x12'\n" +
+	"\x0fembedding_model\x18\n" +
+	" \x01(\tR\x0eembeddingModel\x12(\n" +
+	"\x10is_current_ready\x18\v \x01(\bR\x0eisCurrentReady\x12\x1d\n" +
+	"\n" +
+	"error_code\x18\f \x01(\tR\terrorCode\x12#\n" +
+	"\rerror_message\x18\r \x01(\tR\ferrorMessage\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x0e \x01(\tR\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\x0f \x01(\tR\tupdatedAt\x12!\n" +
+	"\fprocessed_at\x18\x10 \x01(\tR\vprocessedAt\x12\x19\n" +
+	"\bready_at\x18\x11 \x01(\tR\areadyAt\"\xa4\x01\n" +
+	"\x14ListDocumentsRequest\x12\x1d\n" +
+	"\n" +
+	"product_id\x18\x01 \x01(\x04R\tproductId\x12\x19\n" +
+	"\bdoc_type\x18\x02 \x01(\tR\adocType\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\x12\x1b\n" +
+	"\tpage_size\x18\x04 \x01(\rR\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x05 \x01(\tR\tpageToken\"u\n" +
+	"\x15ListDocumentsResponse\x124\n" +
+	"\tdocuments\x18\x01 \x03(\v2\x16.knowledge.v1.DocumentR\tdocuments\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"5\n" +
+	"\x12GetDocumentRequest\x12\x1f\n" +
+	"\vdocument_no\x18\x01 \x01(\tR\n" +
+	"documentNo\"~\n" +
+	"\x13GetDocumentResponse\x122\n" +
+	"\bdocument\x18\x01 \x01(\v2\x16.knowledge.v1.DocumentR\bdocument\x123\n" +
+	"\x06chunks\x18\x02 \x03(\v2\x1b.knowledge.v1.DocumentChunkR\x06chunks\"7\n" +
+	"\x14RetryDocumentRequest\x12\x1f\n" +
+	"\vdocument_no\x18\x01 \x01(\tR\n" +
+	"documentNo\"K\n" +
+	"\x15RetryDocumentResponse\x122\n" +
+	"\bdocument\x18\x01 \x01(\v2\x16.knowledge.v1.DocumentR\bdocument\"\xe0\x01\n" +
+	"\rDocumentChunk\x12\x19\n" +
+	"\bchunk_id\x18\x01 \x01(\x04R\achunkId\x12\x1f\n" +
+	"\vchunk_index\x18\x02 \x01(\rR\n" +
+	"chunkIndex\x12\x18\n" +
+	"\asection\x18\x03 \x01(\tR\asection\x12\x1f\n" +
+	"\vsource_page\x18\x04 \x01(\rR\n" +
+	"sourcePage\x12!\n" +
+	"\fcontent_hash\x18\x05 \x01(\tR\vcontentHash\x12\x16\n" +
+	"\x06status\x18\x06 \x01(\tR\x06status\x12\x1d\n" +
+	"\n" +
+	"vector_ref\x18\a \x01(\tR\tvectorRef\"\x86\x01\n" +
 	"\x1dSearchProductKnowledgeRequest\x12\x1d\n" +
 	"\n" +
 	"product_id\x18\x01 \x01(\x04R\tproductId\x12\x14\n" +
@@ -488,9 +1038,12 @@ const file_api_knowledge_knowledge_proto_rawDesc = "" +
 	"\vsource_page\x18\a \x01(\rR\n" +
 	"sourcePage\x12\x18\n" +
 	"\acontent\x18\b \x01(\tR\acontent\x12\x14\n" +
-	"\x05score\x18\t \x01(\x01R\x05score2\xe4\x01\n" +
+	"\x05score\x18\t \x01(\x01R\x05score2\xec\x03\n" +
 	"\x10KnowledgeService\x12[\n" +
-	"\x0eUploadDocument\x12#.knowledge.v1.UploadDocumentRequest\x1a$.knowledge.v1.UploadDocumentResponse\x12s\n" +
+	"\x0eUploadDocument\x12#.knowledge.v1.UploadDocumentRequest\x1a$.knowledge.v1.UploadDocumentResponse\x12X\n" +
+	"\rListDocuments\x12\".knowledge.v1.ListDocumentsRequest\x1a#.knowledge.v1.ListDocumentsResponse\x12R\n" +
+	"\vGetDocument\x12 .knowledge.v1.GetDocumentRequest\x1a!.knowledge.v1.GetDocumentResponse\x12X\n" +
+	"\rRetryDocument\x12\".knowledge.v1.RetryDocumentRequest\x1a#.knowledge.v1.RetryDocumentResponse\x12s\n" +
 	"\x16SearchProductKnowledge\x12+.knowledge.v1.SearchProductKnowledgeRequest\x1a,.knowledge.v1.SearchProductKnowledgeResponseBKZIgithub.com/yuyu945/AI-Shopping/services/knowledge-service/gen;knowledgepbb\x06proto3"
 
 var (
@@ -505,27 +1058,44 @@ func file_api_knowledge_knowledge_proto_rawDescGZIP() []byte {
 	return file_api_knowledge_knowledge_proto_rawDescData
 }
 
-var file_api_knowledge_knowledge_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_api_knowledge_knowledge_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_api_knowledge_knowledge_proto_goTypes = []any{
 	(*UploadDocumentRequest)(nil),          // 0: knowledge.v1.UploadDocumentRequest
 	(*UploadDocumentResponse)(nil),         // 1: knowledge.v1.UploadDocumentResponse
 	(*Document)(nil),                       // 2: knowledge.v1.Document
-	(*SearchProductKnowledgeRequest)(nil),  // 3: knowledge.v1.SearchProductKnowledgeRequest
-	(*SearchProductKnowledgeResponse)(nil), // 4: knowledge.v1.SearchProductKnowledgeResponse
-	(*KnowledgeSnippet)(nil),               // 5: knowledge.v1.KnowledgeSnippet
+	(*ListDocumentsRequest)(nil),           // 3: knowledge.v1.ListDocumentsRequest
+	(*ListDocumentsResponse)(nil),          // 4: knowledge.v1.ListDocumentsResponse
+	(*GetDocumentRequest)(nil),             // 5: knowledge.v1.GetDocumentRequest
+	(*GetDocumentResponse)(nil),            // 6: knowledge.v1.GetDocumentResponse
+	(*RetryDocumentRequest)(nil),           // 7: knowledge.v1.RetryDocumentRequest
+	(*RetryDocumentResponse)(nil),          // 8: knowledge.v1.RetryDocumentResponse
+	(*DocumentChunk)(nil),                  // 9: knowledge.v1.DocumentChunk
+	(*SearchProductKnowledgeRequest)(nil),  // 10: knowledge.v1.SearchProductKnowledgeRequest
+	(*SearchProductKnowledgeResponse)(nil), // 11: knowledge.v1.SearchProductKnowledgeResponse
+	(*KnowledgeSnippet)(nil),               // 12: knowledge.v1.KnowledgeSnippet
 }
 var file_api_knowledge_knowledge_proto_depIdxs = []int32{
-	2, // 0: knowledge.v1.UploadDocumentResponse.document:type_name -> knowledge.v1.Document
-	5, // 1: knowledge.v1.SearchProductKnowledgeResponse.snippets:type_name -> knowledge.v1.KnowledgeSnippet
-	0, // 2: knowledge.v1.KnowledgeService.UploadDocument:input_type -> knowledge.v1.UploadDocumentRequest
-	3, // 3: knowledge.v1.KnowledgeService.SearchProductKnowledge:input_type -> knowledge.v1.SearchProductKnowledgeRequest
-	1, // 4: knowledge.v1.KnowledgeService.UploadDocument:output_type -> knowledge.v1.UploadDocumentResponse
-	4, // 5: knowledge.v1.KnowledgeService.SearchProductKnowledge:output_type -> knowledge.v1.SearchProductKnowledgeResponse
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	2,  // 0: knowledge.v1.UploadDocumentResponse.document:type_name -> knowledge.v1.Document
+	2,  // 1: knowledge.v1.ListDocumentsResponse.documents:type_name -> knowledge.v1.Document
+	2,  // 2: knowledge.v1.GetDocumentResponse.document:type_name -> knowledge.v1.Document
+	9,  // 3: knowledge.v1.GetDocumentResponse.chunks:type_name -> knowledge.v1.DocumentChunk
+	2,  // 4: knowledge.v1.RetryDocumentResponse.document:type_name -> knowledge.v1.Document
+	12, // 5: knowledge.v1.SearchProductKnowledgeResponse.snippets:type_name -> knowledge.v1.KnowledgeSnippet
+	0,  // 6: knowledge.v1.KnowledgeService.UploadDocument:input_type -> knowledge.v1.UploadDocumentRequest
+	3,  // 7: knowledge.v1.KnowledgeService.ListDocuments:input_type -> knowledge.v1.ListDocumentsRequest
+	5,  // 8: knowledge.v1.KnowledgeService.GetDocument:input_type -> knowledge.v1.GetDocumentRequest
+	7,  // 9: knowledge.v1.KnowledgeService.RetryDocument:input_type -> knowledge.v1.RetryDocumentRequest
+	10, // 10: knowledge.v1.KnowledgeService.SearchProductKnowledge:input_type -> knowledge.v1.SearchProductKnowledgeRequest
+	1,  // 11: knowledge.v1.KnowledgeService.UploadDocument:output_type -> knowledge.v1.UploadDocumentResponse
+	4,  // 12: knowledge.v1.KnowledgeService.ListDocuments:output_type -> knowledge.v1.ListDocumentsResponse
+	6,  // 13: knowledge.v1.KnowledgeService.GetDocument:output_type -> knowledge.v1.GetDocumentResponse
+	8,  // 14: knowledge.v1.KnowledgeService.RetryDocument:output_type -> knowledge.v1.RetryDocumentResponse
+	11, // 15: knowledge.v1.KnowledgeService.SearchProductKnowledge:output_type -> knowledge.v1.SearchProductKnowledgeResponse
+	11, // [11:16] is the sub-list for method output_type
+	6,  // [6:11] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_api_knowledge_knowledge_proto_init() }
@@ -539,7 +1109,7 @@ func file_api_knowledge_knowledge_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_knowledge_knowledge_proto_rawDesc), len(file_api_knowledge_knowledge_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

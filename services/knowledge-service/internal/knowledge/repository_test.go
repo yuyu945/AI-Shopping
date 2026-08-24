@@ -198,6 +198,87 @@ func TestListDocumentChunksReturnsChunksInIndexOrder(t *testing.T) {
 	}
 }
 
+func TestListDocumentsFiltersProductTypeAndStatus(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	filter := DocumentListFilter{ProductID: 1001, DocType: DocFAQ, Status: DocumentFailed, PageSize: 20}
+	mock.ExpectQuery(regexp.QuoteMeta(queryListDocuments(filter))).
+		WithArgs(uint64(1001), DocFAQ, DocumentFailed, 20).
+		WillReturnRows(sqlmock.NewRows(documentOpsColumns()).
+			AddRow(uint64(123), "doc_failed", uint64(1001), DocFAQ, uint32(2), "object", strings.Repeat("a", 64), "faq.md", "text/markdown", uint64(5), "text-embedding-v4", DocumentFailed, uint32(3), false, nil, "EMBEDDING_FAILED", "embedding failed", uint64(7), fixedNow(), fixedNow(), fixedNow()))
+
+	got, err := NewMySQLRepository(db).ListDocuments(context.Background(), filter)
+	if err != nil || len(got.Documents) != 1 || got.Documents[0].DocumentNo != "doc_failed" || got.Documents[0].ErrorCode != "EMBEDDING_FAILED" {
+		t.Fatalf("ListDocuments() = %#v, %v", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGetDocumentDetailReturnsDocumentAndChunks(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(regexp.QuoteMeta(queryDocumentDetailByNo)).
+		WithArgs("doc_1").
+		WillReturnRows(sqlmock.NewRows(documentOpsColumns()).
+			AddRow(uint64(123), "doc_1", uint64(1001), DocFAQ, uint32(2), "object", strings.Repeat("a", 64), "faq.md", "text/markdown", uint64(5), "text-embedding-v4", DocumentReady, uint32(1), true, fixedNow(), nil, nil, uint64(7), fixedNow(), fixedNow(), fixedNow()))
+	mock.ExpectQuery(regexp.QuoteMeta(queryDocumentChunks)).
+		WithArgs(uint64(123)).
+		WillReturnRows(sqlmock.NewRows(chunkColumns()).
+			AddRow(uint64(11), uint64(123), uint64(1001), DocFAQ, uint32(2), uint32(0), "Battery", nil, "First", strings.Repeat("b", 64), "knowledge_chunk_11", ChunkEmbedded))
+
+	got, err := NewMySQLRepository(db).GetDocumentDetail(context.Background(), "doc_1")
+	if err != nil || got.Document.DocumentNo != "doc_1" || len(got.Chunks) != 1 || got.Chunks[0].VectorRef != "knowledge_chunk_11" {
+		t.Fatalf("GetDocumentDetail() = %#v, %v", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRetryFailedDocumentMovesToPendingAndWritesOutbox(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	event := OutboxEvent{
+		EventID: "event-retry", AggregateType: "KNOWLEDGE_DOCUMENT", AggregateID: "doc_failed",
+		EventType: documentIngestTopic, Topic: documentIngestTopic, EventKey: "doc_failed",
+		Payload: []byte(`{"event_id":"event-retry"}`),
+	}
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(queryDocumentDetailByNoForUpdate)).
+		WithArgs("doc_failed").
+		WillReturnRows(sqlmock.NewRows(documentOpsColumns()).
+			AddRow(uint64(123), "doc_failed", uint64(1001), DocFAQ, uint32(2), "object", strings.Repeat("a", 64), "faq.md", "text/markdown", uint64(5), nil, DocumentFailed, uint32(0), false, nil, "EMBEDDING_FAILED", "embedding failed", uint64(7), fixedNow(), fixedNow(), fixedNow()))
+	mock.ExpectExec(regexp.QuoteMeta(updateKnowledgeDocumentRetryPending)).
+		WithArgs(uint64(123)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(insertKnowledgeOutbox)).
+		WithArgs(event.EventID, event.AggregateType, event.AggregateID, event.EventType, event.Topic, event.EventKey, string(event.Payload)).
+		WillReturnResult(sqlmock.NewResult(12, 1))
+	mock.ExpectCommit()
+
+	got, err := NewMySQLRepository(db).RetryFailedDocument(context.Background(), "doc_failed", event)
+	if err != nil || got.Status != DocumentPending || got.ErrorCode != "" {
+		t.Fatalf("RetryFailedDocument() = %#v, %v", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestMarkDocumentReadyWithVectorsCommitsVersionSwitchTogether(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

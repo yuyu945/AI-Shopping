@@ -20,6 +20,9 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	KnowledgeService_UploadDocument_FullMethodName         = "/knowledge.v1.KnowledgeService/UploadDocument"
+	KnowledgeService_ListDocuments_FullMethodName          = "/knowledge.v1.KnowledgeService/ListDocuments"
+	KnowledgeService_GetDocument_FullMethodName            = "/knowledge.v1.KnowledgeService/GetDocument"
+	KnowledgeService_RetryDocument_FullMethodName          = "/knowledge.v1.KnowledgeService/RetryDocument"
 	KnowledgeService_SearchProductKnowledge_FullMethodName = "/knowledge.v1.KnowledgeService/SearchProductKnowledge"
 )
 
@@ -30,6 +33,9 @@ const (
 // KnowledgeService owns product document metadata and asynchronous ingest events.
 type KnowledgeServiceClient interface {
 	UploadDocument(ctx context.Context, in *UploadDocumentRequest, opts ...grpc.CallOption) (*UploadDocumentResponse, error)
+	ListDocuments(ctx context.Context, in *ListDocumentsRequest, opts ...grpc.CallOption) (*ListDocumentsResponse, error)
+	GetDocument(ctx context.Context, in *GetDocumentRequest, opts ...grpc.CallOption) (*GetDocumentResponse, error)
+	RetryDocument(ctx context.Context, in *RetryDocumentRequest, opts ...grpc.CallOption) (*RetryDocumentResponse, error)
 	SearchProductKnowledge(ctx context.Context, in *SearchProductKnowledgeRequest, opts ...grpc.CallOption) (*SearchProductKnowledgeResponse, error)
 }
 
@@ -45,6 +51,36 @@ func (c *knowledgeServiceClient) UploadDocument(ctx context.Context, in *UploadD
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(UploadDocumentResponse)
 	err := c.cc.Invoke(ctx, KnowledgeService_UploadDocument_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *knowledgeServiceClient) ListDocuments(ctx context.Context, in *ListDocumentsRequest, opts ...grpc.CallOption) (*ListDocumentsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListDocumentsResponse)
+	err := c.cc.Invoke(ctx, KnowledgeService_ListDocuments_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *knowledgeServiceClient) GetDocument(ctx context.Context, in *GetDocumentRequest, opts ...grpc.CallOption) (*GetDocumentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetDocumentResponse)
+	err := c.cc.Invoke(ctx, KnowledgeService_GetDocument_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *knowledgeServiceClient) RetryDocument(ctx context.Context, in *RetryDocumentRequest, opts ...grpc.CallOption) (*RetryDocumentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RetryDocumentResponse)
+	err := c.cc.Invoke(ctx, KnowledgeService_RetryDocument_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -68,6 +104,9 @@ func (c *knowledgeServiceClient) SearchProductKnowledge(ctx context.Context, in 
 // KnowledgeService owns product document metadata and asynchronous ingest events.
 type KnowledgeServiceServer interface {
 	UploadDocument(context.Context, *UploadDocumentRequest) (*UploadDocumentResponse, error)
+	ListDocuments(context.Context, *ListDocumentsRequest) (*ListDocumentsResponse, error)
+	GetDocument(context.Context, *GetDocumentRequest) (*GetDocumentResponse, error)
+	RetryDocument(context.Context, *RetryDocumentRequest) (*RetryDocumentResponse, error)
 	SearchProductKnowledge(context.Context, *SearchProductKnowledgeRequest) (*SearchProductKnowledgeResponse, error)
 	mustEmbedUnimplementedKnowledgeServiceServer()
 }
@@ -81,6 +120,15 @@ type UnimplementedKnowledgeServiceServer struct{}
 
 func (UnimplementedKnowledgeServiceServer) UploadDocument(context.Context, *UploadDocumentRequest) (*UploadDocumentResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UploadDocument not implemented")
+}
+func (UnimplementedKnowledgeServiceServer) ListDocuments(context.Context, *ListDocumentsRequest) (*ListDocumentsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListDocuments not implemented")
+}
+func (UnimplementedKnowledgeServiceServer) GetDocument(context.Context, *GetDocumentRequest) (*GetDocumentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDocument not implemented")
+}
+func (UnimplementedKnowledgeServiceServer) RetryDocument(context.Context, *RetryDocumentRequest) (*RetryDocumentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RetryDocument not implemented")
 }
 func (UnimplementedKnowledgeServiceServer) SearchProductKnowledge(context.Context, *SearchProductKnowledgeRequest) (*SearchProductKnowledgeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SearchProductKnowledge not implemented")
@@ -124,6 +172,60 @@ func _KnowledgeService_UploadDocument_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _KnowledgeService_ListDocuments_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListDocumentsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KnowledgeServiceServer).ListDocuments(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KnowledgeService_ListDocuments_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KnowledgeServiceServer).ListDocuments(ctx, req.(*ListDocumentsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _KnowledgeService_GetDocument_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDocumentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KnowledgeServiceServer).GetDocument(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KnowledgeService_GetDocument_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KnowledgeServiceServer).GetDocument(ctx, req.(*GetDocumentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _KnowledgeService_RetryDocument_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RetryDocumentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KnowledgeServiceServer).RetryDocument(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KnowledgeService_RetryDocument_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KnowledgeServiceServer).RetryDocument(ctx, req.(*RetryDocumentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _KnowledgeService_SearchProductKnowledge_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SearchProductKnowledgeRequest)
 	if err := dec(in); err != nil {
@@ -152,6 +254,18 @@ var KnowledgeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UploadDocument",
 			Handler:    _KnowledgeService_UploadDocument_Handler,
+		},
+		{
+			MethodName: "ListDocuments",
+			Handler:    _KnowledgeService_ListDocuments_Handler,
+		},
+		{
+			MethodName: "GetDocument",
+			Handler:    _KnowledgeService_GetDocument_Handler,
+		},
+		{
+			MethodName: "RetryDocument",
+			Handler:    _KnowledgeService_RetryDocument_Handler,
 		},
 		{
 			MethodName: "SearchProductKnowledge",

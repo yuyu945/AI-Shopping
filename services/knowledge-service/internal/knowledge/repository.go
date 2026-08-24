@@ -13,6 +13,8 @@ import (
 const queryNextDocumentVersion = `SELECT COALESCE(MAX(version), 0) + 1 FROM knowledge_documents WHERE product_id = ? AND doc_type = ?`
 const queryDocumentBySourceHash = `SELECT id, document_no, product_id, doc_type, version, object_key, source_hash, file_name, content_type, file_size_bytes, status, created_by_user_id, created_at, updated_at FROM knowledge_documents WHERE product_id = ? AND doc_type = ? AND source_hash = ?`
 const queryDocumentByNo = `SELECT id, document_no, product_id, doc_type, version, object_key, source_hash, file_name, content_type, file_size_bytes, status, created_by_user_id, created_at, updated_at FROM knowledge_documents WHERE document_no = ?`
+const queryDocumentDetailByNo = `SELECT id, document_no, product_id, doc_type, version, object_key, source_hash, file_name, content_type, file_size_bytes, embedding_model, status, chunk_count, is_current_ready, ready_at, error_code, error_message, created_by_user_id, created_at, processed_at, updated_at FROM knowledge_documents WHERE document_no = ?`
+const queryDocumentDetailByNoForUpdate = queryDocumentDetailByNo + ` FOR UPDATE`
 const insertKnowledgeDocument = `INSERT INTO knowledge_documents (document_no, product_id, doc_type, version, object_key, source_hash, file_name, content_type, file_size_bytes, status, created_by_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`
 const insertKnowledgeOutbox = `INSERT INTO outbox_events (event_id, aggregate_type, aggregate_id, event_type, topic, event_key, payload) VALUES (?, ?, ?, ?, ?, ?, CAST(? AS JSON))`
 const insertKnowledgeConsumption = `INSERT IGNORE INTO event_consumptions (event_id, consumer_group, status) VALUES (?, ?, 'PROCESSING')`
@@ -20,6 +22,7 @@ const queryKnowledgeConsumptionStatus = `SELECT status FROM event_consumptions W
 const updateKnowledgeConsumptionSucceeded = `UPDATE event_consumptions SET status = 'SUCCEEDED', consumed_at = CURRENT_TIMESTAMP(3) WHERE event_id = ? AND consumer_group = ?`
 const updateKnowledgeDocumentProcessing = `UPDATE knowledge_documents SET status = 'PROCESSING', error_code = NULL, error_message = NULL WHERE id = ? AND status IN ('PENDING','PROCESSING')`
 const updateKnowledgeDocumentFailed = `UPDATE knowledge_documents SET status = 'FAILED', error_code = ?, error_message = ?, processed_at = CURRENT_TIMESTAMP(3), is_current_ready = 0 WHERE id = ?`
+const updateKnowledgeDocumentRetryPending = `UPDATE knowledge_documents SET status = 'PENDING', error_code = NULL, error_message = NULL, processed_at = NULL WHERE id = ? AND status = 'FAILED'`
 const insertKnowledgeChunk = `INSERT INTO knowledge_chunks (document_id, product_id, doc_type, version, chunk_index, section, source_page, content, content_hash, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_EMBEDDING') ON DUPLICATE KEY UPDATE section = VALUES(section), source_page = VALUES(source_page), content = VALUES(content), content_hash = VALUES(content_hash), status = IF(status = 'EMBEDDED', status, VALUES(status))`
 const updateKnowledgeDocumentChunkCount = `UPDATE knowledge_documents SET chunk_count = ? WHERE id = ?`
 const queryDocumentChunks = `SELECT id, document_id, product_id, doc_type, version, chunk_index, section, source_page, content, content_hash, vector_ref, status FROM knowledge_chunks WHERE document_id = ? ORDER BY chunk_index ASC`
@@ -64,6 +67,81 @@ func (r *MySQLRepository) FindDocumentByNo(ctx context.Context, documentNo strin
 	if err != nil {
 		return Document{}, fmt.Errorf("read document by number: %w", err)
 	}
+	return document, nil
+}
+
+func (r *MySQLRepository) ListDocuments(ctx context.Context, filter DocumentListFilter) (DocumentListResult, error) {
+	filter = normalizeDocumentListFilter(filter)
+	args := listDocumentArgs(filter)
+	rows, err := r.db.QueryContext(ctx, queryListDocuments(filter), args...)
+	if err != nil {
+		return DocumentListResult{}, fmt.Errorf("read knowledge documents: %w", err)
+	}
+	defer rows.Close()
+	documents := make([]Document, 0)
+	for rows.Next() {
+		document, err := scanOpsDocument(rows)
+		if err != nil {
+			return DocumentListResult{}, err
+		}
+		documents = append(documents, document)
+	}
+	if err := rows.Err(); err != nil {
+		return DocumentListResult{}, fmt.Errorf("read knowledge document rows: %w", err)
+	}
+	return DocumentListResult{Documents: documents}, nil
+}
+
+func (r *MySQLRepository) GetDocumentDetail(ctx context.Context, documentNo string) (DocumentDetail, error) {
+	document, err := scanOpsDocument(r.db.QueryRowContext(ctx, queryDocumentDetailByNo, documentNo))
+	if errors.Is(err, sql.ErrNoRows) {
+		return DocumentDetail{}, ErrDocumentNotFound
+	}
+	if err != nil {
+		return DocumentDetail{}, fmt.Errorf("read knowledge document detail: %w", err)
+	}
+	chunks, err := r.ListDocumentChunks(ctx, document.ID)
+	if err != nil {
+		return DocumentDetail{}, err
+	}
+	return DocumentDetail{Document: document, Chunks: chunks}, nil
+}
+
+func (r *MySQLRepository) RetryFailedDocument(ctx context.Context, documentNo string, event OutboxEvent) (document Document, err error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Document{}, fmt.Errorf("begin knowledge retry transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	document, err = scanOpsDocument(tx.QueryRowContext(ctx, queryDocumentDetailByNoForUpdate, documentNo))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Document{}, ErrDocumentNotFound
+	}
+	if err != nil {
+		return Document{}, fmt.Errorf("read failed knowledge document: %w", err)
+	}
+	if document.Status != DocumentFailed {
+		return Document{}, ErrDocumentRetryNotAllowed
+	}
+	result, err := tx.ExecContext(ctx, updateKnowledgeDocumentRetryPending, document.ID)
+	if err = requireSingleRow(result, err, "mark knowledge document retry pending"); err != nil {
+		return Document{}, err
+	}
+	if _, err = tx.ExecContext(ctx, insertKnowledgeOutbox, event.EventID, event.AggregateType, event.AggregateID, event.EventType, event.Topic, event.EventKey, string(event.Payload)); err != nil {
+		return Document{}, fmt.Errorf("insert retry knowledge outbox event: %w", err)
+	}
+	if err = tx.Commit(); err != nil {
+		return Document{}, fmt.Errorf("commit knowledge retry transaction: %w", err)
+	}
+	document.Status = DocumentPending
+	document.ErrorCode = ""
+	document.ErrorMessage = ""
+	document.ProcessedAt = nil
 	return document, nil
 }
 
@@ -332,12 +410,45 @@ func documentColumns() []string {
 	return []string{"id", "document_no", "product_id", "doc_type", "version", "object_key", "source_hash", "file_name", "content_type", "file_size_bytes", "status", "created_by_user_id", "created_at", "updated_at"}
 }
 
+func documentOpsColumns() []string {
+	return []string{"id", "document_no", "product_id", "doc_type", "version", "object_key", "source_hash", "file_name", "content_type", "file_size_bytes", "embedding_model", "status", "chunk_count", "is_current_ready", "ready_at", "error_code", "error_message", "created_by_user_id", "created_at", "processed_at", "updated_at"}
+}
+
 func chunkColumns() []string {
 	return []string{"id", "document_id", "product_id", "doc_type", "version", "chunk_index", "section", "source_page", "content", "content_hash", "vector_ref", "status"}
 }
 
 func queryCurrentReadyDocuments(docTypeCount int) string {
 	return `SELECT id, document_no, product_id, doc_type, version, object_key, source_hash, file_name, content_type, file_size_bytes, status, created_by_user_id, created_at, updated_at FROM knowledge_documents WHERE product_id = ? AND doc_type IN (` + placeholders(docTypeCount) + `) AND status = 'READY' AND is_current_ready = 1 ORDER BY doc_type ASC, version DESC`
+}
+
+func queryListDocuments(filter DocumentListFilter) string {
+	clauses := []string{"1 = 1"}
+	if filter.ProductID != 0 {
+		clauses = append(clauses, "product_id = ?")
+	}
+	if filter.DocType != "" {
+		clauses = append(clauses, "doc_type = ?")
+	}
+	if filter.Status != "" {
+		clauses = append(clauses, "status = ?")
+	}
+	return `SELECT id, document_no, product_id, doc_type, version, object_key, source_hash, file_name, content_type, file_size_bytes, embedding_model, status, chunk_count, is_current_ready, ready_at, error_code, error_message, created_by_user_id, created_at, processed_at, updated_at FROM knowledge_documents WHERE ` + strings.Join(clauses, " AND ") + ` ORDER BY updated_at DESC, id DESC LIMIT ?`
+}
+
+func listDocumentArgs(filter DocumentListFilter) []any {
+	args := make([]any, 0, 4)
+	if filter.ProductID != 0 {
+		args = append(args, filter.ProductID)
+	}
+	if filter.DocType != "" {
+		args = append(args, filter.DocType)
+	}
+	if filter.Status != "" {
+		args = append(args, filter.Status)
+	}
+	args = append(args, int(normalizeDocumentListFilter(filter).PageSize))
+	return args
 }
 
 func queryKnowledgeSnippetsByChunkIDs(chunkCount int) string {
@@ -373,6 +484,36 @@ func scanChunk(row scanner) (Chunk, error) {
 		chunk.VectorRef = vectorRef.String
 	}
 	return chunk, nil
+}
+
+func scanOpsDocument(row scanner) (Document, error) {
+	var document Document
+	var embeddingModel, errorCode, errorMessage sql.NullString
+	var readyAt, processedAt sql.NullTime
+	if err := row.Scan(
+		&document.ID, &document.DocumentNo, &document.ProductID, &document.DocType, &document.Version,
+		&document.ObjectKey, &document.SourceHash, &document.FileName, &document.ContentType, &document.FileSizeBytes,
+		&embeddingModel, &document.Status, &document.ChunkCount, &document.IsCurrentReady, &readyAt, &errorCode, &errorMessage,
+		&document.CreatedByUserID, &document.CreatedAt, &processedAt, &document.UpdatedAt,
+	); err != nil {
+		return Document{}, err
+	}
+	if embeddingModel.Valid {
+		document.EmbeddingModel = embeddingModel.String
+	}
+	if readyAt.Valid {
+		document.ReadyAt = &readyAt.Time
+	}
+	if errorCode.Valid {
+		document.ErrorCode = errorCode.String
+	}
+	if errorMessage.Valid {
+		document.ErrorMessage = errorMessage.String
+	}
+	if processedAt.Valid {
+		document.ProcessedAt = &processedAt.Time
+	}
+	return document, nil
 }
 
 func scanKnowledgeSnippet(row scanner) (KnowledgeSnippet, error) {

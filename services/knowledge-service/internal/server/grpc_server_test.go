@@ -65,6 +65,37 @@ func TestGRPCServerSearchProductKnowledgeReturnsSnippets(t *testing.T) {
 	}
 }
 
+func TestGRPCServerListDocumentsReturnsOperationalFields(t *testing.T) {
+	ops := &fakeKnowledgeOps{listResult: knowledge.DocumentListResult{Documents: []knowledge.Document{{
+		DocumentNo: "doc_failed", ProductID: 1001, DocType: knowledge.DocFAQ, Version: 2,
+		Status: knowledge.DocumentFailed, FileName: "faq.md", ErrorCode: "EMBEDDING_FAILED",
+	}}}}
+	server := NewGRPCServerWithOps(&fakeUploader{}, &fakeKnowledgeSearcher{}, ops, testAuthManager(t), time.Second)
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", testBearer(t, 7)))
+
+	out, err := server.ListDocuments(ctx, &knowledgepb.ListDocumentsRequest{ProductId: 1001, DocType: "FAQ", Status: "FAILED", PageSize: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.GetDocuments()) != 1 || out.GetDocuments()[0].GetErrorCode() != "EMBEDDING_FAILED" || ops.listFilter.Status != knowledge.DocumentFailed {
+		t.Fatalf("out=%#v filter=%#v", out, ops.listFilter)
+	}
+}
+
+func TestGRPCServerRetryDocumentReturnsPendingDocument(t *testing.T) {
+	ops := &fakeKnowledgeOps{retryResult: knowledge.Document{DocumentNo: "doc_failed", ProductID: 1001, DocType: knowledge.DocFAQ, Version: 2, Status: knowledge.DocumentPending}}
+	server := NewGRPCServerWithOps(&fakeUploader{}, &fakeKnowledgeSearcher{}, ops, testAuthManager(t), time.Second)
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", testBearer(t, 7)))
+
+	out, err := server.RetryDocument(ctx, &knowledgepb.RetryDocumentRequest{DocumentNo: "doc_failed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.GetDocument().GetStatus() != "PENDING" || ops.retryDocumentNo != "doc_failed" {
+		t.Fatalf("out=%#v retry=%s", out, ops.retryDocumentNo)
+	}
+}
+
 type fakeUploader struct {
 	input knowledge.UploadInput
 	err   error
@@ -90,6 +121,40 @@ func (f *fakeKnowledgeSearcher) SearchProductKnowledge(_ context.Context, input 
 		return knowledge.SearchKnowledgeResult{}, f.err
 	}
 	return f.result, nil
+}
+
+type fakeKnowledgeOps struct {
+	listFilter      knowledge.DocumentListFilter
+	listResult      knowledge.DocumentListResult
+	detailDocument  string
+	detailResult    knowledge.DocumentDetail
+	retryDocumentNo string
+	retryResult     knowledge.Document
+	err             error
+}
+
+func (f *fakeKnowledgeOps) ListDocuments(_ context.Context, filter knowledge.DocumentListFilter) (knowledge.DocumentListResult, error) {
+	f.listFilter = filter
+	if f.err != nil {
+		return knowledge.DocumentListResult{}, f.err
+	}
+	return f.listResult, nil
+}
+
+func (f *fakeKnowledgeOps) GetDocumentDetail(_ context.Context, documentNo string) (knowledge.DocumentDetail, error) {
+	f.detailDocument = documentNo
+	if f.err != nil {
+		return knowledge.DocumentDetail{}, f.err
+	}
+	return f.detailResult, nil
+}
+
+func (f *fakeKnowledgeOps) RetryDocument(_ context.Context, documentNo string) (knowledge.Document, error) {
+	f.retryDocumentNo = documentNo
+	if f.err != nil {
+		return knowledge.Document{}, f.err
+	}
+	return f.retryResult, nil
 }
 
 func testAuthManager(t *testing.T) *platformauth.Manager {

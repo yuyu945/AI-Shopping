@@ -25,6 +25,12 @@ type Service struct {
 	config  Config
 }
 
+type documentOpsStore interface {
+	ListDocuments(context.Context, DocumentListFilter) (DocumentListResult, error)
+	GetDocumentDetail(context.Context, string) (DocumentDetail, error)
+	RetryFailedDocument(context.Context, string, OutboxEvent) (Document, error)
+}
+
 func NewService(store Store, storage ObjectStorage, ids IDGenerator, now func() time.Time, config Config) *Service {
 	if now == nil {
 		now = time.Now
@@ -81,6 +87,83 @@ func (s *Service) UploadDocument(ctx context.Context, input UploadInput) (Docume
 	return cloneDocument(document), nil
 }
 
+func (s *Service) ListDocuments(ctx context.Context, filter DocumentListFilter) (DocumentListResult, error) {
+	if s == nil {
+		return DocumentListResult{}, apperror.New(apperror.Internal, "knowledge document service is unavailable")
+	}
+	store, ok := s.store.(documentOpsStore)
+	if !ok {
+		return DocumentListResult{}, apperror.New(apperror.Internal, "knowledge document service is unavailable")
+	}
+	filter = normalizeDocumentListFilter(filter)
+	if filter.DocType != "" && !validDocType(filter.DocType) {
+		return DocumentListResult{}, apperror.New(apperror.InvalidArgument, "doc_type is invalid")
+	}
+	if filter.Status != "" && !validDocumentStatus(filter.Status) {
+		return DocumentListResult{}, apperror.New(apperror.InvalidArgument, "document status is invalid")
+	}
+	result, err := store.ListDocuments(ctx, filter)
+	if err != nil {
+		return DocumentListResult{}, apperror.Wrap(apperror.Internal, "document list could not be loaded", err)
+	}
+	return result, nil
+}
+
+func (s *Service) GetDocumentDetail(ctx context.Context, documentNo string) (DocumentDetail, error) {
+	if s == nil {
+		return DocumentDetail{}, apperror.New(apperror.Internal, "knowledge document service is unavailable")
+	}
+	store, ok := s.store.(documentOpsStore)
+	if !ok {
+		return DocumentDetail{}, apperror.New(apperror.Internal, "knowledge document service is unavailable")
+	}
+	documentNo = strings.TrimSpace(documentNo)
+	if documentNo == "" {
+		return DocumentDetail{}, apperror.New(apperror.InvalidArgument, "document_no is required")
+	}
+	detail, err := store.GetDocumentDetail(ctx, documentNo)
+	if errors.Is(err, ErrDocumentNotFound) {
+		return DocumentDetail{}, apperror.New(apperror.NotFound, "document not found")
+	}
+	if err != nil {
+		return DocumentDetail{}, apperror.Wrap(apperror.Internal, "document detail could not be loaded", err)
+	}
+	return detail, nil
+}
+
+func (s *Service) RetryDocument(ctx context.Context, documentNo string) (Document, error) {
+	if s == nil || s.ids == nil {
+		return Document{}, apperror.New(apperror.Internal, "knowledge retry service is unavailable")
+	}
+	store, ok := s.store.(documentOpsStore)
+	if !ok {
+		return Document{}, apperror.New(apperror.Internal, "knowledge retry service is unavailable")
+	}
+	detail, err := s.GetDocumentDetail(ctx, documentNo)
+	if err != nil {
+		return Document{}, err
+	}
+	if detail.Document.Status != DocumentFailed {
+		return Document{}, apperror.New(apperror.InvalidArgument, "only failed documents can be retried")
+	}
+	eventID := strings.TrimSpace(s.ids.New())
+	if eventID == "" {
+		return Document{}, apperror.New(apperror.Internal, "knowledge retry service is unavailable")
+	}
+	event, err := newIngestEvent(eventID, detail.Document.DocumentNo, commandFromDocument(detail.Document))
+	if err != nil {
+		return Document{}, err
+	}
+	document, err := store.RetryFailedDocument(ctx, detail.Document.DocumentNo, event)
+	if errors.Is(err, ErrDocumentRetryNotAllowed) {
+		return Document{}, apperror.New(apperror.InvalidArgument, "only failed documents can be retried")
+	}
+	if err != nil {
+		return Document{}, apperror.Wrap(apperror.Internal, "document retry could not be saved", err)
+	}
+	return document, nil
+}
+
 func normalizeUpload(input UploadInput, maxBytes uint64) (UploadInput, error) {
 	input.FileName = sanitizeFileName(input.FileName)
 	input.ContentType = strings.TrimSpace(input.ContentType)
@@ -106,6 +189,23 @@ func validDocType(value DocType) bool {
 	default:
 		return false
 	}
+}
+
+func validDocumentStatus(value DocumentStatus) bool {
+	switch value {
+	case DocumentPending, DocumentProcessing, DocumentReady, DocumentFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeDocumentListFilter(filter DocumentListFilter) DocumentListFilter {
+	if filter.PageSize == 0 || filter.PageSize > 100 {
+		filter.PageSize = 50
+	}
+	filter.PageToken = strings.TrimSpace(filter.PageToken)
+	return filter
 }
 
 func sanitizeFileName(value string) string {
@@ -146,6 +246,14 @@ func newIngestEvent(eventID, documentNo string, command NewDocumentCommand) (Out
 		EventID: eventID, AggregateType: "KNOWLEDGE_DOCUMENT", AggregateID: documentNo,
 		EventType: documentIngestTopic, Topic: documentIngestTopic, EventKey: documentNo, Payload: payload,
 	}, nil
+}
+
+func commandFromDocument(document Document) NewDocumentCommand {
+	return NewDocumentCommand{
+		DocumentNo: document.DocumentNo, ProductID: document.ProductID, DocType: document.DocType, Version: document.Version,
+		ObjectKey: document.ObjectKey, SourceHash: document.SourceHash, FileName: document.FileName, ContentType: document.ContentType,
+		FileSizeBytes: document.FileSizeBytes, CreatedByUserID: document.CreatedByUserID, CreatedAt: document.CreatedAt,
+	}
 }
 
 func dependencyError(ctx context.Context, message string, err error) error {

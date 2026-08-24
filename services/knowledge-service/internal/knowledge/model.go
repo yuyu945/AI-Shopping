@@ -13,6 +13,7 @@ const documentIngestConsumerGroup = "knowledge-document-ingest-v1"
 const chunkEmbedConsumerGroup = "knowledge-chunk-embed-v1"
 
 var ErrDocumentNotFound = errors.New("document not found")
+var ErrDocumentRetryNotAllowed = errors.New("document retry is only allowed for failed documents")
 
 type DocType string
 
@@ -51,9 +52,16 @@ type Document struct {
 	FileName        string
 	ContentType     string
 	FileSizeBytes   uint64
+	EmbeddingModel  string
 	Status          DocumentStatus
+	ChunkCount      uint32
+	IsCurrentReady  bool
+	ReadyAt         *time.Time
+	ErrorCode       string
+	ErrorMessage    string
 	CreatedByUserID uint64
 	CreatedAt       time.Time
+	ProcessedAt     *time.Time
 	UpdatedAt       time.Time
 }
 
@@ -197,6 +205,24 @@ type SearchKnowledgeInput struct {
 type SearchKnowledgeResult struct {
 	Snippets       []KnowledgeSnippet
 	FallbackReason string
+}
+
+type DocumentListFilter struct {
+	ProductID uint64
+	DocType   DocType
+	Status    DocumentStatus
+	PageSize  uint32
+	PageToken string
+}
+
+type DocumentListResult struct {
+	Documents     []Document
+	NextPageToken string
+}
+
+type DocumentDetail struct {
+	Document Document
+	Chunks   []Chunk
 }
 
 type KnowledgeSnippet struct {

@@ -7,6 +7,9 @@ option go_package = "github.com/yuyu945/AI-Shopping/services/knowledge-service/g
 // KnowledgeService owns product document metadata and asynchronous ingest events.
 service KnowledgeService {
   rpc UploadDocument(UploadDocumentRequest) returns (UploadDocumentResponse);
+  rpc ListDocuments(ListDocumentsRequest) returns (ListDocumentsResponse);
+  rpc GetDocument(GetDocumentRequest) returns (GetDocumentResponse);
+  rpc RetryDocument(RetryDocumentRequest) returns (RetryDocumentResponse);
   rpc SearchProductKnowledge(SearchProductKnowledgeRequest) returns (SearchProductKnowledgeResponse);
 }
 
@@ -28,6 +31,58 @@ message Document {
   string doc_type = 3;
   uint32 version = 4;
   string status = 5;
+  string file_name = 6;
+  string content_type = 7;
+  uint64 file_size_bytes = 8;
+  uint32 chunk_count = 9;
+  string embedding_model = 10;
+  bool is_current_ready = 11;
+  string error_code = 12;
+  string error_message = 13;
+  string created_at = 14;
+  string updated_at = 15;
+  string processed_at = 16;
+  string ready_at = 17;
+}
+
+message ListDocumentsRequest {
+  uint64 product_id = 1;
+  string doc_type = 2;
+  string status = 3;
+  uint32 page_size = 4;
+  string page_token = 5;
+}
+
+message ListDocumentsResponse {
+  repeated Document documents = 1;
+  string next_page_token = 2;
+}
+
+message GetDocumentRequest {
+  string document_no = 1;
+}
+
+message GetDocumentResponse {
+  Document document = 1;
+  repeated DocumentChunk chunks = 2;
+}
+
+message RetryDocumentRequest {
+  string document_no = 1;
+}
+
+message RetryDocumentResponse {
+  Document document = 1;
+}
+
+message DocumentChunk {
+  uint64 chunk_id = 1;
+  uint32 chunk_index = 2;
+  string section = 3;
+  uint32 source_page = 4;
+  string content_hash = 5;
+  string status = 6;
+  string vector_ref = 7;
 }
 
 message SearchProductKnowledgeRequest {

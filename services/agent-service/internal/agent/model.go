@@ -153,3 +153,15 @@ type RunTimeline struct {
 	Run   Run
 	Steps []Step
 }
+
+// FinalRecommendationOutput is the only accepted model final recommendation shape.
+type FinalRecommendationOutput struct {
+	Recommendations []ModelRecommendation `json:"recommendations"`
+}
+
+// ModelRecommendation is the model-proposed SKU ranking before backend verification.
+type ModelRecommendation struct {
+	SKUID  uint64 `json:"sku_id"`
+	RankNo uint32 `json:"rank_no"`
+	Reason string `json:"reason"`
+}
